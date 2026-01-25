@@ -79,42 +79,11 @@ static void cmd_connect(const char *args)
     uint8_t result;
     uint8_t use_ssl = 0;
     
-    // Flag para evitar la "Doble Desconexión" (ahorra 2.5s y protege la pila)
     uint8_t already_disconnected = 0; 
     
-    // 0. FASE 4: VALIDACIÓN PREVIA (FAIL-FAST)
     if (connection_state < STATE_WIFI_OK) {
         ui_err("Error: No WiFi connection. Use /init first.");
         return;
-    }
-
-    // 1. GESTIÓN DE DESCONEXIÓN INTERACTIVA
-    if (connection_state >= STATE_TCP_CONNECTED) {
-        ui_err("Already connected.");
-        current_attr = ATTR_MSG_SYS;
-        main_print("Disconnect? (y/n)");
-        
-        while (1) {
-            uint8_t k = in_inkey();
-            HALT();
-            uart_drain_to_buffer();
-            if (k == 'n' || k == 'N') { main_print("Cancelled."); return; }
-            if (k == 'y' || k == 'Y') {
-                main_print("Disconnecting...");
-                
-                force_disconnect(); // Primera limpieza (Lenta, 2.5s)
-                
-                irc_server[0] = 0;
-                network_name[0] = 0;
-                
-                // Forzar repintado inmediato de la barra de estado
-                force_status_redraw = 1;
-                draw_status_bar_real();
-                
-                already_disconnected = 1; // ¡Marcamos que ya hemos limpiado!
-                break; 
-            }
-        }
     }
 
     if (!args || !*args) {
@@ -122,7 +91,7 @@ static void cmd_connect(const char *args)
         return;
     }
     
-    // 2. PARSEO DE ARGUMENTOS
+    // Parsear argumentos PRIMERO para poder comparar
     strncpy(tx_buffer, args, TX_BUFFER_SIZE - 1);
     tx_buffer[TX_BUFFER_SIZE - 1] = 0;
     server = tx_buffer;
@@ -138,6 +107,38 @@ static void cmd_connect(const char *args)
     }
     while (*port == ' ') port++; 
 
+    // Verificar si ya está conectado al MISMO servidor
+    if (connection_state >= STATE_TCP_CONNECTED) {
+        if (st_stricmp(server, irc_server) == 0 && strcmp(port, irc_port) == 0) {
+            current_attr = ATTR_MSG_SYS;
+            main_puts("Already connected to ");
+            main_print(irc_server);
+            return;
+        }
+        
+        // Otro servidor - preguntar si desconectar
+        ui_err("Already connected.");
+        current_attr = ATTR_MSG_SYS;
+        main_print("Disconnect? (y/n)");
+        
+        while (1) {
+            uint8_t k = in_inkey();
+            HALT();
+            uart_drain_to_buffer();
+            if (k == 'n' || k == 'N') { main_print("Cancelled."); return; }
+            if (k == 'y' || k == 'Y') {
+                main_print("Disconnecting...");
+                force_disconnect();
+                irc_server[0] = 0;
+                network_name[0] = 0;
+                force_status_redraw = 1;
+                draw_status_bar_real();
+                already_disconnected = 1;
+                break; 
+            }
+        }
+    }
+
     if (strcmp(port, "6697") == 0) use_ssl = 1;
 
     strncpy(irc_server, server, sizeof(irc_server) - 1);
@@ -145,9 +146,7 @@ static void cmd_connect(const char *args)
     strncpy(irc_port, port, sizeof(irc_port) - 1);
     irc_port[sizeof(irc_port) - 1] = 0;
     
-    // --- CAMBIO CLAVE: FEEDBACK VISUAL INMEDIATO ---
-    // Pintamos el mensaje AHORA, antes de cualquier tarea lenta
-    current_attr = ATTR_MSG_PRIV;
+    current_attr = ATTR_MSG_SYS;
     main_puts("Connecting to "); main_puts(irc_server); main_putc(':'); main_puts(irc_port); main_puts("... ");
     
     // 3. LIMPIEZA DE ESTADO INTELIGENTE

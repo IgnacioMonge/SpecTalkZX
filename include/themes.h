@@ -101,24 +101,24 @@ static const Theme themes[] = {
     {
         "The Commander",
         (PAPER_RED   | INK_WHITE | BRIGHT),    // banner
-        (PAPER_CYAN  | INK_BLACK | BRIGHT),    // status
-        (PAPER_BLUE  | INK_CYAN | BRIGHT),     // msg_chan
-        (PAPER_BLUE  | INK_YELLOW | BRIGHT),   // msg_self
-        (PAPER_BLUE  | INK_GREEN | BRIGHT),    // msg_priv
-        (PAPER_GREEN | INK_BLUE | BRIGHT),     // msg_priv_inv
+        (PAPER_CYAN  | INK_BLACK),             // status
+        (PAPER_BLUE  | INK_CYAN),              // msg_chan
+        (PAPER_BLUE  | INK_YELLOW),            // msg_self
+        (PAPER_BLUE  | INK_GREEN),             // msg_priv
+        (PAPER_GREEN | INK_BLUE),              // msg_priv_inv
         (PAPER_BLUE  | INK_WHITE),             // main_bg
         (PAPER_WHITE | INK_BLUE),              // input
         (PAPER_WHITE | INK_BLUE),              // input_bg
         (PAPER_WHITE | INK_BLUE),              // prompt
         (PAPER_BLUE  | INK_WHITE),             // msg_server
         (PAPER_BLUE  | INK_MAGENTA),           // msg_join
-        (PAPER_BLUE  | INK_MAGENTA | BRIGHT),  // msg_nick
-        (PAPER_BLUE  | INK_WHITE | BRIGHT),    // msg_time
-        (PAPER_BLUE  | INK_YELLOW | BRIGHT),   // msg_topic
-        (PAPER_BLUE  | INK_RED | BRIGHT),      // error
-        (PAPER_CYAN  | INK_RED | BRIGHT),      // ind_red
-        (PAPER_CYAN  | INK_YELLOW | BRIGHT),   // ind_yellow
-        (PAPER_CYAN  | INK_GREEN | BRIGHT),    // ind_green
+        (PAPER_BLUE  | INK_YELLOW),            // msg_nick
+        (PAPER_BLUE  | INK_WHITE),             // msg_time
+        (PAPER_BLUE  | INK_YELLOW),            // msg_topic
+        (PAPER_BLUE  | INK_RED),               // error
+        (PAPER_CYAN  | INK_RED),               // ind_red
+        (PAPER_CYAN  | INK_YELLOW),            // ind_yellow
+        (PAPER_CYAN  | INK_GREEN),             // ind_green
         INK_BLUE                               // border
     }
 };
