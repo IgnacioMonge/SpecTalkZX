@@ -71,108 +71,72 @@ static uint8_t wait_for_connection_result(uint16_t max_frames)
     return 0;
 }
 
-static void cmd_connect(const char *args)
-{
+extern char ay_uart_read(void);
+extern uint8_t ay_uart_ready(void);
+
+
+static void cmd_connect(const char *args) __z88dk_fastcall
+{ 
     char *server;
     const char *port;
     char *separator;
     uint8_t result;
     uint8_t use_ssl = 0;
-    
     uint8_t already_disconnected = 0; 
-    
+
     if (connection_state < STATE_WIFI_OK) {
         ui_err("Error: No WiFi connection. Use /init first.");
         return;
     }
 
-    if (!args || !*args) {
-        ui_usage("server host [port]");
-        return;
-    }
-    
-    // Parsear argumentos PRIMERO para poder comparar
-    strncpy(tx_buffer, args, TX_BUFFER_SIZE - 1);
-    tx_buffer[TX_BUFFER_SIZE - 1] = 0;
-    server = tx_buffer;
-    
-    separator = strchr(server, ' ');
-    if (!separator) separator = strchr(server, ':'); 
-    
-    if (separator) {
-        *separator = '\0';
-        port = separator + 1;
-    } else {
-        port = "6667";
-    }
-    while (*port == ' ') port++; 
-
-    // Verificar si ya está conectado al MISMO servidor
     if (connection_state >= STATE_TCP_CONNECTED) {
-        if (st_stricmp(server, irc_server) == 0 && strcmp(port, irc_port) == 0) {
-            current_attr = ATTR_MSG_SYS;
-            main_puts("Already connected to ");
-            main_print(irc_server);
-            return;
-        }
-        
-        // Otro servidor - preguntar si desconectar
         ui_err("Already connected.");
         current_attr = ATTR_MSG_SYS;
         main_print("Disconnect? (y/n)");
-        
         while (1) {
             uint8_t k = in_inkey();
-            HALT();
-            uart_drain_to_buffer();
+            HALT(); uart_drain_to_buffer();
             if (k == 'n' || k == 'N') { main_print("Cancelled."); return; }
             if (k == 'y' || k == 'Y') {
                 main_print("Disconnecting...");
                 force_disconnect();
-                irc_server[0] = 0;
-                network_name[0] = 0;
-                force_status_redraw = 1;
-                draw_status_bar_real();
+                irc_server[0] = 0; network_name[0] = 0;
+                draw_status_bar(); draw_status_bar_real();
                 already_disconnected = 1;
                 break; 
             }
         }
     }
 
+    if (!args || !*args) { ui_usage("server host [port]"); return; }
+    
+    // Parseo de argumentos con buffer local
+    char server_tmp[64];
+    strncpy(server_tmp, args, sizeof(server_tmp) - 1);
+    server_tmp[sizeof(server_tmp) - 1] = 0;
+    server = server_tmp;
+    separator = strchr(server, ' ');
+    if (!separator) separator = strchr(server, ':'); 
+    if (separator) { *separator = '\0'; port = separator + 1; } else { port = "6667"; }
+    while (*port == ' ') port++; 
     if (strcmp(port, "6697") == 0) use_ssl = 1;
 
-    strncpy(irc_server, server, sizeof(irc_server) - 1);
-    irc_server[sizeof(irc_server) - 1] = 0;
-    strncpy(irc_port, port, sizeof(irc_port) - 1);
-    irc_port[sizeof(irc_port) - 1] = 0;
+    strncpy(irc_server, server, sizeof(irc_server) - 1); irc_server[sizeof(irc_server) - 1] = 0;
+    strncpy(irc_port, port, sizeof(irc_port) - 1); irc_port[sizeof(irc_port) - 1] = 0;
     
-    current_attr = ATTR_MSG_SYS;
+    current_attr = ATTR_MSG_PRIV;
     main_puts("Connecting to "); main_puts(irc_server); main_putc(':'); main_puts(irc_port); main_puts("... ");
     
-    // 3. LIMPIEZA DE ESTADO INTELIGENTE
-    // Si ya desconectamos arriba, NO volvemos a llamar a force_disconnect().
-    // Esto evita el reinicio por desbordamiento de pila y el retraso doble.
-    if (!already_disconnected) {
-        force_disconnect();
-    } else {
-        // Solo reseteamos memoria lógica, sin tocar el hardware (que ya está limpio)
-        reset_all_channels(); 
-        rb_head = 0; rb_tail = 0; rx_pos = 0; rx_line[0] = '\0';
-        user_mode[0] = '\0';
-    }
+    if (!already_disconnected) { force_disconnect(); } 
+    else { reset_all_channels(); rb_head = 0; rb_tail = 0; rx_pos = 0; rx_line[0] = '\0'; user_mode[0] = '\0'; }
     
-    draw_status_bar(); 
-    cursor_visible = 0; 
-    redraw_input_full(); 
+    draw_status_bar(); cursor_visible = 0; redraw_input_full(); 
     
-    // 4. INICIO DE CONEXIÓN
+    // Conexión ESP
     uart_send_line("AT+CIPMUX=0"); wait_for_response(S_OK, 30);
     uart_send_line("AT+CIPSERVER=0"); wait_for_response(S_OK, 30);
     uart_send_line("AT+CIPDINFO=0"); wait_for_response(S_OK, 30);
-    
-    if (use_ssl) {
-        uart_send_line("AT+CIPSSLSIZE=4096"); wait_for_response(S_OK, 30);
-    }
+    if (use_ssl) { uart_send_line("AT+CIPSSLSIZE=4096"); wait_for_response(S_OK, 30); }
 
     uart_send_string("AT+CIPSTART=\"");
     if (use_ssl) uart_send_string("SSL"); else uart_send_string("TCP");
@@ -180,138 +144,144 @@ static void cmd_connect(const char *args)
     
     uart_allow_cancel = 0; ui_freeze_status = 1; rx_pos = 0; rb_head = rb_tail = 0; result = 0;
     
-    // FASE 1: Diagnóstico
-    {
-        uint16_t frames_limit = use_ssl ? TIMEOUT_SSL : TIMEOUT_DNS;
-        result = wait_for_connection_result(frames_limit);
-    }
+    { uint16_t fl = use_ssl ? TIMEOUT_SSL : TIMEOUT_DNS; result = wait_for_connection_result(fl); }
     uart_allow_cancel = 1; ui_freeze_status = 0;
     
     if (result == 0) {
-        main_newline(); // Separar del mensaje "Connecting..."
-        force_disconnect(); 
-        connection_state = STATE_WIFI_OK; 
-        cursor_visible = 1; 
-        draw_status_bar(); 
-        redraw_input_full(); 
-        return;
+        main_newline(); force_disconnect(); connection_state = STATE_WIFI_OK; 
+        cursor_visible = 1; draw_status_bar(); redraw_input_full(); return;
     }
     
-    // 3. MODO TRANSPARENTE
     current_attr = ATTR_MSG_PRIV; main_print("TCP OK"); 
     
     { uint8_t i; for (i = 0; i < 20; i++) { HALT(); uart_drain_and_drop_all(); } }
     rb_head = rb_tail = 0; rx_pos = 0;
     uart_send_line("AT+CIPMODE=1");
-    
-    { result = wait_for_response(S_OK, 100); }
-
-    if (result == 0) {
-        ui_err("CIPMODE FAIL"); 
-        force_disconnect(); 
-        connection_state = STATE_WIFI_OK; 
-        cursor_visible = 1; 
-        draw_status_bar(); 
-        redraw_input_full(); 
-        return;
+    if (!wait_for_response(S_OK, 100)) {
+        ui_err("CIPMODE FAIL"); force_disconnect(); connection_state = STATE_WIFI_OK; 
+        cursor_visible = 1; draw_status_bar(); redraw_input_full(); return;
     }
     
     { uint8_t i; for (i = 0; i < 20; i++) { HALT(); uart_drain_to_buffer(); } }
     uart_send_string("AT+CIPSEND\r\n");
     
-    // FASE 2: Protección Zombie State
     if (!wait_for_prompt_char('>', TIMEOUT_PROMPT)) {
-        ui_err("Error: No '>' prompt (Zombie state)"); 
-        force_disconnect(); 
-        connection_state = STATE_WIFI_OK; 
-        cursor_visible = 1; 
-        draw_status_bar(); 
-        redraw_input_full(); 
-        return;
+        ui_err("Error: No '>' prompt"); force_disconnect(); connection_state = STATE_WIFI_OK; 
+        cursor_visible = 1; draw_status_bar(); redraw_input_full(); return;
     }
     
     connection_state = STATE_TCP_CONNECTED; closed_reported = 0;
-    
-    // Pequeña pausa para estabilización, pero SIN descartar datos
-    // El servidor puede enviar datos inmediatamente
-    { uint8_t i; for (i = 0; i < 5; i++) { HALT(); uart_drain_to_buffer(); } }
     rx_pos = 0; rx_overflow = 0;
     
-    // 4. FASE DE REGISTRO IRC
+    // =========================================================================
+    // FASE DE REGISTRO IRC (con soporte IRCv3 CAP) - Optimizado
+    // =========================================================================
     if (irc_nick[0]) {
-        current_attr = ATTR_MSG_PRIV; main_puts("Registering... ");
+        char *line;
+        uint8_t loop_done = 0;
+        uint16_t silence_frames = 0;
+        const uint16_t MAX_SILENCE = 4500;
         
-        char *p = tx_buffer; p = str_append(p, "NICK "); p = str_append(p, irc_nick); esp_send_line_crlf_nowait(tx_buffer);
-        wait_drain(5);
-        p = tx_buffer; p = str_append(p, "USER "); p = str_append(p, irc_nick); p = str_append(p, " 0 * :"); p = str_append(p, irc_nick); esp_send_line_crlf_nowait(tx_buffer);
-        main_newline();
+        current_attr = ATTR_MSG_PRIV; main_print("Registering...");
         
-        current_attr = ATTR_MSG_PRIV; main_print("Waiting for server (SPACE to cancel)...");
+        // Enviar PASS/NICK/USER directamente (optimización: sin tx_buffer)
+        if (irc_pass[0]) {
+            uart_send_string("PASS "); uart_send_string(irc_pass); uart_send_string("\r\n");
+        }
+        uart_send_string("NICK "); uart_send_string(irc_nick); uart_send_string("\r\n");
+        uart_send_string("USER "); uart_send_string(irc_nick); 
+        uart_send_string(" 0 * :"); uart_send_string(irc_nick); uart_send_string("\r\n");
         
-        uint8_t loop_done = 0; uint16_t silence_frames = 0; const uint16_t MAX_SILENCE = 4500; rx_pos = 0;
+        rx_pos = 0;
         
+        // Bucle de registro
         while (!loop_done) {
             HALT(); uart_drain_to_buffer();
             uint8_t k = in_inkey();
             
-            // FASE 3: Botón de Abortar
             if (k == 'q' || k == 'Q' || k == 32 || k == 7) { 
-                ui_err("Aborted by user."); 
-                force_disconnect(); 
-                connection_state = STATE_WIFI_OK; 
-                loop_done = 1; 
-                break; 
+                ui_err("Aborted."); force_disconnect(); connection_state = STATE_WIFI_OK; loop_done = 1; break; 
             }
             
             if (try_read_line_nodrain()) {
                 silence_frames = 0;
+                line = rx_line;
                 
-                if (strstr(rx_line, " 001 ") || strncmp(rx_line, ":server 001", 11) == 0) {
-                    connection_state = STATE_IRC_READY; 
-                    loop_done = 1; 
-                    rx_pos = 0; 
-                    continue; 
+                // IRCv3: Saltar message tags (@time=...; @batch=...; etc)
+                if (line[0] == '@') {
+                    line = strchr(line, ' ');
+                    if (line) { line++; } else { rx_pos = 0; continue; }
                 }
                 
-                char *ping_ptr = NULL;
-                if (strncmp(rx_line, "PING", 4) == 0) ping_ptr = rx_line;
-                else ping_ptr = strstr(rx_line, " PING ");
-
-                if (ping_ptr) {
-                    char *params = ping_ptr;
-                    if (*params == ' ') params++;
-                    params += 4;
-                    while (*params == ' ') params++;
-                    
-                    char *resp = tx_buffer; resp[0] = 0;
-                    str_append(resp, "PONG ");
-                    str_append_n(resp, params, (uint8_t)(TX_BUFFER_SIZE - 10));
-                    esp_send_line_crlf_nowait(resp);
-                    
-                    current_attr = ATTR_MSG_SYS; main_print("[Ping replied]");
+                // 001 Welcome -> Registro completado
+                if (strstr(line, " 001 ")) {
+                    current_attr = ATTR_MSG_PRIV; main_print("Connected!");
+                    connection_state = STATE_IRC_READY; loop_done = 1; rx_pos = 0; continue; 
+                }
+                
+                // IRCv3 CAP negotiation: responder CAP END para saltar
+                if (strstr(line, "CAP") && strstr(line, "LS")) {
+                    uart_send_string("CAP END\r\n");
                     rx_pos = 0; continue;
                 }
+                
+                // PING -> PONG (optimizado: envío directo)
+                {
+                    char *ping_ptr = NULL;
+                    if (strncmp(line, "PING", 4) == 0) ping_ptr = line;
+                    else ping_ptr = strstr(line, " PING ");
 
-                if ((rx_line[0] == 'C' && strcmp(rx_line, S_CLOSED) == 0) || strstr(rx_line, "ERROR :Closing")) {
-                    ui_err("Connection closed by server."); force_disconnect(); connection_state = STATE_WIFI_OK; loop_done = 1; rx_pos = 0; continue;
+                    if (ping_ptr) {
+                        char *params = ping_ptr;
+                        if (*params == ' ') params++;
+                        params += 4; while (*params == ' ') params++;
+                        
+                        uart_send_string("PONG ");
+                        uart_send_string(params);
+                        uart_send_string("\r\n");
+                        
+                        rx_pos = 0; continue;
+                    }
+                }
+
+                // ERROR genérico del servidor IRC
+                if (strncmp(line, "ERROR :", 7) == 0 || strstr(line, " ERROR :")) {
+                    ui_err("Server error"); force_disconnect(); connection_state = STATE_WIFI_OK; loop_done = 1; rx_pos = 0; continue;
                 }
                 
-                // FASE 3: Errores Críticos
-                if (strstr(rx_line, " 433 ")) { ui_err("Nick in use"); connection_state = STATE_IRC_READY; loop_done = 1; rx_pos = 0; continue; }
-                if (strstr(rx_line, " 464 ")) { ui_err("Password Incorrect."); force_disconnect(); connection_state = STATE_WIFI_OK; loop_done = 1; rx_pos = 0; continue; }
-                if (strstr(rx_line, " 465 ")) { ui_err("BANNED from server."); force_disconnect(); connection_state = STATE_WIFI_OK; loop_done = 1; rx_pos = 0; continue; }
-                
-                if (strstr(rx_line, " 375 ") || strstr(rx_line, " 372 ") || strstr(rx_line, " 376 ") || strstr(rx_line, " 422 ")) {
-                    char *txt = strrchr(rx_line, ':'); if (txt) { txt++; current_attr = attr_with_ink(ATTR_MSG_SYS, INK_YELLOW); main_print(txt); }
+                // CLOSED (del ESP8266, no del servidor)
+                if (rx_line[0] == 'C' && strcmp(rx_line, S_CLOSED) == 0) {
+                    ui_err("Connection lost"); force_disconnect(); connection_state = STATE_WIFI_OK; loop_done = 1; rx_pos = 0; continue;
                 }
+                
+                // Errores de nick: 432 (erroneous), 433 (in use), 436 (collision), 437 (unavailable)
+                if (strstr(line, " 432 ") || strstr(line, " 436 ") || strstr(line, " 437 ")) { 
+                    ui_err("Invalid nickname"); connection_state = STATE_IRC_READY; loop_done = 1; rx_pos = 0; continue; 
+                }
+                if (strstr(line, " 433 ")) { 
+                    ui_err("Nick already in use"); connection_state = STATE_IRC_READY; loop_done = 1; rx_pos = 0; continue; 
+                }
+                
+                // Otros errores fatales
+                if (strstr(line, " 461 ")) { 
+                    ui_err("Bad parameters"); force_disconnect(); connection_state = STATE_WIFI_OK; loop_done = 1; rx_pos = 0; continue; 
+                }
+                if (strstr(line, " 464 ")) { 
+                    ui_err("Bad password"); force_disconnect(); connection_state = STATE_WIFI_OK; loop_done = 1; rx_pos = 0; continue; 
+                }
+                if (strstr(line, " 465 ") || strstr(line, " 466 ")) { 
+                    ui_err("Banned from server"); force_disconnect(); connection_state = STATE_WIFI_OK; loop_done = 1; rx_pos = 0; continue; 
+                }
+                
                 rx_pos = 0;
             } else {
                 silence_frames++;
-                if (silence_frames > MAX_SILENCE) { ui_err("Timeout waiting for MOTD."); force_disconnect(); connection_state = STATE_WIFI_OK; loop_done = 1; }
+                if (silence_frames > MAX_SILENCE) { 
+                    ui_err("Connection timeout"); force_disconnect(); connection_state = STATE_WIFI_OK; loop_done = 1; 
+                }
             }
         }
         
-        if (connection_state == STATE_IRC_READY) { current_attr = ATTR_MSG_PRIV; main_print("Ready!"); }
         rb_head = rb_tail = 0; rx_pos = 0; rx_overflow = 0;
     } else {
         ui_sys("Set /nick first");
@@ -319,7 +289,7 @@ static void cmd_connect(const char *args)
     cursor_visible = 1; draw_status_bar(); redraw_input_full();
 }
 
-static void cmd_nick(const char *args)
+static void cmd_nick(const char *args) __z88dk_fastcall
 {
     if (!args || !*args) {
         current_attr = ATTR_MSG_SYS;
@@ -337,153 +307,103 @@ static void cmd_nick(const char *args)
     main_print(irc_nick);
     
     if (connection_state >= STATE_TCP_CONNECTED) {
-        char *p = tx_buffer;
-        p = str_append(p, "NICK ");
-        p = str_append(p, irc_nick);
-        irc_send_raw(tx_buffer);
+        irc_send_cmd1("NICK", irc_nick);
     }
     
     // Actualizar ambas barras
     draw_status_bar();
 }
 
-static void cmd_join(const char *args)
+static void cmd_pass(const char *args) __z88dk_fastcall
 {
     if (!args || !*args) {
-        ui_usage("join #channel");  // <--- ¡AHORRO! 1 line en vez de 2
+        // Mostrar estado (sin revelar password)
+        current_attr = ATTR_MSG_SYS;
+        main_puts("Server password: ");
+        main_print(irc_pass[0] ? "(set)" : S_NOTSET);
         return;
     }
     
-    if (connection_state < STATE_TCP_CONNECTED) {
-        ERR_NOTCONN();
-        return;
-    }
-
-    // 1. COMPROBAR SI YA ESTAMOS EN ESE channel
-    int8_t idx = find_channel(args);
-    
-    if (idx >= 0) {
-        // El channel ya existe en nuestra lista
-        if ((uint8_t)idx == current_channel_idx) {
-            // Y encima ya estamos mirándolo
-            ui_sys("Already in ");
-            main_print(channels[idx].name);
-        } else {
-            // Existe pero estamos en otra ventana >> Cambiamos a ella
-            switch_to_channel((uint8_t)idx);
-            current_attr = ATTR_MSG_SYS;
-            main_puts(S_SWITCHTO); 
-            main_print(channels[idx].name);
-        }
-        // IMPORTANTE: Volvemos aquí para no enviar el command JOIN de nuevo
-        return;
-    }
-
-    // 2. SI NO ESTAMOS, COMPROBAR HUECO (Modo Pesimista)
-    if (find_empty_channel_slot() == -1) {
-        ui_err(S_MAXWIN);
-        main_print("Use /close or /part first.");
+    // "clear" o "none" para borrar
+    if (strcmp(args, "clear") == 0 || strcmp(args, "none") == 0) {
+        irc_pass[0] = '\0';
+        ui_sys("Password cleared");
         return;
     }
     
-    // 3. ENVIAR SOLICITUD AL SERVIDOR
-    char *p = tx_buffer;
-    p = str_append(p, "JOIN ");
-    p = str_append(p, args);
-    irc_send_raw(tx_buffer);
+    strncpy(irc_pass, args, sizeof(irc_pass) - 1);
+    irc_pass[sizeof(irc_pass) - 1] = '\0';
+    ui_sys("Password set");
 }
 
-static void cmd_part(const char *args)
+static void cmd_join(const char *args) __z88dk_fastcall
+{
+    if (!args || !*args) { ui_usage("join #channel"); return; }
+    if (connection_state < STATE_TCP_CONNECTED) { ERR_NOTCONN(); return; }
+
+    int8_t idx = find_channel(args);
+    if (idx >= 0) {
+        if ((uint8_t)idx == current_channel_idx) {
+            ui_sys("Already in "); main_print(channels[idx].name);
+        } else {
+            switch_to_channel((uint8_t)idx);
+            current_attr = ATTR_MSG_SYS; main_puts(S_SWITCHTO); main_print(channels[idx].name);
+        }
+        return;
+    }
+
+    if (find_empty_channel_slot() == -1) { ui_err(S_MAXWIN); main_print("Use /close or /part first."); return; }
+    
+    irc_send_cmd1("JOIN", args);
+}
+
+static void cmd_part(const char *args) __z88dk_fastcall
 {
     const char *chan = args && *args ? args : irc_channel;
+    if (!chan[0]) { ui_err("Not in a channel"); return; }
     
-    if (!chan[0]) {
-        ui_err("Not in a channel");
-        return;
-    }
+    irc_send_cmd1("PART", chan);
     
-    char *p = tx_buffer;
-    p = str_append(p, "PART ");
-    p = str_append(p, chan);
-    irc_send_raw(tx_buffer);
-    
-    // Remove channel from our list
     int8_t idx = find_channel(chan);
-    if (idx >= 0) {
-        remove_channel((uint8_t)idx);
-        draw_status_bar();
-    }
+    if (idx >= 0) { remove_channel((uint8_t)idx); draw_status_bar(); }
 }
 
-static void cmd_msg(const char *args)
+static void cmd_msg(const char *args) __z88dk_fastcall
 {
-    char *work_str = (char *)args; 
-    char *target;
-    char *space;
-    char *msg;
+    char *target = (char *)args;
+    if (!target || !*target) { ui_usage("msg nick message"); return; }
     
-    if (!work_str || !*work_str) {
-        ui_usage("msg nick message");
-        return;
-    }
+    char *space = strchr(target, ' ');
+    if (!space) { ui_usage("msg nick message"); return; }
     
-    target = work_str;
-    space = strchr(target, ' ');
-    
-    if (!space) {
-        ui_usage("msg nick message");
-        return;
-    }
-    
-    *space = '\0'; // Null-terminate target in-situ
-    msg = space + 1;
-    while (*msg == ' ') msg++; // Skip extra spaces
-    
-    if (!*msg) {
-        ui_err("Empty message");
-        return;
-    }
+    *space = '\0';
+    char *msg = space + 1;
+    while (*msg == ' ') msg++;
+    if (!*msg) { ui_err("Empty message"); return; }
     
     irc_send_privmsg(target, msg);
 }
 
-static void cmd_query(const char *args)
+static void cmd_query(const char *args) __z88dk_fastcall
 {
-    if (!args || !*args) {
-        ui_usage("query nick");
-        return;
-    }
+    if (!args || !*args) { ui_usage("query nick"); return; }
     
-    // 1. Buscar si la ventana ya existe
     int8_t idx = find_query(args);
-    
-    // 2. Si no existe, intentamos crearla
     if (idx < 0) {
-        // Protección: ¿Hay hueco?
-        if (find_empty_channel_slot() == -1) {
-            ui_err(S_MAXWIN);
-            main_print("Use /close first.");
-            return;
-        }
-        
+        if (find_empty_channel_slot() == -1) { ui_err(S_MAXWIN); main_print("Use /close first."); return; }
         idx = add_query(args);
-        if (idx >= 0) {
-            status_bar_dirty = 1;
-        }
+        if (idx >= 0) status_bar_dirty = 1;
     }
     
-    // 3. Cambiar a la ventana
     if (idx >= 0) {
         switch_to_channel((uint8_t)idx);
-        current_attr = ATTR_MSG_SYS;
-        main_puts("Query opened with ");
-        main_print(channels[idx].name);
+        current_attr = ATTR_MSG_SYS; main_puts("Query opened with "); main_print(channels[idx].name);
     } else {
         ui_err("Could not open query window");
     }
 }
 
-static void cmd_quit(const char *args)
+static void cmd_quit(const char *args) __z88dk_fastcall
 {
     if (connection_state >= STATE_TCP_CONNECTED) {
         current_attr = ATTR_MSG_SYS;
@@ -491,23 +411,13 @@ static void cmd_quit(const char *args)
         main_puts(irc_server);
         main_print("...");
         
-        char *p = tx_buffer;
-        p = str_append(p, "QUIT :");
-        if (args && *args) {
-            p = str_append(p, args);
-        } else {
-            p = str_append(p, "SpecTalk ZX");
-        }
-        irc_send_raw(tx_buffer);
+        uart_send_string("QUIT :");
+        uart_send_string((args && *args) ? args : "SpecTalk ZX");
+        uart_send_string("\r\n");
         
-        // Give time for quit message to be sent
         wait_drain(25);
-        
-        // Use force_disconnect which handles transparent mode exit
         force_disconnect();
-        
-        cursor_visible = 1;  // Restore cursor after disconnect
-        
+        cursor_visible = 1;
         ui_sys(S_DISCONN);
         draw_status_bar();
     } else {
@@ -515,211 +425,104 @@ static void cmd_quit(const char *args)
     }
 }
 
-static void cmd_me(const char *args)
+static void cmd_me(const char *args) __z88dk_fastcall
 {
-    if (!args || !*args) {
-        ui_usage("me action");
-        return;
-    }
+    if (!args || !*args) { ui_usage("me action"); return; }
+    if (connection_state < STATE_IRC_READY) { ERR_NOTCONN(); return; }
+    if (!irc_channel[0]) { ui_err("No channel or query"); return; }
     
-    if (connection_state < STATE_IRC_READY) {
-        ERR_NOTCONN();
-        return;
-    }
+    uart_send_string("PRIVMSG ");
+    uart_send_string(irc_channel);
+    uart_send_string(" :\x01ACTION ");
+    uart_send_string(args);
+    uart_send_string("\x01\r\n");
     
-    if (!irc_channel[0]) {
-        ui_err("No channel or query");
-        return;
-    }
-    
-    // Send CTCP ACTION: PRIVMSG target :\x01ACTION text\x01
-    char *p = tx_buffer;
-    p = str_append(p, S_PRIVMSG);
-    p = str_append(p, irc_channel);
-    p = str_append(p, " :\x01" "ACTION ");
-    p = str_append(p, args);
-    *p++ = '\x01';
-    *p = '\0';
-    irc_send_raw(tx_buffer);
-    
-    // Show locally
     current_attr = ATTR_MSG_SELF;
     main_puts("* "); main_puts(irc_nick); main_putc(' '); main_print(args);
 }
 
-static void cmd_away(const char *args)
+static void cmd_away(const char *args) __z88dk_fastcall
 {
-    if (connection_state < STATE_IRC_READY) {
-        ERR_NOTCONN();
-        return;
-    }
+    if (connection_state < STATE_IRC_READY) { ERR_NOTCONN(); return; }
     
-    char *p = tx_buffer;
-    p = str_append(p, "AWAY");
     if (args && *args) {
-        p = str_append(p, " :");
-        p = str_append(p, args);
-    }
-    irc_send_raw(tx_buffer);
-    
-    current_attr = ATTR_MSG_SYS;
-    if (args && *args) {
-        main_puts("Away: "); main_print(args);
+        uart_send_string("AWAY :"); uart_send_string(args); uart_send_string("\r\n");
+        current_attr = ATTR_MSG_SYS; main_puts("Away: "); main_print(args);
     } else {
-        main_print("Away status cleared");
+        uart_send_string("AWAY\r\n");
+        ui_sys("Away status cleared");
     }
 }
 
-static void cmd_raw(const char *args)
+static void cmd_raw(const char *args) __z88dk_fastcall
 {
-    if (!args || !*args) {
-        ui_usage("raw IRC_COMMAND");
-        return;
-    }
-    
-    if (connection_state < STATE_TCP_CONNECTED) {
-        ERR_NOTCONN();
-        return;
-    }
-    
-    irc_send_raw(args);
+    if (!args || !*args) { ui_usage("raw IRC_COMMAND"); return; }
+    if (connection_state < STATE_TCP_CONNECTED) { ERR_NOTCONN(); return; }
+    uart_send_string(args); uart_send_string("\r\n");
 }
 
-static void cmd_whois(const char *args)
+static void cmd_whois(const char *args) __z88dk_fastcall
 {
-    if (!args || !*args) {
-        ui_usage("whois nick");
-        return;
-    }
-    
-    if (connection_state < STATE_TCP_CONNECTED) {
-        ERR_NOTCONN();
-        return;
-    }
-    
-    char *p = tx_buffer;
-    p = str_append(p, "WHOIS ");
-    p = str_append(p, args);
-    irc_send_raw(tx_buffer);
+    if (!args || !*args) { ui_usage("whois nick"); return; }
+    if (connection_state < STATE_TCP_CONNECTED) { ERR_NOTCONN(); return; }
+    irc_send_cmd1("WHOIS", args);
 }
 
-static void cmd_list(const char *args)
+static void cmd_list(const char *args) __z88dk_fastcall
 {
-    if (connection_state < STATE_TCP_CONNECTED) {
-        ERR_NOTCONN();
-        return;
-    }
+    if (connection_state < STATE_TCP_CONNECTED) { ERR_NOTCONN(); return; }
+    if (!args || !*args) { ui_usage("list #channel"); main_print("(Full list disabled - would saturate ESP)"); return; }
     
-    // REQUIRE channel argument to prevent ESP saturation
-    if (!args || !*args) {
-        ui_usage("list #channel");
-        main_print("(Full list disabled - would saturate ESP)");
-        return;
-    }
-    
-    // FIX: Activar modo búsqueda para que el handler 322 muestre los resultados
     search_mode = SEARCH_CHAN;
-    search_pattern[0] = '\0'; // Sin filtro, mostrar TODO lo que llegue
-    
-    // Reset pagination counters
+    search_pattern[0] = '\0';
     search_index = 0;
     pagination_count = 0;
     
-    char *p = tx_buffer;
-    p = str_append(p, "LIST ");
-    p = str_append(p, args);
-    
-    current_attr = ATTR_MSG_SYS;
-    main_puts("Listing channel(s): ");
-    main_print(args);
-    
-    irc_send_raw(tx_buffer);
+    current_attr = ATTR_MSG_SYS; main_puts("Listing: "); main_print(args);
+    irc_send_cmd1("LIST", args);
 }
 
-static void cmd_who(const char *args)
+static void cmd_who(const char *args) __z88dk_fastcall
 {
-    if (connection_state < STATE_TCP_CONNECTED) {
-        ERR_NOTCONN();
-        return;
-    }
+    if (connection_state < STATE_TCP_CONNECTED) { ERR_NOTCONN(); return; }
     
-    // FIX: Activar modo búsqueda para que el handler 352 sepa qué hacer
     search_mode = SEARCH_USER;
-    search_pattern[0] = '\0'; // Sin filtro
-    
-    // --- CORRECCIÓN CRÍTICA ---
-    // El command WHO no tiene código de inicio (como el 321 de LIST),
-    // así que debemos activar la recepción manualmente o el handler descartará TODO.
+    search_pattern[0] = '\0';
     pagination_active = 1;
     pagination_cancelled = 0;
-    // ---------------------------
-    
-    // Reset pagination counters
     search_index = 0;
     pagination_count = 0;
     
-    char *p = tx_buffer;
-    p = str_append(p, "WHO ");
-    if (args && *args) {
-        p = str_append(p, args);
-    } else if (irc_channel[0]) {
-        p = str_append(p, irc_channel);
-    } else {
-        // Desactivamos si hubo error de uso
-        pagination_active = 0; 
-        ui_usage("who #channel or nick");
-        return;
-    }
-    irc_send_raw(tx_buffer);
+    const char *target = (args && *args) ? args : irc_channel;
+    if (!target[0]) { pagination_active = 0; ui_usage("who #channel or nick"); return; }
+    
+    irc_send_cmd1("WHO", target);
 }
 
-static void cmd_names(const char *args)
+static void cmd_names(const char *args) __z88dk_fastcall
 {
-    if (connection_state < STATE_TCP_CONNECTED) {
-        ERR_NOTCONN();
-        return;
-    }
+    if (connection_state < STATE_TCP_CONNECTED) { ERR_NOTCONN(); return; }
+    const char *target = (args && *args) ? args : irc_channel;
+    if (!target[0]) { ui_usage("names [#channel]"); return; }
     
-    char *p = tx_buffer;
-    p = str_append(p, "NAMES ");
-    if (args && *args) {
-        p = str_append(p, args);
-    } else if (irc_channel[0]) {
-        p = str_append(p, irc_channel);
-    } else {
-        ui_usage("names [#channel]");
-        return;
-    }
-    counting_new_users = 1;  // Next 353 starts fresh count
-    show_names_list = 1;     // Show user list for this NAMES request
-    irc_send_raw(tx_buffer);
-    
+    counting_new_users = 1;
+    show_names_list = 1;
+    irc_send_cmd1("NAMES", target);
     ui_sys("Listing users...");
 }
 
-static void cmd_topic(const char *args)
+static void cmd_topic(const char *args) __z88dk_fastcall
 {
-    if (connection_state < STATE_TCP_CONNECTED) {
-        ERR_NOTCONN();
-        return;
-    }
-    
-    char *p = tx_buffer;
-    p = str_append(p, "TOPIC ");
-    if (args && *args) {
-        p = str_append(p, args);
-    } else if (irc_channel[0]) {
-        p = str_append(p, irc_channel);
-    } else {
-        ui_usage("topic [#channel] [text]");
-        return;
-    }
-    irc_send_raw(tx_buffer);
+    if (connection_state < STATE_TCP_CONNECTED) { ERR_NOTCONN(); return; }
+    const char *target = (args && *args) ? args : irc_channel;
+    if (!target[0]) { ui_usage("topic [#channel] [text]"); return; }
+    irc_send_cmd1("TOPIC", target);
 }
 
-static void cmd_search(const char *args)
+static void cmd_search(const char *args) __z88dk_fastcall
 {
-    char *p;
+    uint8_t i;
+    const char *src;
 
     if (connection_state < STATE_TCP_CONNECTED) {
         ERR_NOTCONN();
@@ -731,40 +534,41 @@ static void cmd_search(const char *args)
         return;
     }
 
+    while (*args == ' ') args++;
+    
+    // SIEMPRE limpiar search_pattern primero
+    search_pattern[0] = 0;
+
     pagination_active = 1;
     pagination_cancelled = 0;
     pagination_count = 0;
     search_index = 0;
 
-    while (*args == ' ') args++;
-
     if (args[0] == '#') {
-        // --- MODO CANALES (LIST) ---
-        const char *pattern = args + 1;
-        while (*pattern == ' ') pattern++;
+        // --- MODO CANALES ---
+        src = args + 1;  // Saltar '#'
+        while (*src == ' ') src++;
 
-        if (!*pattern) {
+        if (!*src) {
             ui_err("Empty pattern. Use /list for all.");
+            pagination_active = 0;
             return;
         }
 
         search_mode = SEARCH_CHAN;
         
-        {
-            uint8_t i = 0;
-            while (pattern[i] && pattern[i] != ' ' && i < 30) {
-                search_pattern[i] = pattern[i];
-                i++;
-            }
-            search_pattern[i] = 0;
+        // Copiar patrón carácter a carácter
+        i = 0;
+        while (*src && *src != ' ' && i < 30) {
+            search_pattern[i] = *src;
+            i++;
+            src++;
         }
+        search_pattern[i] = 0;
 
-        p = tx_buffer;
-        p = str_append(p, "LIST *");
-        p = str_append(p, search_pattern);
-        *p++ = '*';
-        *p = 0;
-        irc_send_raw(tx_buffer);
+        uart_send_string("LIST *");
+        uart_send_string(search_pattern);
+        uart_send_string("*\r\n");
 
         current_attr = ATTR_MSG_SYS;
         main_puts("Searching channels: *");
@@ -772,28 +576,25 @@ static void cmd_search(const char *args)
         main_print("*");
         
     } else {
-        // --- MODO USUARIOS (WHO) ---
+        // --- MODO USUARIOS ---
         search_mode = SEARCH_USER;
         
-        {
-            uint8_t i = 0;
-            while (args[i] && args[i] != ' ' && i < 30) {
-                search_pattern[i] = args[i];
-                i++;
-            }
-            search_pattern[i] = 0;
+        src = args;
+        i = 0;
+        while (*src && *src != ' ' && i < 30) {
+            search_pattern[i] = *src;
+            i++;
+            src++;
         }
+        search_pattern[i] = 0;
 
         if (!search_pattern[0]) {
             ui_err("Empty pattern");
+            pagination_active = 0;
             return;
         }
 
-        // WHO sin asteriscos - el servidor busca coincidencias
-        p = tx_buffer;
-        p = str_append(p, "WHO ");
-        p = str_append(p, search_pattern);
-        irc_send_raw(tx_buffer);
+        irc_send_cmd1("WHO", search_pattern);
 
         current_attr = ATTR_MSG_SYS;
         main_puts("Searching users: ");
@@ -801,7 +602,7 @@ static void cmd_search(const char *args)
     }
 }
 
-static void cmd_ignore(const char *args)
+static void cmd_ignore(const char *args) __z88dk_fastcall
 {
     uint8_t i;
     
@@ -857,11 +658,10 @@ static void cmd_ignore(const char *args)
     }
 }
 
-static void cmd_kick(const char *args)
+static void cmd_kick(const char *args) __z88dk_fastcall
 {
     char *nick;
     char *reason;
-    char *p;
     
     if (connection_state < STATE_TCP_CONNECTED) {
         ERR_NOTCONN();
@@ -891,16 +691,15 @@ static void cmd_kick(const char *args)
     }
     
     // Build KICK command: KICK #channel nick :reason
-    p = tx_buffer;
-    p = str_append(p, "KICK ");
-    p = str_append(p, irc_channel);
-    *p++ = ' ';
-    p = str_append(p, nick);
+    uart_send_string("KICK ");
+    uart_send_string(irc_channel);
+    uart_send_string(" ");
+    uart_send_string(nick);
     if (*reason) {
-        p = str_append(p, " :");
-        p = str_append(p, reason);
+        uart_send_string(" :");
+        uart_send_string(reason);
     }
-    irc_send_raw(tx_buffer);
+    uart_send_string("\r\n");
     
     current_attr = ATTR_MSG_SYS;
     main_puts("Kicking "); main_puts(nick);
@@ -918,7 +717,7 @@ static void cmd_kick(const char *args)
 // SYSTEM COMMANDS (!)
 // ============================================================
 
-static void sys_help(const char *args);
+static void sys_help(const char *args) __z88dk_fastcall; 
 
 // SYSTEM COMMANDS (!)
 // ============================================================
@@ -1005,9 +804,9 @@ static void show_help_page(const HelpLine *lines)
     }
 }
 
-static void sys_help(const char *args)
+static void sys_help(const char *args) __z88dk_fastcall
 {
-    (void)args;
+    (void)args; // Silencia warning de argumento no usado (no genera código)
     uint8_t key;
     uint8_t current_page = 1;
     
@@ -1031,7 +830,7 @@ static void sys_help(const char *args)
     main_col = 0;
 }
 
-static void sys_status(const char *args)
+static void sys_status(const char *args) __z88dk_fastcall
 {
     (void)args;
     uint8_t i;
@@ -1082,7 +881,7 @@ static void sys_status(const char *args)
     else main_newline();
 }
 
-static void sys_about(const char *args)
+static void sys_about(const char *args) __z88dk_fastcall
 {
     (void)args;
     current_attr = ATTR_MSG_SYS;
@@ -1094,7 +893,7 @@ static void sys_about(const char *args)
 
 // esp_init() is implemented in spectalk.c and exposed via spectalk.h
 
-static void sys_init(const char *args)
+static void sys_init(const char *args) __z88dk_fastcall
 {
     (void)args;
     uint8_t result;
@@ -1102,32 +901,16 @@ static void sys_init(const char *args)
     current_attr = ATTR_MSG_PRIV;
     main_puts("Re-initializing ESP8266... ");
     
-    // --- optimization (Lógica "Fail-Fast") ---
-    // Antes de hacer el lento "baile de desconnection" (force_disconnect tarda 2.5s),
-    // probamos si el ESP8266 ya está en modo command o si está muerto.
-    
-    uart_drain_and_drop_all(); // Limpiar buffer de input
+    // Intentamos limpiar estado sin esperar los 2.5s completos si es posible
+    uart_drain_and_drop_all(); 
     uart_send_string("AT\r\n");
     
-    // waitmos respuesta brevemente (25 frames = 0.5s)
+    // Chequeo rápido de respuesta
     if (wait_for_response(S_OK, 25)) {
-        // CASO A: El ESP responde "OK".
-        // Está vivo y en modo command. No necesitamos hacer la secuencia +++.
-        // Solo cerramos cualquier socket abierto por limpieza y seguimos.
         uart_send_string("AT+CIPCLOSE\r\n");
-        wait_for_response(NULL, 10); // waitr OK o error, nos da igual
-    } else {
-        // CASO B: No responde (Timeout).
-        // Posibilidades:
-        // 1. Está en modo Transparente (conectado).
-        // 2. Está colgado o se ha reseteado.
-        // 
-        // En ambos casos, saltamos force_disconnect() para evitar waitr 2s extra.
-        // Dejamos que esp_init() (que llamamos abajo) haga la secuencia de escape completa.
-    }
-    // ------------------------------------------
+        wait_for_response(NULL, 10);
+    } 
     
-    // Reset state
     connection_state = STATE_DISCONNECTED;
     reset_all_channels();
     network_name[0] = '\0';
@@ -1146,7 +929,7 @@ static void sys_init(const char *args)
     draw_status_bar();
 }
 
-static void cmd_theme(const char *args)
+static void cmd_theme(const char *args) __z88dk_fastcall
 {
     uint8_t t;
 
@@ -1184,7 +967,7 @@ static void cmd_theme(const char *args)
 // COMMAND DISPATCHER (Saves ~600-800 bytes)
 // ============================================================
 
-typedef void (*user_cmd_handler_t)(const char *args);
+typedef void (*user_cmd_handler_t)(const char *args) __z88dk_fastcall;
 
 typedef struct {
     const char *name;      // Command name (UPPERCASE)
@@ -1195,7 +978,7 @@ typedef struct {
 // Wrappers para functions de sistheme que no aceptan argumentos
 
 // Wrapper para CLOSE (que tenía lógica inline)
-static void cmd_close_wrapper(const char *a) {
+static void cmd_close_wrapper(const char *a) __z88dk_fastcall {
     (void)a;
     if (current_channel_idx == 0) {
         ui_err("Cannot close server window");
@@ -1217,7 +1000,7 @@ static void cmd_close_wrapper(const char *a) {
 }
 
 // Wrapper para LISTAR VENTANAS (que tenía lógica inline)
-static void cmd_windows_wrapper(const char *a) {
+static void cmd_windows_wrapper(const char *a) __z88dk_fastcall {
     (void)a;
     uint8_t i, n = 0;
     current_attr = ATTR_MSG_SYS;
@@ -1253,6 +1036,7 @@ static const UserCmd USER_COMMANDS[] = {
     // IRC COMMANDS (/)
     { "SERVER",  "CONNECT", cmd_connect },
     { "NICK",    NULL,      cmd_nick },
+    { "PASS",    NULL,      cmd_pass },
     { "JOIN",    "J",       cmd_join },
     { "PART",    "P",   cmd_part },
     { "MSG",     "M",       cmd_msg },
@@ -1276,7 +1060,7 @@ static const UserCmd USER_COMMANDS[] = {
 
 // COMMAND PARSER
 
-void parse_user_input(char *line)
+void parse_user_input(char *line) __z88dk_fastcall
 {
     char *args;
     char *cmd_str = line;
@@ -1296,10 +1080,11 @@ void parse_user_input(char *line)
             return;
         }
         
-        // Atajo "NICK: msg"
+        // Atajo "NICK: msg" o "NICK:msg"
         char *colon = strchr(line, ':');
-        if (colon && colon != line && (colon[1] == ' ' || colon[1] == '\t')) {
+        if (colon && colon != line) {
             char *sp = strchr(line, ' ');
+            // Solo es atajo si el ':' viene antes del primer espacio (o no hay espacios)
             if (!sp || sp > colon) {
                 *colon = 0;
                 char *msg = colon + 1;

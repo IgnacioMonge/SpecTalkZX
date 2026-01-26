@@ -85,24 +85,35 @@ static void irc_handle_ignore(const char *usr, char *par, char *txtp, const char
     (void)usr; (void)par; (void)txtp; (void)cmd;
 }
 
+// IRCv3 CAP handler: respond with CAP END to skip capability negotiation
+static void irc_handle_cap(const char *usr, char *par, char *txtp, const char *cmd)
+{
+    (void)usr; (void)txtp; (void)cmd;
+    
+    // par contains: "* LS ..." or "* ACK ..." or similar
+    // We only care about LS (server offering capabilities)
+    if (par && (strstr(par, " LS") || strncmp(par, "* LS", 4) == 0)) {
+        uart_send_string("CAP END\r\n");
+    }
+}
+
 static void irc_handle_ping(const char *usr, char *par, char *txtp, const char *cmd)
 {
     (void)usr; (void)cmd;
-    {
-        char *p = tx_buffer;
-        p = str_append(p, "PONG ");
-        if (*txtp) {
-            p = str_append(p, ":");
-            p = str_append(p, txtp);
-        } else {
-            if (*par == ':') par++;
-            if (*par) {
-                p = str_append(p, ":");
-                p = str_append(p, par);
-            }
+    
+    // Envío directo optimizado manteniendo lógica de parsing
+    uart_send_string("PONG ");
+    if (*txtp) {
+        uart_send_string(":");
+        uart_send_string(txtp);
+    } else {
+        if (*par == ':') par++;
+        if (*par) {
+            uart_send_string(":");
+            uart_send_string(par);
         }
-        irc_send_raw(tx_buffer);
     }
+    uart_send_string("\r\n");
 }
 
 static void irc_handle_mode(const char *usr, char *par, char *txtp, const char *cmd)
@@ -158,17 +169,15 @@ static void irc_handle_mode(const char *usr, char *par, char *txtp, const char *
 
 static void send_ctcp_reply(const char *target, const char *tag, const char *data)
 {
-    char *p = tx_buffer;
-    p = str_append(p, "NOTICE ");
-    p = str_append(p, target);
-    p = str_append(p, " :\x01");
-    p = str_append(p, tag);
+    uart_send_string("NOTICE ");
+    uart_send_string(target);
+    uart_send_string(" :\x01");
+    uart_send_string(tag);
     if (data && *data) {
-        p = str_append(p, " ");
-        p = str_append(p, data);
+        uart_send_string(" ");
+        uart_send_string(data);
     }
-    p = str_append(p, "\x01");
-    irc_send_raw(tx_buffer);
+    uart_send_string("\x01\r\n");
 }
 
 static void irc_handle_privmsg_notice(const char *usr, char *par, char *txtp, const char *cmd)
@@ -625,8 +634,8 @@ static void irc_handle_numeric_322_352(uint16_t num, const char *usr, char *par,
         
         if (!chan[0]) return;
         
-        // Filtro de búsqueda (si el user puso /search pattern)
-        if (search_pattern[0] && !st_stristr(chan, search_pattern)) return;
+        // Filtro de búsqueda - usar strstr (más fiable que ASM)
+        if (search_pattern[0] && !strstr(chan, search_pattern)) return;
         
         search_index++;
         
@@ -669,7 +678,7 @@ static void irc_handle_numeric_322_352(uint16_t num, const char *usr, char *par,
         
         // Filtro de búsqueda: buscar en nick O en user
         if (search_pattern[0]) {
-            if (!st_stristr(nick, search_pattern) && !st_stristr(user, search_pattern)) {
+            if (!strstr(nick, search_pattern) && !strstr(user, search_pattern)) {
                 return;
             }
         }
@@ -772,7 +781,7 @@ static const irc_cmd_dispatch_t IRC_CMD_TABLE[] = {
     { "NICK",          irc_handle_nick },
 
     // Noise / optional capabilities (ignored)
-    { "CAP",           irc_handle_ignore },
+    { "CAP",           irc_handle_cap },
     { "AUTHENTICATE",  irc_handle_ignore },
     { "BATCH",         irc_handle_ignore },
     { "TAGMSG",        irc_handle_ignore },
@@ -840,7 +849,7 @@ static void irc_dispatch_message(const char *usr, char *cmd, char *par, char *tx
 // MAIN PARSING FUNCTIONS (public)
 // ============================================================
 
-void parse_irc_message(char *line)
+void parse_irc_message(char *line) __z88dk_fastcall
 {
     char *usr = irc_server; 
     char *cmd;
@@ -849,6 +858,15 @@ void parse_irc_message(char *line)
     static char nickbuf[20];
 
     if (!line || !*line) return;
+
+    // IRCv3: Saltar message tags (@time=...; @batch=...; etc)
+    if (line[0] == '@') {
+        line = strchr(line, ' ');
+        if (!line) return;
+        line++;
+        while (*line == ' ') line++;
+        if (!*line) return;
+    }
 
     // Prefijo
     if (line[0] == ':') {
