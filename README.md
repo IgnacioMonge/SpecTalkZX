@@ -50,20 +50,15 @@ SpecTalk ZX is a fully-featured IRC client that brings modern internet chat to t
 
 1. Download the appropriate TAP file for your hardware:
    - `SpecTalkZX.tap` - For divTIESUS/divMMC hardware UART
-   - `SpecTalkZX_AY.tap` - For AY bit-bang UART
 
 2. Load on your Spectrum using your preferred method (SD card, tape, etc.)
 
-3. Configure your WiFi and IRC settings using the built-in commands
+3. Configure your WiFi (NetManZX is your friend) and IRC settings using the built-in commands
 
 ## Quick Start
 
-```
-!wifi SSID,password     Connect to WiFi network
-!server irc.server.net  Set IRC server
-!port 6667              Set IRC port (default: 6667)
-!nick YourNick          Set your nickname
-!connect                Connect to IRC server
+/nick NICKNAME
+/server HOST [passwd]
 /join #channel          Join a channel
 ```
 
