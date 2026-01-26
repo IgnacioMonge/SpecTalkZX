@@ -68,13 +68,7 @@ SpecTalk ZX is a fully-featured IRC client that brings modern internet chat to t
 
 | Command | Description |
 |---------|-------------|
-| `!wifi SSID,pass` | Connect to WiFi network |
-| `!server host` | Set IRC server address |
-| `!port num` | Set IRC port |
-| `!nick name` | Set nickname |
-| `!pass password` | Set NickServ password |
-| `!connect` | Connect to IRC server |
-| `!disconnect` | Disconnect from server |
+
 | `!init` | Re-initialize ESP8266 |
 | `!theme [1-3]` | Change color theme |
 | `!status` | Show connection status |
