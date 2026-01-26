@@ -1,6 +1,4 @@
-<p align="center">
-  <img src="images/white_banner.png" alt="SpecTalkZX Logo" width="640" />
-</p>
+![SpecTalk Banner](images/white_banner.png)
 
 # SpecTalk ZX
 
@@ -16,7 +14,7 @@
 
 SpecTalk ZX is a fully-featured IRC client that brings modern internet chat to the classic ZX Spectrum. Using an ESP8266 WiFi module for connectivity, it provides a complete IRC experience on 8-bit hardware with a 64-column display, multiple channel support, and visual themes.
 
-<p align="center">[![SpecTalkZX](images/snap1.png)](images/snap1.png)</p>
+[![SpecTalkZX](images/snap1.png)](images/snap1.png)
 
 
 ## Features
