@@ -47,7 +47,7 @@ SpecTalk ZX is a fully-featured IRC client for the ZX Spectrum. Using an ESP8266
 
 1. Download the TAP file for your hardware
 2. Load on your Spectrum (SD card, tape, etc.)
-3. Configure WiFi with [NetManZX](https://github.com/imnacio/netmanzx) or similar tool
+3. Configure WiFi with [NetManZX](https://github.com/IgnacioMonge/NetManZX) or similar tool
 
 ## Quick Start
 
