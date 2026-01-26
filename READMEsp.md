@@ -107,15 +107,6 @@ SpecTalk ZX es un cliente IRC completo que trae el chat moderno de internet al c
 | `/away [mensaje]` | Establecer/quitar estado away |
 | `/quote raw` | Enviar comando IRC raw |
 
-### Navegación de Ventanas
-
-| Tecla | Acción |
-|-------|--------|
-| `Tab` | Ventana siguiente |
-| `Shift+Tab` | Ventana anterior |
-| `Ctrl+1-9` | Saltar a ventana 1-9 |
-| `Ctrl+0` | Saltar a ventana 10 |
-
 ## Compilar desde el Código Fuente
 
 ### Requisitos
