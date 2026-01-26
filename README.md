@@ -30,7 +30,7 @@ SpecTalk ZX is a fully-featured IRC client that brings modern internet chat to t
 - **Keep-Alive System**: Automatic PING to prevent disconnection
 - **Activity Indicators**: Visual notification for messages in inactive channels
 
-[![theme1](images/theme 1.png)](images/theme 1.png) [![theme2](images/theme 2.png)](images/theme 2.png) [![theme3](images/theme 3.png)](images/theme 3.png)
+[![SpectalkZX theme1](images/theme1.png)](images/theme1.png) [![SpectalkZX theme2](images/theme2.png)](images/theme2.png) [![SpectalkZX theme3](images/theme3.png)](images/theme3.png)
 
 ## Hardware Requirements
 
