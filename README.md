@@ -6,61 +6,58 @@
 
 🇪🇸 [Leer en español](READMEsp.md)
 
-![SpecTalk ZX](https://img.shields.io/badge/Platform-ZX%20Spectrum-blue)
+![Platform](https://img.shields.io/badge/Platform-ZX%20Spectrum-blue)
 ![License](https://img.shields.io/badge/License-GPLv2-green)
-![Version](https://img.shields.io/badge/Version-1.0-orange)
+![Version](https://img.shields.io/badge/Version-1.1-orange)
 
 ## Overview
 
-SpecTalk ZX is a fully-featured IRC client that brings modern internet chat to the classic ZX Spectrum. Using an ESP8266 WiFi module for connectivity, it provides a complete IRC experience on 8-bit hardware with a 64-column display, multiple channel support, and visual themes.
+SpecTalk ZX is a fully-featured IRC client for the ZX Spectrum. Using an ESP8266 WiFi module for connectivity, it provides a complete IRC experience on 8-bit hardware with a 64-column display and support for up to 10 simultaneous channel/query windows.
 
 [![SpecTalkZX](images/snap1.png)](images/snap1.png)
 
-
 ## Features
 
-- **Full IRC Protocol Support**: JOIN, PART, QUIT, NICK, PRIVMSG, NOTICE, TOPIC, MODE, KICK, BAN, WHO, WHOIS, LIST, and more
-- **64-Column Display**: Custom 4-pixel wide font for maximum text on screen
-- **Multi-Window Interface**: Up to 10 simultaneous channel/query windows
-- **Visual Themes**: 3 built-in color themes (Default, Terminal, Colorful)
-- **NickServ Integration**: Automatic identification with stored password
-- **CTCP Support**: VERSION, PING, TIME, ACTION responses
-- **Channel User Counting**: Real-time user count with timeout handling
-- **Search Functionality**: Search through message history
-- **Keep-Alive System**: Automatic PING to prevent disconnection
-- **Activity Indicators**: Visual notification for messages in inactive channels
+- **64-column display** using custom 4-pixel wide font
+- **Multi-window interface**: Up to 10 simultaneous channels/queries
+- **3 color themes**: Default, Terminal, Colorful
+- **NickServ integration**: Automatic identification
+- **CTCP support**: VERSION, PING, TIME, ACTION
+- **Channel user counting** with real-time updates
+- **Search functionality**: Find channels or users by pattern
+- **Keep-alive system**: Automatic PING to prevent timeout
+- **Activity indicators**: Visual notification for unread messages
 
-[![SpectalkZX theme1](images/theme1.png)](images/theme1.png) [![SpectalkZX theme2](images/theme2.png)](images/theme2.png) [![SpectalkZX theme3](images/theme3.png)](images/theme3.png)
+[![Theme 1](images/theme1.png)](images/theme1.png) [![Theme 2](images/theme2.png)](images/theme2.png) [![Theme 3](images/theme3.png)](images/theme3.png)
 
 ## Hardware Requirements
 
 ### Option 1: divTIESUS / divMMC (Recommended)
 - ZX Spectrum 48K/128K/+2/+3
-- divTIESUS Maple Edition or compatible divMMC with UART
+- divTIESUS or divMMC with hardware UART
 - ESP8266/ESP-12 module with AT firmware
 - Hardware UART at 115200 baud
 
 ### Option 2: AY Bit-Bang
 - ZX Spectrum 48K/128K/+2/+3
-- ESP8266/ESP-12 module connected to AY-3-8912 port
-- TX: Port A bit 3, RX: Port A bit 7
+- ESP8266/ESP-12 connected to AY-3-8912 port
 - Software UART at 9600 baud
 
 ## Installation
 
-1. Download the appropriate TAP file for your hardware:
-   - `SpecTalkZX.tap` - For divTIESUS/divMMC hardware UART
-
-2. Load on your Spectrum using your preferred method (SD card, tape, etc.)
-
-3. Configure your WiFi (NetManZX is your friend) and IRC settings using the built-in commands
+1. Download the TAP file for your hardware
+2. Load on your Spectrum (SD card, tape, etc.)
+3. Configure WiFi with [NetManZX](https://github.com/imnacio/netmanzx) or similar tool
 
 ## Quick Start
 
-/nick NICKNAME
-/server HOST [passwd]
+```
+/nick YourNick          Set your nickname
+/server irc.libera.chat Connect to server
 /join #channel          Join a channel
 ```
+
+Type `!help` for the built-in help system.
 
 ## Commands Reference
 
@@ -68,51 +65,84 @@ SpecTalk ZX is a fully-featured IRC client that brings modern internet chat to t
 
 | Command | Description |
 |---------|-------------|
-
-| `!init` | Re-initialize ESP8266 |
-| `!theme [1-3]` | Change color theme |
-| `!status` | Show connection status |
-| `!help` | Show help |
-| `!about` | About SpecTalk |
-| `!quit` | Exit to BASIC |
+| `!help` or `!h` | Show help pages (press any key to switch pages, EDIT to exit) |
+| `!status` or `!s` | Show connection status, nick, server, and open channels |
+| `!init` or `!i` | Re-initialize ESP8266 module |
+| `!theme N` | Change color theme (1-3) |
+| `!about` | Show version and credits |
 
 ### IRC Commands (/)
 
+#### Connection
 | Command | Description |
 |---------|-------------|
-| `/join #channel` | Join a channel |
-| `/part [message]` | Leave current channel |
-| `/msg nick text` | Send private message |
-| `/me action` | Send action message |
-| `/nick newnick` | Change nickname |
-| `/topic [text]` | View/set channel topic |
-| `/kick nick [reason]` | Kick user from channel |
-| `/ban nick` | Ban user |
-| `/mode +/-flags` | Set channel/user modes |
-| `/who #channel` | List channel users |
-| `/whois nick` | Get user info |
-| `/list [pattern]` | List channels |
-| `/names` | List users in channel |
-| `/away [message]` | Set/clear away status |
-| `/quote raw` | Send raw IRC command |
+| `/nick name` | Set or change nickname |
+| `/pass password` | Set NickServ password (sent on connect) |
+| `/server host[:port]` | Connect to IRC server (default port: 6667) |
+| `/quit [message]` | Disconnect from server |
+
+#### Channels
+| Command | Alias | Description |
+|---------|-------|-------------|
+| `/join #channel` | `/j` | Join a channel |
+| `/part [message]` | `/p` | Leave current channel |
+| `/topic [text]` | | View or set channel topic |
+| `/names` | | List users in current channel |
+| `/kick nick [reason]` | `/k` | Kick user from channel (requires op) |
+
+#### Messages
+| Command | Alias | Description |
+|---------|-------|-------------|
+| `/msg nick text` | `/m` | Send private message |
+| `/query nick` | `/q` | Open query window for private chat |
+| `/me action` | | Send action message (*YourNick does something*) |
+| `nick: text` | | Quick PM syntax (from channel window) |
+
+#### Windows
+| Command | Description |
+|---------|-------------|
+| `/0` | Switch to Server window |
+| `/1` to `/9` | Switch to channel/query window |
+| `/w` or `/channels` | List all open windows |
+| `/close` | Close current query window (or `/part` if channel) |
+
+#### Search & Info
+| Command | Alias | Description |
+|---------|-------|-------------|
+| `/search pattern` | | Search channels (`#pat`) or users (`nick`) |
+| `/list [pattern]` | `/ls` | List channels matching pattern |
+| `/who #channel` | | List users in a channel |
+| `/whois nick` | `/wi` | Get user information |
+
+#### Other
+| Command | Description |
+|---------|-------------|
+| `/away [message]` | Set or clear away status |
+| `/ignore nick` | Toggle ignore for a user |
+| `/raw command` | Send raw IRC command |
+
+## Keyboard
+
+| Key | Function |
+|-----|----------|
+| **ENTER** | Send message or execute command |
+| **EDIT** (CAPS+1) | Cancel current operation |
+| **↑ / ↓** | Navigate command history |
+| **← / →** | Move cursor in input line |
+| **DELETE** (CAPS+0) | Delete character |
 
 ## Building from Source
 
 ### Requirements
-- z88dk (with SDCC)
+- z88dk with SDCC
 - Make
 
-### Build Commands
+### Build
 
 ```bash
-# Default build (divTIESUS/divMMC)
-make
-
-# AY bit-bang build
-make ay
-
-# Clean build artifacts
-make clean
+make              # divTIESUS/divMMC build
+make ay           # AY bit-bang build  
+make clean        # Clean build artifacts
 ```
 
 ## Project Structure
@@ -120,40 +150,29 @@ make clean
 ```
 SpecTalkZX/
 ├── src/
-│   ├── spectalk.c      # Main module, UI, connection handling
-│   ├── irc_handlers.c  # IRC protocol message parsing
-│   └── user_cmds.c     # User command processing
+│   ├── spectalk.c       # Main module, UI, connection
+│   ├── irc_handlers.c   # IRC protocol parsing
+│   └── user_cmds.c      # Command processing
 ├── asm/
-│   ├── spectalk_asm.asm   # Optimized assembly routines
-│   ├── ay_uart.asm        # AY bit-bang UART driver
-│   └── divmmc_uart.asm    # divTIESUS hardware UART driver
+│   ├── spectalk_asm.asm # Optimized assembly routines
+│   ├── ay_uart.asm      # AY bit-bang UART driver
+│   └── divmmc_uart.asm  # Hardware UART driver
 ├── include/
-│   ├── spectalk.h      # Common header
-│   ├── themes.h        # Color theme definitions
-│   └── font64_data.h   # 4-pixel font data
+│   ├── spectalk.h       # Common header
+│   ├── themes.h         # Color themes
+│   └── font64_data.h    # 4-pixel font data
 ├── Makefile
-├── LICENSE
-├── README.md
-├── READMEsp.md
-└── CHANGELOG.md
+├── CHANGELOG.md
+└── LICENSE
 ```
-
-## Technical Details
-
-- **Memory**: Fits in 48K, uses optimized ring buffer (2KB) for UART RX
-- **Display**: Custom 64-column renderer with attribute caching
-- **Protocol**: Full IRC tokenizer with table-driven command dispatch
-- **Performance**: Critical paths optimized in Z80 assembly
 
 ## License
 
-SpecTalk ZX is free software licensed under the **GNU General Public License v2.0**.
+SpecTalk ZX is free software under **GNU General Public License v2.0**.
 
-This project includes code derived from:
+Includes code derived from:
 - **BitchZX** - IRC client (GPLv2)
 - **AY/ZXuno UART driver** by Nihirash
-
-See the [LICENSE](LICENSE) file for full license text.
 
 ## Author
 
@@ -161,10 +180,10 @@ See the [LICENSE](LICENSE) file for full license text.
 
 ## Acknowledgments
 
-- The BitchZX project for IRC protocol implementation inspiration
-- Nihirash for the AY/ZXuno UART driver code
-- The z88dk team for the excellent cross-compiler
-- The ZX Spectrum retro computing community
+- BitchZX project for IRC protocol inspiration
+- Nihirash for AY UART driver code
+- z88dk team for the cross-compiler
+- ZX Spectrum retro computing community
 
 ---
 

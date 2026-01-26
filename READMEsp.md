@@ -6,62 +6,58 @@
 
 🇬🇧 [Read in English](README.md)
 
-![SpecTalk ZX](https://img.shields.io/badge/Plataforma-ZX%20Spectrum-blue)
+![Plataforma](https://img.shields.io/badge/Plataforma-ZX%20Spectrum-blue)
 ![Licencia](https://img.shields.io/badge/Licencia-GPLv2-green)
-![Versión](https://img.shields.io/badge/Versión-1.0-orange)
+![Versión](https://img.shields.io/badge/Versión-1.1-orange)
 
 ## Descripción
 
-SpecTalk ZX es un cliente IRC completo que trae el chat moderno de internet al clásico ZX Spectrum. Usando un módulo WiFi ESP8266 para la conectividad, proporciona una experiencia IRC completa en hardware de 8 bits con pantalla de 64 columnas, soporte para múltiples canales y temas visuales.
+SpecTalk ZX es un cliente IRC completo para ZX Spectrum. Usando un módulo WiFi ESP8266 para la conectividad, proporciona una experiencia IRC completa en hardware de 8 bits con pantalla de 64 columnas y soporte para hasta 10 ventanas simultáneas de canales/consultas.
 
 [![SpecTalkZX](images/snap1.png)](images/snap1.png)
 
 ## Características
 
-- **Soporte completo del protocolo IRC**: JOIN, PART, QUIT, NICK, PRIVMSG, NOTICE, TOPIC, MODE, KICK, BAN, WHO, WHOIS, LIST y más
-- **Pantalla de 64 columnas**: Fuente personalizada de 4 píxeles de ancho para maximizar el texto en pantalla
-- **Interfaz multi-ventana**: Hasta 10 ventanas simultáneas de canales/consultas
-- **Temas visuales**: 3 temas de colores incluidos (Default, Terminal, Colorful)
-- **Integración con NickServ**: Identificación automática con contraseña almacenada
-- **Soporte CTCP**: Respuestas a VERSION, PING, TIME, ACTION
-- **Contador de usuarios**: Conteo en tiempo real de usuarios con manejo de timeout
-- **Búsqueda**: Búsqueda en el historial de mensajes
-- **Sistema Keep-Alive**: PING automático para prevenir desconexiones
-- **Indicadores de actividad**: Notificación visual para mensajes en canales inactivos
+- **Pantalla de 64 columnas** con fuente personalizada de 4 píxeles
+- **Interfaz multi-ventana**: Hasta 10 canales/queries simultáneos
+- **3 temas de colores**: Default, Terminal, Colorful
+- **Integración con NickServ**: Identificación automática
+- **Soporte CTCP**: VERSION, PING, TIME, ACTION
+- **Contador de usuarios** con actualizaciones en tiempo real
+- **Función de búsqueda**: Encuentra canales o usuarios por patrón
+- **Sistema Keep-Alive**: PING automático para evitar timeout
+- **Indicadores de actividad**: Notificación visual de mensajes no leídos
 
-[![SpectalkZX theme1](images/theme1.png)](images/theme1.png) [![SpectalkZX theme2](images/theme2.png)](images/theme2.png) [![SpectalkZX theme3](images/theme3.png)](images/theme3.png)
-
+[![Tema 1](images/theme1.png)](images/theme1.png) [![Tema 2](images/theme2.png)](images/theme2.png) [![Tema 3](images/theme3.png)](images/theme3.png)
 
 ## Requisitos de Hardware
 
 ### Opción 1: divTIESUS / divMMC (Recomendado)
 - ZX Spectrum 48K/128K/+2/+3
-- divTIESUS Maple Edition o divMMC compatible con UART
+- divTIESUS o divMMC con UART hardware
 - Módulo ESP8266/ESP-12 con firmware AT
 - UART hardware a 115200 baudios
 
 ### Opción 2: AY Bit-Bang
 - ZX Spectrum 48K/128K/+2/+3
-- Módulo ESP8266/ESP-12 conectado al puerto AY-3-8912
-- TX: Puerto A bit 3, RX: Puerto A bit 7
+- ESP8266/ESP-12 conectado al puerto AY-3-8912
 - UART software a 9600 baudios
 
 ## Instalación
 
-1. Descarga el archivo TAP apropiado para tu hardware:
-   - `SpecTalkZX.tap` - Para UART hardware divTIESUS/divMMC
-
-2. Carga en tu Spectrum usando tu método preferido (tarjeta SD, cinta, etc.)
-
-3. Configura tu WiFi (NetManZX es tu amigo) y ajustes IRC usando los comandos integrados
+1. Descarga el archivo TAP para tu hardware
+2. Carga en tu Spectrum (tarjeta SD, cinta, etc.)
+3. Configura el WiFi con [NetManZX](https://github.com/imnacio/netmanzx) o similar
 
 ## Inicio Rápido
 
 ```
-/nick NICKNAME
-/server HOST [passwd]
-/join #canal            Unirse a un canal
+/nick TuNick            Establece tu nickname
+/server irc.libera.chat Conecta al servidor
+/join #canal            Únete a un canal
 ```
+
+Escribe `!help` para ver la ayuda integrada.
 
 ## Referencia de Comandos
 
@@ -69,57 +65,84 @@ SpecTalk ZX es un cliente IRC completo que trae el chat moderno de internet al c
 
 | Comando | Descripción |
 |---------|-------------|
-| `!wifi SSID,pass` | Conectar a red WiFi |
-| `!server host` | Establecer servidor IRC |
-| `!port num` | Establecer puerto IRC |
-| `!nick nombre` | Establecer nickname |
-| `!pass password` | Establecer contraseña NickServ |
-| `!connect` | Conectar al servidor IRC |
-| `!disconnect` | Desconectar del servidor |
-| `!init` | Reinicializar ESP8266 |
-| `!theme [1-3]` | Cambiar tema de colores |
-| `!status` | Mostrar estado de conexión |
-| `!help` | Mostrar ayuda |
-| `!about` | Acerca de SpecTalk |
-| `!quit` | Salir a BASIC |
+| `!help` o `!h` | Muestra páginas de ayuda (cualquier tecla cambia página, EDIT para salir) |
+| `!status` o `!s` | Muestra estado de conexión, nick, servidor y canales abiertos |
+| `!init` o `!i` | Reinicializa el módulo ESP8266 |
+| `!theme N` | Cambia el tema de colores (1-3) |
+| `!about` | Muestra versión y créditos |
 
 ### Comandos IRC (/)
 
+#### Conexión
 | Comando | Descripción |
 |---------|-------------|
-| `/join #canal` | Unirse a un canal |
-| `/part [mensaje]` | Salir del canal actual |
-| `/msg nick texto` | Enviar mensaje privado |
-| `/me acción` | Enviar mensaje de acción |
-| `/nick nuevonick` | Cambiar nickname |
-| `/topic [texto]` | Ver/establecer topic del canal |
-| `/kick nick [razón]` | Expulsar usuario del canal |
-| `/ban nick` | Banear usuario |
-| `/mode +/-flags` | Establecer modos de canal/usuario |
-| `/who #canal` | Listar usuarios del canal |
-| `/whois nick` | Obtener info de usuario |
-| `/list [patrón]` | Listar canales |
-| `/names` | Listar usuarios en el canal |
-| `/away [mensaje]` | Establecer/quitar estado away |
-| `/quote raw` | Enviar comando IRC raw |
+| `/nick nombre` | Establece o cambia el nickname |
+| `/pass contraseña` | Establece contraseña de NickServ (se envía al conectar) |
+| `/server host[:puerto]` | Conecta al servidor IRC (puerto por defecto: 6667) |
+| `/quit [mensaje]` | Desconecta del servidor |
+
+#### Canales
+| Comando | Alias | Descripción |
+|---------|-------|-------------|
+| `/join #canal` | `/j` | Unirse a un canal |
+| `/part [mensaje]` | `/p` | Salir del canal actual |
+| `/topic [texto]` | | Ver o establecer el topic del canal |
+| `/names` | | Listar usuarios en el canal actual |
+| `/kick nick [razón]` | `/k` | Expulsar usuario del canal (requiere op) |
+
+#### Mensajes
+| Comando | Alias | Descripción |
+|---------|-------|-------------|
+| `/msg nick texto` | `/m` | Enviar mensaje privado |
+| `/query nick` | `/q` | Abrir ventana de query para chat privado |
+| `/me acción` | | Enviar mensaje de acción (*TuNick hace algo*) |
+| `nick: texto` | | Sintaxis rápida de PM (desde ventana de canal) |
+
+#### Ventanas
+| Comando | Descripción |
+|---------|-------------|
+| `/0` | Cambiar a ventana Server |
+| `/1` a `/9` | Cambiar a ventana de canal/query |
+| `/w` o `/channels` | Listar todas las ventanas abiertas |
+| `/close` | Cerrar ventana de query actual (o `/part` si es canal) |
+
+#### Búsqueda e Info
+| Comando | Alias | Descripción |
+|---------|-------|-------------|
+| `/search patrón` | | Buscar canales (`#pat`) o usuarios (`nick`) |
+| `/list [patrón]` | `/ls` | Listar canales que coincidan con el patrón |
+| `/who #canal` | | Listar usuarios en un canal |
+| `/whois nick` | `/wi` | Obtener información de un usuario |
+
+#### Otros
+| Comando | Descripción |
+|---------|-------------|
+| `/away [mensaje]` | Establecer o quitar estado away |
+| `/ignore nick` | Activar/desactivar ignorar a un usuario |
+| `/raw comando` | Enviar comando IRC raw |
+
+## Teclado
+
+| Tecla | Función |
+|-------|---------|
+| **ENTER** | Enviar mensaje o ejecutar comando |
+| **EDIT** (CAPS+1) | Cancelar operación actual |
+| **↑ / ↓** | Navegar historial de comandos |
+| **← / →** | Mover cursor en línea de entrada |
+| **DELETE** (CAPS+0) | Borrar carácter |
 
 ## Compilar desde el Código Fuente
 
 ### Requisitos
-- z88dk (con SDCC)
+- z88dk con SDCC
 - Make
 
-### Comandos de Compilación
+### Compilación
 
 ```bash
-# Compilación por defecto (divTIESUS/divMMC)
-make
-
-# Compilación AY bit-bang
-make ay
-
-# Limpiar artefactos de compilación
-make clean
+make              # Compilación divTIESUS/divMMC
+make ay           # Compilación AY bit-bang  
+make clean        # Limpiar artefactos
 ```
 
 ## Estructura del Proyecto
@@ -127,40 +150,29 @@ make clean
 ```
 SpecTalkZX/
 ├── src/
-│   ├── spectalk.c      # Módulo principal, UI, manejo de conexión
-│   ├── irc_handlers.c  # Parseo de mensajes del protocolo IRC
-│   └── user_cmds.c     # Procesamiento de comandos de usuario
+│   ├── spectalk.c       # Módulo principal, UI, conexión
+│   ├── irc_handlers.c   # Parseo del protocolo IRC
+│   └── user_cmds.c      # Procesamiento de comandos
 ├── asm/
-│   ├── spectalk_asm.asm   # Rutinas optimizadas en ensamblador
-│   ├── ay_uart.asm        # Driver UART bit-bang AY
-│   └── divmmc_uart.asm    # Driver UART hardware divTIESUS
+│   ├── spectalk_asm.asm # Rutinas optimizadas en ensamblador
+│   ├── ay_uart.asm      # Driver UART AY bit-bang
+│   └── divmmc_uart.asm  # Driver UART hardware
 ├── include/
-│   ├── spectalk.h      # Header común
-│   ├── themes.h        # Definiciones de temas de colores
-│   └── font64_data.h   # Datos de fuente de 4 píxeles
+│   ├── spectalk.h       # Header común
+│   ├── themes.h         # Temas de colores
+│   └── font64_data.h    # Datos de fuente de 4 píxeles
 ├── Makefile
-├── LICENSE
-├── README.md
-├── READMEsp.md
-└── CHANGELOG.md
+├── CHANGELOG.md
+└── LICENSE
 ```
-
-## Detalles Técnicos
-
-- **Memoria**: Cabe en 48K, usa buffer circular optimizado (2KB) para UART RX
-- **Pantalla**: Renderizador personalizado de 64 columnas con caché de atributos
-- **Protocolo**: Tokenizador IRC completo con dispatch de comandos por tabla
-- **Rendimiento**: Rutas críticas optimizadas en ensamblador Z80
 
 ## Licencia
 
-SpecTalk ZX es software libre bajo la **GNU General Public License v2.0**.
+SpecTalk ZX es software libre bajo **GNU General Public License v2.0**.
 
-Este proyecto incluye código derivado de:
+Incluye código derivado de:
 - **BitchZX** - Cliente IRC (GPLv2)
 - **Driver UART AY/ZXuno** por Nihirash
-
-Consulta el archivo [LICENSE](LICENSE) para el texto completo de la licencia.
 
 ## Autor
 
@@ -168,10 +180,10 @@ Consulta el archivo [LICENSE](LICENSE) para el texto completo de la licencia.
 
 ## Agradecimientos
 
-- El proyecto BitchZX por la inspiración en la implementación del protocolo IRC
-- Nihirash por el código del driver UART AY/ZXuno
-- El equipo de z88dk por el excelente compilador cruzado
-- La comunidad de retrocomputación del ZX Spectrum
+- Proyecto BitchZX por la inspiración en el protocolo IRC
+- Nihirash por el código del driver UART AY
+- Equipo de z88dk por el compilador cruzado
+- Comunidad de retrocomputación del ZX Spectrum
 
 ---
 
