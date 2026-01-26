@@ -1,6 +1,4 @@
-<p align="center">
-  <img src="images/white_banner.png" alt="SpecTalkZX Logo" width="640" />
-</p>
+![SpecTalk Banner](images/white_banner.png)
 
 # SpecTalk ZX
 
@@ -16,7 +14,7 @@
 
 SpecTalk ZX is a fully-featured IRC client that brings modern internet chat to the classic ZX Spectrum. Using an ESP8266 WiFi module for connectivity, it provides a complete IRC experience on 8-bit hardware with a 64-column display, multiple channel support, and visual themes.
 
-<p align="center">[![SpecTalkZX](images/snap1.png)](images/snap1.png)</p>
+[![SpecTalkZX](images/snap1.png)](images/snap1.png)
 
 
 ## Features
@@ -32,7 +30,7 @@ SpecTalk ZX is a fully-featured IRC client that brings modern internet chat to t
 - **Keep-Alive System**: Automatic PING to prevent disconnection
 - **Activity Indicators**: Visual notification for messages in inactive channels
 
-[![theme1](images/theme1.png)](images/theme1.png) [![theme2](images/theme2.png)](images/theme2.png) [![theme3](images/theme3.png)](images/BTS3.png)
+[![theme1](images/theme 1.png)](images/theme 1.png) [![theme2](images/theme 2.png)](images/theme 2.png) [![theme3](images/theme 3.png)](images/theme 3.png)
 
 ## Hardware Requirements
 
