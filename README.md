@@ -133,11 +133,11 @@ Includes code derived from:
 - **BitchZX** - IRC client (GPLv2)
 - **AY/ZXuno UART driver** by Nihirash
 
-## Author
+### Author
 
 **M. Ignacio Monge Garcia** - 2026
 
-## Acknowledgments
+### Acknowledgments
 
 - BitchZX project for IRC protocol inspiration
 - Nihirash for AY UART driver code
