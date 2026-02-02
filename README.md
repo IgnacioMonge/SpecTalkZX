@@ -72,9 +72,6 @@ SpecTalk ZX is a fully-featured IRC client for the ZX Spectrum. Using an ESP8266
 
 | Key Combo | Action | Description |
 |-----------|--------|-------------|
-| **EXTEND** (CS+SS) | Toggle Mode | Switches between **Command Mode** (Typing) and **View Mode** (Scrolling). |
-| **TRUE VIDEO** (CS+3)| Next Window | Cycles to the next active channel or query (Tab). |
-| **INV VIDEO** (CS+4) | Prev Window | Cycles to the previous active channel or query. |
 | **ENTER** | Send / Act | Sends the message or executes the command. |
 | **EDIT** (CAPS+1) | Cancel / Clear | Clears the input line or cancels active searches. |
 | **DELETE** (CAPS+0) | Backspace | Deletes character to the left. |
