@@ -34,6 +34,8 @@ SpecTalk ZX is a fully-featured IRC client for the ZX Spectrum. Using an ESP8266
   - Ring Buffer (2KB) for reliable data reception.
   - Optimized drivers for divMMC (115200 baud) and AY (9600 baud).
 
+[![SpectalkZX theme1](images/theme1.png)](images/theme1.png) [![SpectalkZX theme2](images/theme2.png)](images/theme2.png) [![SpectalkZX theme3](images/theme3.png)](images/theme3.png)
+
 ## Hardware Requirements
 
 - **ZX Spectrum** 48K, 128K, +2, or +3.
