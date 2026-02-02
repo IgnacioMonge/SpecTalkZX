@@ -115,17 +115,9 @@ Este proyecto utiliza una estrategia de **Unity Build** (Compilación Unificada)
 ### Comandos de Compilación
 
 El `Makefile` soporta diferentes objetivos para diferentes backends de hardware:
-
-bash
-# 1. Compilación Estándar (divMMC / divTIESUS - 115200 baudios)
-make
-
-# 2. Compilación Legacy (Interfaz AY - 9600 baudios)
-make ay
-
-# 3. Limpiar artefactos
-make clean
-
+1. Compilación Estándar (divMMC / divTIESUS - 115200 baudios): make
+2. Compilación Legacy (Interfaz AY - 9600 baudios): make ay
+3. Limpiar artefactos: make clean
 
 ## Licencia
 
