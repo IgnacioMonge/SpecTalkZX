@@ -1,6 +1,6 @@
 /*
  * spectalk.c - Main module for SpecTalk ZX
- * SpecTalk ZX v1.0 - IRC Client for ZX Spectrum
+ * SpecTalk ZX - IRC Client for ZX Spectrum
  * Copyright (C) 2026 M. Ignacio Monge Garcia
  *
  * This program is free software; you can redistribute it and/or modify
@@ -64,7 +64,6 @@ uint8_t ATTR_STATUS;
 uint8_t ATTR_MSG_CHAN;
 uint8_t ATTR_MSG_SELF;
 uint8_t ATTR_MSG_PRIV;
-uint8_t ATTR_MSG_PRIV_INV;
 uint8_t ATTR_MAIN_BG;
 uint8_t ATTR_INPUT;
 uint8_t ATTR_INPUT_BG;
@@ -93,6 +92,11 @@ uint8_t show_names_list = 0;     // Flag: show 353 user list (for /names command
 // Activity indicator for inactive channels
 uint8_t other_channel_activity = 0;  // Set when msg arrives on non-active channel
 uint8_t irc_is_away = 0;
+
+// Auto-away system
+uint8_t autoaway_minutes = 0;    // 0 = disabled, 1-60 = minutes until auto-away
+uint16_t autoaway_counter = 0;   // Seconds of inactivity
+uint8_t autoaway_active = 0;     // 1 = current away is auto-away (not manual)
 
 // NAMES reply state machine (robust user counting with timeout)
 uint8_t names_pending = 0;
@@ -1046,12 +1050,11 @@ static void draw_connection_indicator(void)
     uint8_t ind_attr;
 
     if (connection_state >= STATE_TCP_CONNECTED) {
-        // Conectado (TCP o IRC) -> SIEMPRE VERDE
-        // El estado AWAY solo cambiará la forma del icono (Círculo vs C), no el color.
-        ind_attr = STATUS_GREEN; 
+        ind_attr = STATUS_GREEN;  // Conectado (TCP o IRC)
+    } else if (connection_state >= STATE_WIFI_OK) {
+        ind_attr = STATUS_YELLOW; // WiFi OK pero sin conexión TCP
     } else {
-        // Desconectado -> ROJO
-        ind_attr = STATUS_RED; 
+        ind_attr = STATUS_RED;    // Sin WiFi
     }
 
     // Llamar a rutina gráfica ASM 
@@ -1063,7 +1066,6 @@ extern char *u16_to_dec3(char *dst, uint16_t v) __z88dk_callee;
 void draw_status_bar_real(void)
 {
     char *p = sb_left_part; 
-    uint8_t ind_attr;
     
     // Calcular límites absolutos para recortes seguros
     char *limit_global = sb_left_part + 63;
@@ -1186,11 +1188,6 @@ void draw_status_bar_real(void)
     }
     
     draw_clock();
-    
-    if (connection_state < STATE_WIFI_OK) ind_attr = STATUS_RED;
-    else if (connection_state < STATE_TCP_CONNECTED) ind_attr = STATUS_YELLOW;
-    else ind_attr = STATUS_GREEN;
-    
     draw_connection_indicator();
 }
 
@@ -1374,7 +1371,6 @@ void fast_u8_to_str(char *buf, uint8_t val)
     buf[1] = '0' + val;
 }
 
-static char g_input_safe;
 static void input_add_char(char c) __z88dk_fastcall
 {
     // 1. Borrar cursor visual
@@ -1864,6 +1860,13 @@ void irc_send_cmd2(const char *cmd, const char *p1, const char *p2) __z88dk_call
 
 void irc_send_privmsg(const char *target, const char *msg) __z88dk_callee
 {
+    // Auto-away: reset counter on activity, clear if auto-away active
+    autoaway_counter = 0;
+    if (autoaway_active) {
+        uart_send_line("AWAY");
+        autoaway_active = 0;
+    }
+    
     // 1. ENVÍO DIRECTO
     if (connection_state >= STATE_TCP_CONNECTED) {
         uart_send_string(S_PRIVMSG);
@@ -2093,6 +2096,15 @@ void main(void)
             if (tick_counter >= 50) {
                 tick_counter = 0;
                 time_second++;
+                
+                // Auto-away check (cada segundo, si configurado y conectado)
+                if (autoaway_minutes && connection_state == STATE_IRC_READY && !irc_is_away) {
+                    if (++autoaway_counter >= (uint16_t)autoaway_minutes * 60) {
+                        uart_send_line("AWAY :Auto-away");
+                        autoaway_active = 1;
+                    }
+                }
+                
                 if (time_second >= 60) {
                     time_second = 0;
                     time_minute++;

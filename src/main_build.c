@@ -1,6 +1,6 @@
 /*
  * main_build.c - Single Compilation Unit
- * SpecTalk ZX v1.0 - IRC Client for ZX Spectrum
+ * SpecTalk ZX - IRC Client for ZX Spectrum
  * Copyright (C) 2026 M. Ignacio Monge Garcia
  *
  * This program is free software; you can redistribute it and/or modify

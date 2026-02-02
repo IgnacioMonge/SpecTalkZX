@@ -1,6 +1,6 @@
 /*
  * spectalk.h - Common header for SpecTalk ZX modular build
- * SpecTalk ZX v1.0 - IRC Client for ZX Spectrum
+ * SpecTalk ZX - IRC Client for ZX Spectrum
  * Copyright (C) 2026 M. Ignacio Monge Garcia
  *
  * This program is free software; you can redistribute it and/or modify
@@ -214,6 +214,9 @@ extern char irc_server[IRC_SERVER_SIZE];
 extern char irc_port[IRC_PORT_SIZE];
 extern char irc_nick[IRC_NICK_SIZE];
 extern uint8_t irc_is_away;
+extern uint8_t autoaway_minutes;
+extern uint16_t autoaway_counter;
+extern uint8_t autoaway_active;
 extern char irc_pass[IRC_PASS_SIZE];
 extern char user_mode[USER_MODE_SIZE];
 extern char network_name[NETWORK_NAME_SIZE];
@@ -261,7 +264,6 @@ extern uint8_t ATTR_MSG_NICK;
 extern uint8_t ATTR_MSG_TIME;
 extern uint8_t ATTR_MSG_TOPIC;
 extern uint8_t ATTR_MSG_MOTD;
-extern uint8_t ATTR_MSG_PRIV_INV;
 
 // =============================================================================
 // CROSS-MODULE FUNCTIONS (defined in spectalk.c)

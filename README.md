@@ -10,132 +10,283 @@
 ![License](https://img.shields.io/badge/License-GPLv2-green)
 ![Version](https://img.shields.io/badge/Version-1.2-orange)
 
+---
+
 ## Overview
 
-SpecTalk ZX is a fully-featured IRC client for the ZX Spectrum. Using an ESP8266 WiFi module for connectivity, it provides a complete IRC experience on 8-bit hardware with a 64-column display and support for up to 10 simultaneous channel/query windows.
+SpecTalk ZX is a fully-featured IRC client for the ZX Spectrum, bringing modern chat functionality to classic 8-bit hardware. Using an ESP8266 WiFi module for connectivity, it provides a complete IRC experience with a custom 64-column display and support for up to 10 simultaneous channel and private message windows.
+
+---
 
 ## Features
 
-- **64-column display** using custom 4-pixel wide font
-- **Multi-window interface**: Up to 10 simultaneous channels/queries
-- **3 color themes**: Default, Terminal, Colorful
-- **NickServ integration**: Automatic identification
+### Display & Interface
+- **64-column display** with custom 4-pixel wide font for maximum text density
+- **Multi-window interface** supporting up to 10 simultaneous channels/queries
+- **3 color themes**: Default (blue), Terminal (green/black), Colorful (cyan)
+- **Activity indicators**: Visual markers for windows with unread messages
+- **Connection indicator**: Three-state LED (🔴 No WiFi → 🟡 WiFi OK → 🟢 Connected)
+- **Real-time clock** synchronized via SNTP
+
+### IRC Protocol
+- **Full IRC compliance**: JOIN, PART, QUIT, NICK, PRIVMSG, NOTICE, TOPIC, MODE, KICK, WHO, WHOIS, LIST, NAMES
 - **CTCP support**: VERSION, PING, TIME, ACTION
-- **Channel user counting** with real-time updates
-- **Search functionality**: Find channels or users by pattern
-- **Keep-alive system**: Automatic PING to prevent timeout
-- **Activity indicators**: Visual notification for unread messages
-- **Smart Protocol Handling** *(New)*:
-  - Generic numeric parser allows viewing `/raw` command output (e.g., `/raw info`, `/raw stats`) and custom server errors.
-  - Filters connection noise (MOTD, server modes) for a cleaner status bar.
-- **Unity Build Architecture** *(New)*:
-  - Entire client compiled as a single unit to maximize speed and fit within 48K RAM.
-- **High-Performance UART**:
-  - Ring Buffer (2KB) for reliable data reception.
-  - Optimized drivers for divMMC (115200 baud) and AY (9600 baud).
+- **NickServ integration**: Automatic identification with `/pass`
+- **Away system**: Manual `/away` and automatic `/autoaway` with idle timer
+- **User ignore**: Block messages from specific users with `/ignore`
+- **Channel search**: Find channels or users by pattern
+
+### Reliability
+- **Keep-alive system**: Automatic PING to detect silent disconnections
+- **Server sync**: Away status synchronized with server responses (305/306)
+- **Smart filtering**: Connection noise (MOTD, stats) filtered for cleaner output
+- **Generic numeric parser**: View output from any `/raw` command
+
+### Performance
+- **Unity Build Architecture**: Entire client compiled as single unit for maximum optimization
+- **Ring Buffer**: 2KB buffer for reliable high-speed data reception
+- **Assembly-optimized**: Critical rendering paths written in Z80 assembly
+- **Dual UART drivers**: Hardware UART (115200 baud) and AY bit-bang (9600 baud)
 
 [![SpecTalkZX](images/snap1.png)](images/snap1.png)
 
+---
 
 ## Hardware Requirements
 
-- **ZX Spectrum** 48K, 128K, +2, or +3.
-- **ESP8266 WiFi Module** configured at the correct baud rate.
+| Component | Specification |
+|-----------|---------------|
+| **Computer** | ZX Spectrum 48K, 128K, +2, +2A, +3, or compatible |
+| **WiFi Module** | ESP8266 (ESP-01 or similar) with AT firmware |
+| **Interface** | divMMC, divTIESUS, or AY-based UART adapter |
 
-| Interface | Driver Used | Required Baud Rate |
-|-----------|-------------|--------------------|
-| **divMMC / divTIESUS** | Hardware UART / Fast Bit-bang | **115200** bps |
-| **ZX-Uno / AY Interface** | AY-3-8912 Bit-banging | **9600** bps |
+### Baud Rate Configuration
+
+| Interface | Driver | Baud Rate |
+|-----------|--------|-----------|
+| divMMC / divTIESUS | Hardware UART | **115200** bps |
+| ZX-Uno / AY Interface | AY-3-8912 Bit-bang | **9600** bps |
+
+> ⚠️ **Important**: Configure your ESP8266 to match the baud rate for your interface before use.
+
+---
 
 ## Installation
 
-1. Download the TAP file for your hardware
-2. Load on your Spectrum (SD card, tape, etc.)
-3. Configure WiFi with [NetManZX](https://github.com/IgnacioMonge/NetManZX) or similar tool
+1. Download the appropriate TAP file for your hardware:
+   - `spectalk_divmmc.tap` for divMMC/divTIESUS (115200 baud)
+   - `spectalk_ay.tap` for AY interface (9600 baud)
+2. Load on your Spectrum via SD card, tape, or other method
+3. Configure WiFi credentials using [NetManZX](https://github.com/IgnacioMonge/NetManZX) or similar tool
 
-## Quick Start (example)
+---
 
-1.  **Connect**: On startup, the client will attempt to initialize the ESP8266.
-    - Wait for `WiFi:OK` in the status bar.
-2.  **Server**: Connect to an IRC server (default is configured in source, or use command):
-    - `/server irc.libera.chat 6667`
-3.  **Identify**: Set your nickname:
-    - `/nick MyRetroNick`
-4.  **Join**: Enter a channel:
-    - `/join #spectrum`
+## Quick Start
 
-[![SpectalkZX theme1](images/theme1.png)](images/theme1.png) [![SpectalkZX theme2](images/theme2.png)](images/theme2.png) [![SpectalkZX theme3](images/theme3.png)](images/theme3.png)
+1. **Initialize**: On startup, wait for `WiFi:OK` in the status bar (indicator turns yellow, then green when connected)
 
-## Commands Reference
+2. **Set nickname**:
+   ```
+   /nick YourNickname
+   ```
 
-### 1. Controls & Key Bindings
+3. **Connect to server**:
+   ```
+   /server irc.libera.chat 6667
+   ```
 
-| Key Combo | Action | Description |
-|-----------|--------|-------------|
-| **ENTER** | Send / Act | Sends the message or executes the command. |
-| **EDIT** (CAPS+1) | Cancel / Clear | Clears the input line or cancels active searches. |
-| **DELETE** (CAPS+0) | Backspace | Deletes character to the left. |
-| **↑ / ↓** | History | Navigates command history. |
-| **← / →** | Cursor | Moves cursor within the line. |
+4. **Join a channel**:
+   ```
+   /join #spectrum
+   ```
 
-### 2. Slash Commands
+5. **Start chatting!** Type your message and press ENTER
 
-All commands start with `/`.
+[![Theme 1](images/theme1.png)](images/theme1.png) [![Theme 2](images/theme2.png)](images/theme2.png) [![Theme 3](images/theme3.png)](images/theme3.png)
 
-| Category | Command | Description |
-|----------|---------|-------------|
-| **Session** | `/nick [name]` | Change nickname. |
-| | `/quit [msg]` | Disconnect and exit. |
-| | `/raw [cmd]` | Send raw IRC command (e.g., `/raw VERSION`). |
-| | `/quote [cmd]` | Alias for `/raw`. |
-| **Channel** | `/join [chan]` | Join a channel. |
-| | `/part [chan]` | Leave a channel. |
-| | `/topic [text]` | View or set channel topic. |
-| | `/names` | List users in current channel. |
-| | `/kick [user]` | Kick a user (Ops only). |
-| | `/mode [args]` | Set channel/user modes. |
-| **Messages** | `/msg [user] [txt]` | Send private message. |
-| | `/query [user]` | Open a private chat window. |
-| | `/me [action]` | Send action (e.g., `* User waves`). |
-| | `/notice [tgt] [txt]`| Send notice. |
-| **Tools** | `/windows` | List all open windows and IDs. |
-| | `/clear` | Clear text in current window. |
-| | `/search [str]` | Search active channels/users. |
-| | `/list` | Download channel list (use with caution). |
-| | `/1` ... `/9` | Jump to window ID. (/0 Server)|
+---
+
+## Command Reference
+
+### Keyboard Controls
+
+| Key | Action |
+|-----|--------|
+| **ENTER** | Send message or execute command |
+| **EDIT** (Caps+1) | Clear input line / Cancel search |
+| **DELETE** (Caps+0) | Delete character (backspace) |
+| **← / →** | Move cursor within input line |
+| **↑ / ↓** | Navigate command history |
+
+### System Commands (!)
+
+Local commands that don't require server connection.
+
+| Command | Alias | Description |
+|---------|-------|-------------|
+| `!help` | `!h` | Display help screens |
+| `!status` | `!s` | Show connection status and statistics |
+| `!init` | `!i` | Reinitialize ESP8266 module |
+| `!theme N` | — | Change color theme (1, 2, or 3) |
+| `!about` | — | Show version and credits |
+
+### IRC Commands (/)
+
+#### Connection
+
+| Command | Alias | Description |
+|---------|-------|-------------|
+| `/server host[:port]` | `/connect` | Connect to IRC server (default port: 6667) |
+| `/nick name` | — | Set or change nickname |
+| `/pass password` | — | Set NickServ password for auto-identify |
+| `/quit [message]` | — | Disconnect from server with optional message |
+
+#### Channels
+
+| Command | Alias | Description |
+|---------|-------|-------------|
+| `/join #channel` | `/j` | Join a channel |
+| `/part [message]` | `/p` | Leave current channel |
+| `/topic [text]` | — | View or set channel topic |
+| `/names` | — | List users in current channel |
+| `/kick nick [reason]` | `/k` | Kick user from channel (ops only) |
+
+#### Messages
+
+| Command | Alias | Description |
+|---------|-------|-------------|
+| `/msg nick text` | `/m` | Send private message |
+| `/query nick` | `/q` | Open private message window |
+| `/me action` | — | Send action (appears as *YourNick action*) |
+| `nick: text` | — | Shortcut: send PM to nick (without /msg) |
+
+#### Windows
+
+| Command | Alias | Description |
+|---------|-------|-------------|
+| `/0` ... `/9` | — | Switch to window by number (0 = server) |
+| `/channels` | `/w` | List all open windows |
+| `/close` | — | Close current window |
+
+#### Tools
+
+| Command | Alias | Description |
+|---------|-------|-------------|
+| `/search pattern` | — | Search channels (`#pattern`) or users (`pattern`) |
+| `/list` | `/ls` | Download full channel list (use with caution) |
+| `/who pattern` | — | Search users matching pattern |
+| `/whois nick` | `/wi` | Get information about a user |
+| `/ignore [nick]` | — | Toggle ignore for nick, or list ignored users |
+| `/raw command` | — | Send raw IRC command to server |
+
+#### Away Status
+
+| Command | Alias | Description |
+|---------|-------|-------------|
+| `/away [message]` | — | Set away status with message, or clear if no message |
+| `/autoaway N` | `/aa` | Set auto-away after N minutes idle (1-60, 0=off) |
+
+> **Auto-away behavior**: When enabled, automatically sets you away after N minutes of inactivity. Sending any message clears auto-away automatically. Manual `/away` must be cleared manually with `/away`.
+
+---
+
+## Window Management
+
+SpecTalk supports up to 10 simultaneous windows:
+
+- **Window 0**: Server messages (always present)
+- **Windows 1-9**: Channels and private queries
+
+### Navigation
+- Use `/0` through `/9` to switch windows
+- Use `/w` or `/channels` to see all open windows
+- Activity indicator (●) shows windows with unread messages
+
+### Private Messages
+- Incoming PMs automatically create a query window
+- Use `/query nick` to manually open a private chat
+- Use `/close` to close the current query window
+
+---
+
+## Status Bar
+
+The status bar shows:
+
+```
+[●] 12:34 [#channel(42)] [nick] [+modes]
+```
+
+| Element | Description |
+|---------|-------------|
+| **●** | Connection indicator: 🔴 No WiFi, 🟡 WiFi OK, 🟢 Connected |
+| **12:34** | Current time (SNTP synchronized) |
+| **#channel(42)** | Current window name and user count |
+| **nick** | Your current nickname |
+| **+modes** | Your user modes (if any) |
+
+When away, the indicator changes from a solid circle to a half-circle.
+
+---
 
 ## Building from Source
 
-This project uses a **Unity Build** strategy to optimize for the Z80 target.
-
 ### Requirements
-- **z88dk** (with SDCC support).
-- **Make**.
+- **z88dk** with SDCC support
+- **GNU Make**
 
 ### Build Commands
 
-The `Makefile` supports different targets for different hardware backends:
+```bash
+# Standard build (divMMC/divTIESUS - 115200 baud)
+make
 
-1. Standard Build (divMMC / divTIESUS - 115200 baud): make
-2. Legacy Build (AY Interface - 9600 baud): make ay
-3. Clean artifacts: make clean
+# AY interface build (9600 baud)
+make ay
 
+# Clean build artifacts
+make clean
+```
 
-### License
+The project uses **Unity Build** strategy: all C sources are compiled as a single unit (`main_build.c`) enabling aggressive cross-function optimization.
 
-SpecTalk ZX is free software under **GNU General Public License v2.0**.
+---
+
+## Troubleshooting
+
+| Problem | Solution |
+|---------|----------|
+| Indicator stays red | Check ESP8266 wiring and baud rate configuration |
+| Indicator yellow but won't connect | Verify WiFi credentials with NetManZX |
+| "Connection timeout" after idle | Normal behavior - keep-alive detected dead connection |
+| Messages from user won't stop | Use `/ignore nick` to block them |
+| Can't identify with NickServ | Use `/pass yourpassword` before connecting |
+
+---
+
+## License
+
+SpecTalk ZX is free software released under the **GNU General Public License v2.0**.
 
 Includes code derived from:
-- **BitchZX** - IRC client (GPLv2)
+- **BitchZX** — IRC client (GPLv2)
 - **AY/ZXuno UART driver** by Nihirash
 
-### Author
+---
 
-**M. Ignacio Monge Garcia** - 2026
+## Author
 
-### Acknowledgments
+**M. Ignacio Monge García** — 2025-2026
 
-- BitchZX project for IRC protocol inspiration
+---
+
+## Acknowledgments
+
+- BitchZX project for IRC protocol foundation
 - Nihirash for AY UART driver code
-- z88dk team for the cross-compiler
+- z88dk team for the cross-compiler toolchain
 - ZX Spectrum retro computing community
+
+---
+
+*Connecting the ZX Spectrum to IRC since 2025*

@@ -1,6 +1,6 @@
 /*
  * irc_handlers.c - IRC message parsing and handling (Table-Driven Optimized)
- * SpecTalk ZX v1.0 - IRC Client for ZX Spectrum
+ * SpecTalk ZX - IRC Client for ZX Spectrum
  * Copyright (C) 2026 M. Ignacio Monge Garcia
  *
  * This program is free software; you can redistribute it and/or modify
@@ -189,11 +189,11 @@ static void h_privmsg_notice(void)
                         }
 
                         if (query_idx < 0 || (uint8_t)query_idx != current_channel_idx) {
-                            // "<< OTRO: " en amarillo (ATTR_MSG_PRIV), texto en verde (ATTR_MSG_SELF)
-                            current_attr = ATTR_MSG_PRIV;
+                            // "<< OTRO: " en amarillo (ATTR_MSG_SELF), texto en verde (ATTR_MSG_PRIV)
+                            current_attr = ATTR_MSG_SELF;
                             main_puts("<< "); main_puts(pkt_usr); main_puts(": ");
                         }
-                        current_attr = ATTR_MSG_SELF;
+                        current_attr = ATTR_MSG_PRIV;
                         main_puts("* "); main_puts(pkt_usr); main_putc(' '); main_print(act);
                         notification_beep();
                     }
@@ -273,11 +273,11 @@ static void h_privmsg_notice(void)
 
         if (query_idx < 0 || (uint8_t)query_idx != current_channel_idx) {
             // PRIV fuera de ventana: << OTRO (amarillo): MSG (verde)
-            current_attr = ATTR_MSG_PRIV;
+            current_attr = ATTR_MSG_SELF;
             main_puts("<< ");
             main_puts(pkt_usr);
             main_puts(": ");
-            current_attr = ATTR_MSG_SELF;
+            current_attr = ATTR_MSG_PRIV;
             main_print(pkt_txt);
         } else {
             // En la ventana del privado: mantener "<nick> msg" pero con nick dedicado
@@ -469,6 +469,27 @@ static void h_numeric_451(void)
     force_disconnect(); connection_state = STATE_WIFI_OK;
     reset_all_channels(); draw_status_bar();
     current_attr = ATTR_MSG_SYS; main_print("Use /server to reconnect");
+}
+
+static void h_numeric_305_306(void)
+{
+    // 305 = RPL_UNAWAY ("You are no longer marked as being away")
+    // 306 = RPL_NOWAWAY ("You have been marked as being away")
+    uint16_t num = str_to_u16(pkt_cmd);
+    irc_is_away = (num == 306) ? 1 : 0;
+    
+    if (num == 305) {
+        // Ya no away - resetear sistema de auto-away
+        autoaway_active = 0;
+        autoaway_counter = 0;
+    }
+    
+    draw_status_bar();
+    
+    if (pkt_txt && *pkt_txt) {
+        current_attr = ATTR_MSG_SYS;
+        main_print(pkt_txt);
+    }
 }
 
 static void h_numeric_332(void)
@@ -737,6 +758,8 @@ static const NumEntry NUM_TABLE[] = {
     { 366, h_numeric_366 },
     { 1,   h_numeric_1 },
     { 5,   h_numeric_5 },
+    { 305, h_numeric_305_306 },
+    { 306, h_numeric_305_306 },
     { 321, h_numeric_321 },
     { 332, h_numeric_332 },
     { 401, h_numeric_401 },

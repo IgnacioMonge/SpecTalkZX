@@ -1,6 +1,6 @@
 /*
  * user_cmds.c - User command parsing and handling (SIZE OPTIMIZED)
- * SpecTalk ZX v1.0 - IRC Client for ZX Spectrum
+ * SpecTalk ZX - IRC Client for ZX Spectrum
  * Copyright (C) 2026 M. Ignacio Monge Garcia
  *
  * This program is free software; you can redistribute it and/or modify
@@ -444,20 +444,21 @@ static void cmd_away(const char *args) __z88dk_fastcall
     uart_send_string("AWAY");
     
     if (args && *args) {
-        // Ponerse AWAY
+        // Ponerse AWAY (manual)
         uart_send_string(" :");
         uart_send_line(args);
         
-        irc_is_away = 1; // Solo marcamos bandera, el servidor confirmará con texto
+        irc_is_away = 1;
+        autoaway_active = 0;  // Away manual: no quitar automáticamente
     } else {
         // Quitar AWAY
         uart_send_crlf();
         
-        irc_is_away = 0; // Solo marcamos bandera
+        irc_is_away = 0;
+        autoaway_active = 0;
+        autoaway_counter = 0;
     }
     
-    // Forzamos repintado inmediato para que el icono cambie 
-    // sin esperar a que llegue el mensaje del servidor
     draw_status_bar(); 
 }
 
@@ -716,7 +717,7 @@ typedef struct {
 static const HelpLine help_page1[] = {
     { 0, 14, HA_TITLE,  "===== SPECTALK HELP (1/2) =====" },
     { 2,  2, HA_SECTION,"SYSTEM (!)" },
-    { 3,  2, HA_CMD,    "!help !status !about !init !theme N" },
+    { 3,  2, HA_CMD,    "!help !status !about !init !theme" },
     { 5,  2, HA_SECTION,"CONNECTION" },
     { 6,  2, HA_CMD,    "/nick Name" },
     { 6, 22, HA_DESC,   "Set nick" },
@@ -757,7 +758,9 @@ static const HelpLine help_page2[] = {
     {11,  2, HA_SECTION,"OTHER" },
     {12,  2, HA_CMD,    "/search #pat|nick" },
     {12, 22, HA_DESC,   "Find chan/user" },
-    {13,  2, HA_CMD,    "/whois /ignore /away /raw" },
+    {13,  2, HA_CMD,    "/away /autoaway N" },
+    {13, 22, HA_DESC,   "Away (N=auto min)" },
+    {14,  2, HA_CMD,    "/whois /ignore /raw" },
     {16, 14, HA_TITLE,  "-- Any key: pg 1 | EDIT: exit --" },
     { 0,  0, 0, 0 }
 };
@@ -920,6 +923,53 @@ static void cmd_theme(const char *args) __z88dk_fastcall
     redraw_input_full();
 }
 
+static void cmd_autoaway(const char *args) __z88dk_fastcall
+{
+    uint8_t mins;
+    
+    if (!args || !*args) {
+        // Mostrar estado
+        current_attr = ATTR_MSG_SYS;
+        main_puts("Auto-away: ");
+        if (autoaway_minutes) {
+            char buf[4];
+            fast_u8_to_str(buf, autoaway_minutes);
+            if (buf[0] == '0') main_putc(buf[1]); else { main_putc(buf[0]); main_putc(buf[1]); }
+            main_print(" min");
+        } else {
+            main_print("off");
+        }
+        return;
+    }
+    
+    // off/0 = desactivar
+    if (args[0] == 'o' || args[0] == 'O' || args[0] == '0') {
+        autoaway_minutes = 0;
+        autoaway_counter = 0;
+        autoaway_active = 0;
+        ui_sys("Auto-away disabled");
+        return;
+    }
+    
+    // Parsear minutos (1-60)
+    mins = (uint8_t)str_to_u16(args);
+    if (mins < 1 || mins > 60) {
+        ui_err("Range: 1-60 minutes (0=off)");
+        return;
+    }
+    
+    autoaway_minutes = mins;
+    autoaway_counter = 0;
+    current_attr = ATTR_MSG_SYS;
+    main_puts("Auto-away set to ");
+    {
+        char buf[4];
+        fast_u8_to_str(buf, mins);
+        if (buf[0] == '0') main_putc(buf[1]); else { main_putc(buf[0]); main_putc(buf[1]); }
+    }
+    main_print(" min");
+}
+
 // ============================================================
 // COMMAND DISPATCHER
 // ============================================================
@@ -996,6 +1046,7 @@ static const UserCmd USER_COMMANDS[] = {
     { "QUIT",    NULL,      cmd_quit },
     { "ME",      NULL,      cmd_me },
     { "AWAY",    NULL,      cmd_away },
+    { "AUTOAWAY","AA",      cmd_autoaway },
     { "RAW",     NULL,      cmd_raw },
     { "WHOIS",   "WI",      cmd_whois },
     { "WHO",     NULL,      cmd_who },

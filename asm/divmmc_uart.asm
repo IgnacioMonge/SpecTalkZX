@@ -1,6 +1,6 @@
 ;;
 ;; divmmc_uart.asm - Optimized UART backend for divMMC/divTIESUS
-;; SpecTalk ZX v1.0
+;; SpecTalk ZX
 ;;
 
 SECTION code_user
