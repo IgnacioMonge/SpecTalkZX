@@ -74,9 +74,6 @@ SpecTalk ZX es un cliente IRC con todas las funciones para el ZX Spectrum. Utili
 
 | Combinación de Teclas | Acción | Descripción |
 |-----------|--------|-------------|
-| **EXTEND** (CS+SS) | Alternar Modo | Cambia entre **Modo Comando** (Escribir) y **Modo Vista** (Desplazarse). |
-| **TRUE VIDEO** (CS+3)| Siguiente Ventana | Cambia al siguiente canal o consulta activa (Pestaña). |
-| **INV VIDEO** (CS+4) | Ventana Anterior | Cambia al anterior canal o consulta activa. |
 | **ENTER** | Enviar / Actuar | Envía el mensaje o ejecuta el comando. |
 | **EDIT** (CAPS+1) | Cancelar / Limpiar | Limpia la línea de entrada o cancela búsquedas activas. |
 | **DELETE** (CAPS+0) | Retroceso | Borra el carácter a la izquierda. |
