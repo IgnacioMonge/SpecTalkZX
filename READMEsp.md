@@ -48,11 +48,9 @@ SpecTalk ZX es un cliente IRC con todas las funciones para el ZX Spectrum. Utili
 | **ZX-Uno / Interfaz AY** | Bit-banging AY-3-8912 | **9600** bps |
 
 ## Instalación
-
-1.  **Configuración WiFi**: Asegúrate de que tu ESP8266 esté conectado a tu red WiFi local (usando comandos AT estándar) antes de cargar el programa.
-2.  **Carga**: Carga el archivo `SpecTalkZX.tap` en tu Spectrum o emulador.
-    - Si usas divMMC (ESXDOS), puedes ejecutarlo directamente desde el navegador.
-    - Si usas cargador de cinta: `LOAD ""`
+  - Descarga el fichero TAP para tu hardware.
+  - Cárgalo en tu Spectrum (tarjeta SD, cinta, etc.).
+  - Configura tu conexión WiFi con NetmanZX o herramienta similar.
 
 ## Inicio Rápido
 
