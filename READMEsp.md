@@ -8,143 +8,141 @@
 
 ![Plataforma](https://img.shields.io/badge/Plataforma-ZX%20Spectrum-blue)
 ![Licencia](https://img.shields.io/badge/Licencia-GPLv2-green)
-![Versión](https://img.shields.io/badge/Versión-1.1-orange)
+![Versión](https://img.shields.io/badge/Versión-1.2-orange)
 
-## Descripción
+## Descripción General
 
-SpecTalk ZX es un cliente IRC completo para ZX Spectrum. Usando un módulo WiFi ESP8266 para la conectividad, proporciona una experiencia IRC completa en hardware de 8 bits con pantalla de 64 columnas y soporte para hasta 10 ventanas simultáneas de canales/consultas.
-
-[![SpecTalkZX](images/snap1.png)](images/snap1.png)
+SpecTalk ZX es un cliente IRC con todas las funciones para el ZX Spectrum. Utilizando un módulo WiFi ESP8266 para la conectividad, proporciona una experiencia IRC completa en hardware de 8 bits con una pantalla de 64 columnas y soporte para hasta 10 ventanas simultáneas de canales/consultas.
 
 ## Características
 
-- **Pantalla de 64 columnas** con fuente personalizada de 4 píxeles
-- **Interfaz multi-ventana**: Hasta 10 canales/queries simultáneos
-- **3 temas de colores**: Default, Terminal, Colorful
+- **Pantalla de 64 columnas** utilizando una fuente personalizada de 4 píxeles de ancho
+- **Interfaz multi-ventana**: Hasta 10 canales/consultas simultáneas
+- **3 temas de color**: Default, Terminal, Colorful
 - **Integración con NickServ**: Identificación automática
 - **Soporte CTCP**: VERSION, PING, TIME, ACTION
-- **Contador de usuarios** con actualizaciones en tiempo real
-- **Función de búsqueda**: Encuentra canales o usuarios por patrón
-- **Sistema Keep-Alive**: PING automático para evitar timeout
-- **Indicadores de actividad**: Notificación visual de mensajes no leídos
-
-[![Tema 1](images/theme1.png)](images/theme1.png) [![Tema 2](images/theme2.png)](images/theme2.png) [![Tema 3](images/theme3.png)](images/theme3.png)
+- **Conteo de usuarios del canal** con actualizaciones en tiempo real
+- **Funcionalidad de búsqueda**: Encuentra canales o usuarios por patrón
+- **Sistema Keep-alive**: PING automático para prevenir tiempos de espera
+- **Indicadores de actividad**: Notificación visual para mensajes no leídos
+- **Manejo Inteligente del Protocolo** *(Nuevo)*:
+  - El analizador numérico genérico permite ver la salida del comando `/raw` (ej., `/raw info`, `/raw stats`) y errores personalizados del servidor.
+  - Filtra el ruido de conexión (MOTD, modos del servidor) para una barra de estado más limpia.
+- **Arquitectura Unity Build** *(Nuevo)*:
+  - Todo el cliente compilado como una sola unidad para maximizar la velocidad y ajustarse a la RAM de 48K.
+- **UART de Alto Rendimiento**:
+  - Ring Buffer (2KB) para una recepción de datos fiable.
+  - Drivers optimizados para divMMC (115200 baudios) y AY (9600 baudios).
 
 ## Requisitos de Hardware
 
-### Opción 1: divTIESUS / divMMC (Recomendado)
-- ZX Spectrum 48K/128K/+2/+3
-- divTIESUS o divMMC con UART hardware
-- Módulo ESP8266/ESP-12 con firmware AT
-- UART hardware a 115200 baudios
+- **ZX Spectrum** 48K, 128K, +2, o +3.
+- **Módulo WiFi ESP8266** configurado a la velocidad de baudios correcta.
 
-### Opción 2: AY Bit-Bang
-- ZX Spectrum 48K/128K/+2/+3
-- ESP8266/ESP-12 conectado al puerto AY-3-8912
-- UART software a 9600 baudios
+| Interfaz | Driver Usado | Velocidad Requerida |
+|-----------|-------------|--------------------|
+| **divMMC / divTIESUS** | UART Hardware / Bit-bang Rápido | **115200** bps |
+| **ZX-Uno / Interfaz AY** | Bit-banging AY-3-8912 | **9600** bps |
 
 ## Instalación
 
-1. Descarga el archivo TAP para tu hardware
-2. Carga en tu Spectrum (tarjeta SD, cinta, etc.)
-3. Configura el WiFi con [NetManZX](https://github.com/IgnacioMonge/NetManZX) o similar
+1.  **Configuración WiFi**: Asegúrate de que tu ESP8266 esté conectado a tu red WiFi local (usando comandos AT estándar) antes de cargar el programa.
+2.  **Carga**: Carga el archivo `SpecTalkZX.tap` en tu Spectrum o emulador.
+    - Si usas divMMC (ESXDOS), puedes ejecutarlo directamente desde el navegador.
+    - Si usas cargador de cinta: `LOAD ""`
 
 ## Inicio Rápido
 
-```
-/nick TuNick            Establece tu nickname
-/server irc.libera.chat Conecta al servidor
-/join #canal            Únete a un canal
-```
-
-Escribe `!help` para ver la ayuda integrada.
+1.  **Conectar**: Al inicio, el cliente intentará inicializar el ESP8266.
+    - Espera a ver `WiFi:OK` en la barra de estado.
+2.  **Servidor**: Conéctate a un servidor IRC (el predeterminado está configurado en el código fuente, o usa el comando):
+    - `/server irc.libera.chat 6667`
+3.  **Identificarse**: Establece tu apodo:
+    - `/nick MiNickRetro`
+4.  **Entrar**: Entra a un canal:
+    - `/join #spectrum`
 
 ## Referencia de Comandos
 
-### Comandos de Sistema (!)
+### 1. Controles y Atajos de Teclado
 
-| Comando | Descripción |
-|---------|-------------|
-| `!help` o `!h` | Muestra páginas de ayuda (cualquier tecla cambia página, EDIT para salir) |
-| `!status` o `!s` | Muestra estado de conexión, nick, servidor y canales abiertos |
-| `!init` o `!i` | Reinicializa el módulo ESP8266 |
-| `!theme N` | Cambia el tema de colores (1-3) |
-| `!about` | Muestra versión y créditos |
+| Combinación de Teclas | Acción | Descripción |
+|-----------|--------|-------------|
+| **EXTEND** (CS+SS) | Alternar Modo | Cambia entre **Modo Comando** (Escribir) y **Modo Vista** (Desplazarse). |
+| **TRUE VIDEO** (CS+3)| Siguiente Ventana | Cambia al siguiente canal o consulta activa (Pestaña). |
+| **INV VIDEO** (CS+4) | Ventana Anterior | Cambia al anterior canal o consulta activa. |
+| **ENTER** | Enviar / Actuar | Envía el mensaje o ejecuta el comando. |
+| **EDIT** (CAPS+1) | Cancelar / Limpiar | Limpia la línea de entrada o cancela búsquedas activas. |
+| **DELETE** (CAPS+0) | Retroceso | Borra el carácter a la izquierda. |
+| **↑ / ↓** | Historial | Navega por el historial de comandos. |
+| **← / →** | Cursor | Mueve el cursor dentro de la línea. |
 
-### Comandos IRC (/)
+### 2. Comandos de Barra
 
-#### Conexión
-| Comando | Descripción |
-|---------|-------------|
-| `/nick nombre` | Establece o cambia el nickname |
-| `/pass contraseña` | Establece contraseña de NickServ (se envía al conectar) |
-| `/server host[:puerto]` | Conecta al servidor IRC (puerto por defecto: 6667) |
-| `/quit [mensaje]` | Desconecta del servidor |
+Todos los comandos comienzan con `/`.
 
-#### Canales
-| Comando | Alias | Descripción |
-|---------|-------|-------------|
-| `/join #canal` | `/j` | Unirse a un canal |
-| `/part [mensaje]` | `/p` | Salir del canal actual |
-| `/topic [texto]` | | Ver o establecer el topic del canal |
-| `/names` | | Listar usuarios en el canal actual |
-| `/kick nick [razón]` | `/k` | Expulsar usuario del canal (requiere op) |
+| Categoría | Comando | Descripción |
+|----------|---------|-------------|
+| **Sesión** | `/nick [nombre]` | Cambiar apodo. |
+| | `/quit [msg]` | Desconectar y salir. |
+| | `/raw [cmd]` | Enviar comando IRC crudo (ej., `/raw VERSION`). |
+| | `/quote [cmd]` | Alias para `/raw`. |
+| **Canal** | `/join [chan]` | Unirse a un canal. |
+| | `/part [chan]` | Salir de un canal. |
+| | `/topic [texto]` | Ver o establecer el tema del canal. |
+| | `/names` | Listar usuarios en el canal actual. |
+| | `/kick [usuario]` | Expulsar a un usuario (Solo Ops). |
+| | `/mode [args]` | Establecer modos de canal/usuario. |
+| **Mensajes** | `/msg [usuario] [txt]` | Enviar mensaje privado. |
+| | `/query [usuario]` | Abrir una ventana de chat privado. |
+| | `/me [acción]` | Enviar acción (ej., `* Usuario saluda`). |
+| | `/notice [tgt] [txt]`| Enviar aviso (notice). |
+| **Herramientas** | `/windows` | Listar todas las ventanas abiertas e IDs. |
+| | `/clear` | Limpiar texto en la ventana actual. |
+| | `/search [str]` | Buscar canales/usuarios activos. |
+| | `/list` | Descargar lista de canales (usar con precaución). |
+| | `/1` ... `/9` | Saltar a ID de ventana. (/0 Servidor)|
 
-#### Mensajes
-| Comando | Alias | Descripción |
-|---------|-------|-------------|
-| `/msg nick texto` | `/m` | Enviar mensaje privado |
-| `/query nick` | `/q` | Abrir ventana de query para chat privado |
-| `/me acción` | | Enviar mensaje de acción (*TuNick hace algo*) |
-| `nick: texto` | | Sintaxis rápida de PM (desde ventana de canal) |
+## Compilación desde el Código Fuente
 
-#### Ventanas
-| Comando | Descripción |
-|---------|-------------|
-| `/0` | Cambiar a ventana Server |
-| `/1` a `/9` | Cambiar a ventana de canal/query |
-| `/w` o `/channels` | Listar todas las ventanas abiertas |
-| `/close` | Cerrar ventana de query actual (o `/part` si es canal) |
-
-#### Búsqueda e Info
-| Comando | Alias | Descripción |
-|---------|-------|-------------|
-| `/search patrón` | | Buscar canales (`#pat`) o usuarios (`nick`) |
-| `/list [patrón]` | `/ls` | Listar canales que coincidan con el patrón |
-| `/who #canal` | | Listar usuarios en un canal |
-| `/whois nick` | `/wi` | Obtener información de un usuario |
-
-#### Otros
-| Comando | Descripción |
-|---------|-------------|
-| `/away [mensaje]` | Establecer o quitar estado away |
-| `/ignore nick` | Activar/desactivar ignorar a un usuario |
-| `/raw comando` | Enviar comando IRC raw |
-
-## Teclado
-
-| Tecla | Función |
-|-------|---------|
-| **ENTER** | Enviar mensaje o ejecutar comando |
-| **EDIT** (CAPS+1) | Cancelar operación actual |
-| **↑ / ↓** | Navegar historial de comandos |
-| **← / →** | Mover cursor en línea de entrada |
-| **DELETE** (CAPS+0) | Borrar carácter |
-
-## Compilar desde el Código Fuente
+Este proyecto utiliza una estrategia de **Unity Build** (Compilación Unificada) para optimizar para el objetivo Z80.
 
 ### Requisitos
-- z88dk con SDCC
-- Make
+- **z88dk** (con soporte SDCC).
+- **Make**.
 
-### Compilación
+### Comandos de Compilación
+
+El `Makefile` soporta diferentes objetivos para diferentes backends de hardware:
 
 bash
-make              # Compilación divTIESUS/divMMC
-make ay           # Compilación AY bit-bang  
-make clean        # Limpiar artefactos
-```
+# 1. Compilación Estándar (divMMC / divTIESUS - 115200 baudios)
+make
 
+# 2. Compilación Legacy (Interfaz AY - 9600 baudios)
+make ay
+
+# 3. Limpiar artefactos
+make clean
+
+## Estructura del Proyecto
+
+SpecTalkZX/
+├── src/
+│   ├── spectalk.c       # Main module, UI, connection
+│   ├── irc_handlers.c   # IRC protocol parsing
+│   └── user_cmds.c      # Command processing
+├── asm/
+│   ├── spectalk_asm.asm # Optimized assembly routines
+│   ├── ay_uart.asm      # AY bit-bang UART driver
+│   └── divmmc_uart.asm  # Hardware UART driver
+├── include/
+│   ├── spectalk.h       # Common header
+│   ├── themes.h         # Color themes
+│   └── font64_data.h    # 4-pixel font data
+├── Makefile
+├── CHANGELOG.md
+└── LICENSE
 
 ## Licencia
 
@@ -164,7 +162,3 @@ Incluye código derivado de:
 - Nihirash por el código del driver UART AY
 - Equipo de z88dk por el compilador cruzado
 - Comunidad de retrocomputación del ZX Spectrum
-
----
-
-*¡Conecta tu Spectrum al mundo!*
