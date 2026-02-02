@@ -124,27 +124,8 @@ make ay
 # 3. Clean artifacts
 make clean
 
-## Project Structure
 
-```
-SpecTalkZX/
-├── src/
-│   ├── spectalk.c       # Main module, UI, connection
-│   ├── irc_handlers.c   # IRC protocol parsing
-│   └── user_cmds.c      # Command processing
-├── asm/
-│   ├── spectalk_asm.asm # Optimized assembly routines
-│   ├── ay_uart.asm      # AY bit-bang UART driver
-│   └── divmmc_uart.asm  # Hardware UART driver
-├── include/
-│   ├── spectalk.h       # Common header
-│   ├── themes.h         # Color themes
-│   └── font64_data.h    # 4-pixel font data
-├── Makefile
-├── CHANGELOG.md
-└── LICENSE
-
-## License
+### License
 
 SpecTalk ZX is free software under **GNU General Public License v2.0**.
 
