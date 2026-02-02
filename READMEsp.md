@@ -139,32 +139,12 @@ Escribe `!help` para ver la ayuda integrada.
 
 ### Compilación
 
-```bash
+bash
 make              # Compilación divTIESUS/divMMC
 make ay           # Compilación AY bit-bang  
 make clean        # Limpiar artefactos
 ```
 
-## Estructura del Proyecto
-
-```
-SpecTalkZX/
-├── src/
-│   ├── spectalk.c       # Módulo principal, UI, conexión
-│   ├── irc_handlers.c   # Parseo del protocolo IRC
-│   └── user_cmds.c      # Procesamiento de comandos
-├── asm/
-│   ├── spectalk_asm.asm # Rutinas optimizadas en ensamblador
-│   ├── ay_uart.asm      # Driver UART AY bit-bang
-│   └── divmmc_uart.asm  # Driver UART hardware
-├── include/
-│   ├── spectalk.h       # Header común
-│   ├── themes.h         # Temas de colores
-│   └── font64_data.h    # Datos de fuente de 4 píxeles
-├── Makefile
-├── CHANGELOG.md
-└── LICENSE
-```
 
 ## Licencia
 
