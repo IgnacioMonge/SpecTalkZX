@@ -75,6 +75,7 @@ SECTION bss_user
 
 _baud:              defs 2      ; Baud rate delay value (11 for 9600)
 _baud_tx_val:       defs 2      ; PRE-CALCULATED baud - 2 for TX
+_baud_half:         defs 2      ; PRE-CALCULATED baud / 2 for RX timing
 _isSecondByteAvail: defs 1      ; Second byte available flag  
 _secondByte:        defs 1      ; Cached second byte
 
@@ -125,16 +126,17 @@ _ay_uart_init:
     ld bc, 0xFFFD
     out (c), a
     
-    ; Read current value and set CTS low (bit 2)
+    ; Read current value and set CTS HIGH (Busy) initially
     ld b, 0xBF
     in a, (c)
-    and 0xFB                ; Clear bit 2 (CTS low)
+    or 0x04                 ; Set bit 2 (CTS High / Busy) - WAS: and 0xFB
     out (c), a
     
     ei
     
     ; Wait for ESP to stabilize (shorter)
     ld b, 50
+    
 initFlush:
     halt
     djnz initFlush
@@ -148,6 +150,13 @@ initFlush:
     dec hl
     ld (_baud_tx_val), hl
     ; -------------------------------------------------------
+    
+    ; --- OPTIMIZACIÓN: Precalcular baud/2 para RX ---
+    ld hl, 11
+    srl h
+    rr l                    ; HL = 11/2 = 5
+    ld (_baud_half), hl
+    ; ------------------------------------------------
     
     ; Clear second byte cache
     xor a
@@ -429,9 +438,7 @@ startReadByte:
     xor a
     exx
     ld de, (_baud)
-    ld hl, (_baud)
-    srl h
-    rr l                    ; HL = _baud/2
+    ld hl, (_baud_half)     ; OPTIMIZACIÓN: Carga directa del valor precalculado
     or a
     ld b, 0xFA              ; Wait loop length (timeout)
     exx

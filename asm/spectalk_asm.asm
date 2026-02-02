@@ -44,6 +44,7 @@ PUBLIC _str_append_n
 PUBLIC _st_stricmp
 PUBLIC _st_stristr
 PUBLIC _u16_to_dec
+PUBLIC _u16_to_dec3
 PUBLIC _str_to_u16
 PUBLIC _skip_to
 PUBLIC _uart_send_string
@@ -54,6 +55,9 @@ PUBLIC _try_read_line_nodrain
 PUBLIC _reapply_screen_attributes
 PUBLIC _cls_fast
 PUBLIC _uart_drain_to_buffer
+PUBLIC _scroll_main_zone
+PUBLIC _tokenize_params
+PUBLIC _sb_append
 
 ; =============================================================================
 ; variables Y functions EXTERNAS (definidas en C u otros .asm)
@@ -73,13 +77,16 @@ EXTERN _ATTR_MAIN_BG
 EXTERN _ATTR_MSG_CHAN
 EXTERN _ATTR_STATUS
 EXTERN _ATTR_INPUT_BG
+EXTERN _current_attr
+EXTERN _irc_params
+EXTERN _irc_param_count
 EXTERN _force_status_redraw
 EXTERN _status_bar_dirty
 EXTERN _uart_drain_limit
-EXTERN _rb_dropped
 EXTERN _ay_uart_ready   ; Retorna L=1 si hay datos
 EXTERN _ay_uart_read    ; Retorna byte en L
 EXTERN _rb_push         ; Fastcall: byte en L. Retorna L=1 (ok), 0 (fail)
+EXTERN _irc_is_away
 
 ; Ring buffer (para rb_pop y try_read_line_nodrain)
 EXTERN _ring_buffer
@@ -280,6 +287,8 @@ _rb_push:
     
     ; 1. Calcular dónde iría el NUEVO Head = (head + 1) & MASK
     ld hl, (_rb_head)
+    ld d, h             ; DE = head actual (guardamos para escribir después)
+    ld e, l
     inc hl
     
     ; Aplicar máscara solo a la parte alta (la baja hace overflow natural a 0)
@@ -288,30 +297,19 @@ _rb_push:
     ld h, a
     
     ; HL contiene ahora el "Futuro Head"
+    ; DE contiene el "Head Actual" (donde escribiremos)
     
     ; 2. Comprobar colisión: ¿El Futuro Head choca con el Tail actual?
-    ld de, (_rb_tail)
-    or a            
-    sbc hl, de      
+    ld bc, (_rb_tail)
+    ld a, h
+    cp b
+    jr nz, _rb_push_ok
+    ld a, l
+    cp c
     jr z, _rb_push_full ; Si son iguales, el buffer está lleno. Abortar.
     
-    ; 3. Si hay sitio, necesitamos recuperar el Head ACTUAL para escribir
-    ; (HL tenía el futuro head, no nos sirve para escribir AHORA)
-    ld de, (_rb_head)   ; DE = head actual
-    
-    ; Pero ya podemos guardar el Futuro Head en la variable global, porque es seguro
-    ; Para esto necesitamos recuperar el valor calculado antes de la resta (sbc).
-    ; Truco: Volvemos a calcularlo o usamos el hecho de que ya validamos.
-    ; Lo más rápido: Recalcularlo sobre la marcha es lento.
-    ; Mejor estrategia: Recuperar el valor futuro.
-    
-    ; Recalculamos el futuro head rápidamente para guardarlo
-    ld hl, (_rb_head)
-    inc hl
-    ld a, h
-    and RB_MASK_H
-    ld h, a             ; HL = Futuro Head validado
-    
+_rb_push_ok:
+    ; 3. Guardar el Futuro Head en la variable global
     ld (_rb_head), hl   ; ACTUALIZAMOS EL PUNTERO GLOBAL
     
     ; 4. Escribir el dato en la memoria: buffer[head_viejo]
@@ -776,6 +774,8 @@ p64_set_attr:
 
 ; -----------------------------------------------------------------------------
 ; void print_line64_fast(uint8_t y, const char *s, uint8_t attr)
+; OPTIMIZED VERSION: Calcula dirección VRAM una vez y avanza linealmente
+; NOTA: Compatible con _print_str64_char que salta scanline 0
 ; Stack: [IX+6]=y, [IX+7,8]=s, [IX+9]=attr
 ; -----------------------------------------------------------------------------
 _print_line64_fast:
@@ -784,52 +784,210 @@ _print_line64_fast:
     ld ix, 0
     add ix, sp
     
-    ; Configurar contexto global
-    ld a, (ix+6)
-    ld (_g_ps64_y), a
-    ld a, (ix+9)
-    ld (_g_ps64_attr), a
-    xor a
-    ld (_g_ps64_col), a
+    ; 1. CALCULAR DIRECCIÓN DE PANTALLA (Solo una vez)
+    ld a, (ix+6)            ; Y (0-23)
+    add a, a                ; Y * 2 (offset en tabla words)
+    ld l, a
+    ld h, 0
+    ld de, _screen_row_base
+    add hl, de
     
-    ; HL = puntero al string
-    ld l, (ix+7)
-    ld h, (ix+8)
-
-pl64_print_loop:
     ld a, (hl)
+    inc hl
+    ld h, (hl)
+    ld l, a                 ; HL = Dirección base de la fila en VRAM
+    
+    ; 2. CALCULAR DIRECCIÓN DE ATRIBUTOS Y GUARDARLA
+    ld a, (ix+6)            ; Y
+    ld e, a
+    ld d, 0
+    ex de, hl               ; DE = VRAM base, HL = Y
+    add hl, hl              ; Y*2
+    add hl, hl              ; Y*4
+    add hl, hl              ; Y*8
+    add hl, hl              ; Y*16
+    add hl, hl              ; Y*32
+    ld bc, 0x5800
+    add hl, bc              ; HL = Attr Address base
+    push hl                 ; Guardar Attr Addr en Stack
+    
+    ex de, hl               ; HL = VRAM base
+    
+    ; Preparar registros para el bucle
+    ld e, (ix+7)
+    ld d, (ix+8)            ; DE = Puntero al string (char *s)
+    ld c, (ix+9)            ; C = Atributo (guardar para luego)
+    
+    ld b, 32                ; B = Contador de columnas físicas (32 bytes = 64 chars)
+
+pl64_loop:
+    push bc                 ; Guardar contador columnas
+    
+    ; --- CARACTER IZQUIERDO (Bits 4-7) ---
+    ld a, (de)              ; Leer char string
     or a
-    jr z, pl64_fill_rest
+    jp z, pl64_pad          ; Fin de string -> Rellenar con espacios
+    inc de
     
-    ld c, a                 ; Guardar carácter
-    ld a, (_g_ps64_col)
-    cp 64
-    jr nc, pl64_done
+    push de                 ; Guardar puntero string
+    push hl                 ; Guardar puntero VRAM
     
+    ; Obtener glifo fuente: (char - 32) * 8
+    sub 32                  ; ASCII -> Offset
+    ld l, a
+    ld h, 0
+    add hl, hl              ; x2
+    add hl, hl              ; x4
+    add hl, hl              ; x8
+    ld bc, _font64
+    add hl, bc
     push hl
-    ld l, c
-    call _print_str64_char
+    pop iy                  ; IY = Puntero al glifo fuente
     
-    ld hl, _g_ps64_col
-    inc (hl)
+    pop hl                  ; Recuperar VRAM
+    
+    ; COMPATIBILIDAD: Borrar scanline 0, luego dibujar 7 scanlines (1-7)
+    ld a, (hl)
+    and 0x0F                ; Conservar nibble derecho
+    ld (hl), a
+    inc h                   ; Saltar a scanline 1
+    
+    ; Dibujar 7 scanlines (Lado Izquierdo - nibble alto)
+    ld b, 7
+pl64_char1:
+    ld a, (iy+0)            ; Leer fuente
+    and 0xF0                ; Quedarse con parte izquierda
+    ld c, a
+    ld a, (hl)              ; Leer pantalla
+    and 0x0F                ; Quedarse con parte derecha existente
+    or c                    ; Combinar
+    ld (hl), a              ; Escribir
+    inc h                   ; Siguiente scanline
+    inc iy
+    djnz pl64_char1
+    
+    ; Corregir HL (volver a scanline 0: restamos 8 porque hicimos 1+7 inc h)
+    ld a, h
+    sub 8
+    ld h, a
+    
+    pop de                  ; Recuperar puntero string
+
+    ; --- CARACTER DERECHO (Bits 0-3) ---
+    ld a, (de)
+    or a
+    jp z, pl64_pad_right    ; Fin de string justo en medio del byte
+    inc de
+    
+    push de
+    push hl
+    
+    sub 32
+    ld l, a
+    ld h, 0
+    add hl, hl
+    add hl, hl
+    add hl, hl
+    ld bc, _font64
+    add hl, bc
+    push hl
+    pop iy
+    
+    pop hl
+    
+    ; COMPATIBILIDAD: Borrar scanline 0, luego dibujar 7 scanlines (1-7)
+    ld a, (hl)
+    and 0xF0                ; Conservar nibble izquierdo
+    ld (hl), a
+    inc h                   ; Saltar a scanline 1
+    
+    ld b, 7
+pl64_char2:
+    ld a, (iy+0)            ; Fuente
+    and 0x0F                ; Nibble derecho
+    ld c, a
+    ld a, (hl)              ; Pantalla
+    and 0xF0                ; Nibble izquierdo
+    or c
+    ld (hl), a
+    inc h
+    inc iy
+    djnz pl64_char2
+    
+    ; Corregir HL
+    ld a, h
+    sub 8
+    ld h, a
+    
+    pop de                  ; Recuperar string
+    
+    ; --- AVANZAR Y CONTINUAR ---
+    inc hl                  ; Avanzar 1 byte en VRAM (horizontal)
+    
+    pop bc                  ; Recuperar contador columnas
+    djnz pl64_loop
+    jp pl64_attrs
+
+; --- PADDING: String terminó ---
+pl64_pad:
+    ; Borrar nibble izquierdo en todas las scanlines
+    push hl
+    ld b, 8
+pl64_pad_L:
+    ld a, (hl)
+    and 0x0F
+    ld (hl), a
+    inc h
+    djnz pl64_pad_L
+    pop hl
+    
+pl64_pad_right:
+    ; Borrar nibble derecho en todas las scanlines
+    push hl
+    ld b, 8
+pl64_pad_R:
+    ld a, (hl)
+    and 0xF0
+    ld (hl), a
+    inc h
+    djnz pl64_pad_R
+    pop hl
+    
+    inc hl                  ; Siguiente byte VRAM
+    
+    pop bc                  ; Contador
+    dec b
+    jp z, pl64_attrs        ; Terminamos
+    
+    ; Continuar rellenando resto de línea con ceros
+pl64_pad_full:
+    push bc
+    push hl
+    
+    ; Borrar byte completo (8 scanlines)
+    ld b, 8
+pl64_pad_byte:
+    ld (hl), 0
+    inc h
+    djnz pl64_pad_byte
+    
     pop hl
     inc hl
-    jr pl64_print_loop
+    pop bc
+    djnz pl64_pad_full
 
-pl64_fill_rest:
-    ; Rellenar resto con espacios
-    ld a, (_g_ps64_col)
-    cp 64
-    jr nc, pl64_done
+pl64_attrs:
+    ; 3. PINTADO RÁPIDO DE ATRIBUTOS (32 bytes con LDIR)
+    pop hl                  ; Recuperar dirección base de atributos
     
-    ld l, 32
-    call _print_str64_char
+    ld a, (ix+9)            ; Atributo
+    ld (hl), a              ; Primer byte
+    ld d, h
+    ld e, l
+    inc de
+    ld bc, 31
+    ldir                    ; Copiar a los 31 restantes
     
-    ld hl, _g_ps64_col
-    inc (hl)
-    jr pl64_fill_rest
-
-pl64_done:
     pop ix
     pop iy
     ret
@@ -846,7 +1004,7 @@ _draw_indicator:
     add ix, sp
     
     ld a, (ix+6)            ; y
-    ld c, (ix+8)            ; attr (guardar para luego)
+    ld c, (ix+8)            ; attr
     
     ; Calcular dirección screen
     ld l, a
@@ -862,9 +1020,15 @@ _draw_indicator:
     
     ld e, (ix+7)            ; phys_x
     ld d, 0
-    add hl, de              ; HL = dirección exacta
+    add hl, de              ; HL = dirección exacta pixel
     
-    ; Dibujar círculo (8 scanlines)
+    ; Decidir forma basada en estado AWAY
+    ld a, (_irc_is_away)
+    or a
+    jr nz, draw_ind_away
+    
+draw_ind_online:
+    ; Círculo Sólido
     ld (hl), 0x00
     inc h
     ld (hl), 0x3C
@@ -880,8 +1044,28 @@ _draw_indicator:
     ld (hl), 0x3C
     inc h
     ld (hl), 0x00
+    jr draw_ind_attr
+
+draw_ind_away:
+    ; Forma: Círculo medio lleno (Mitad derecha sólida, mitad izquierda vacía)
+    ; Mantener el mismo diámetro que el círculo sólido (0x00 arriba/abajo)
+    ld (hl), 0x00
+    inc h
+    ld (hl), 0x3C
+    inc h
+    ld (hl), 0x4E
+    inc h
+    ld (hl), 0x4E
+    inc h
+    ld (hl), 0x4E
+    inc h
+    ld (hl), 0x4E
+    inc h
+    ld (hl), 0x3C
+    inc h
+    ld (hl), 0x00
     
-    ; Atributo: 0x5800 + y*32 + phys_x
+draw_ind_attr:
     ld a, (ix+6)            ; y
     ld l, a
     ld h, 0
@@ -1173,6 +1357,43 @@ _u16_to_dec:
     ld (de), a              ; NULL terminator
     
     ex de, hl               ; Retornar puntero al final
+    pop ix
+    ret
+
+; =============================================================================
+; char* u16_to_dec3(char *dst, uint16_t v)
+; Versión reducida: imprime hasta 4 dígitos (1000,100,10,1). Ideal para contadores.
+; Retorna puntero al NULL (igual que u16_to_dec).
+; =============================================================================
+
+_u16_to_dec3:
+    pop bc                  ; return
+    pop de                  ; dst
+    pop hl                  ; v
+    push hl
+    push de
+    push bc
+
+    push ix
+    ld ix, 0                ; IXL = flag "ya imprimimos algo"
+
+    ld bc, -1000
+    call u16_digit
+    ld bc, -100
+    call u16_digit
+    ld bc, -10
+    call u16_digit
+
+    ; Unidades (siempre)
+    ld a, l
+    add a, '0'
+    ld (de), a
+    inc de
+
+    xor a
+    ld (de), a              ; NULL
+
+    ex de, hl               ; devolver puntero al final (HL)
     pop ix
     ret
 
@@ -1500,58 +1721,482 @@ _cls_fast:
 _uart_drain_to_buffer:
     push iy                 ; Preservar IY (estándar z88dk)
 
-    ; 1. Configurar contador de bucle (BC)
+    ; Preparar contador en BC' (banco alternativo) para que las llamadas
+    ; puedan destruir BC sin necesidad de push/pop por iteración.
     ld a, (_uart_drain_limit)
     or a
     jr z, drain_setup_safety
-    
+
     ; Caso con límite (ej: 32 bytes)
-    ld c, a
+    exx
     ld b, 0
+    ld c, a                 ; BC' = limit
+    exx
     jr drain_loop_start
 
 drain_setup_safety:
     ; Caso límite=0 -> Usar seguridad de 4096 iteraciones
-    ld bc, 4096
+    exx
+    ld bc, 4096             ; BC' = 4096
+    exx
 
 drain_loop_start:
-    ; CRÍTICO: Guardamos BC porque ay_uart_read destruye B y C
-    push bc
-    
     ; 2. ¿Hay datos disponibles?
     call _ay_uart_ready     ; Retorna L=1 (Sí) o 0 (No)
     ld a, l
     or a
-    jr z, drain_exit_pop    ; Si L=0, no hay más datos -> Salir
-    
+    jr z, drain_exit        ; Si L=0, no hay más datos -> Salir
+
     ; 3. Leer byte
     call _ay_uart_read      ; Retorna byte en L
-    
+
     ; 4. Meter en Ring Buffer
-    ; _rb_push es fastcall, espera el dato en L (ya lo tenemos ahí)
     call _rb_push           ; Retorna L=1 (Éxito) o 0 (Fallo/Lleno)
-    
     ld a, l
     or a
-    jr nz, drain_next       ; Si L!=0 (Éxito), continuar
-    
-    ; 5. Gestión de error (Buffer lleno)
-    ; rb_dropped++
-    ld hl, (_rb_dropped)
-    inc hl
-    ld (_rb_dropped), hl
+    jr z, drain_exit        ; Si buffer lleno, PARAR para no romper framing
 
-drain_next:
-    pop bc                  ; Recuperar contador del bucle
-    dec bc                  ; Decrementar
+    ; Decrementar contador en BC' (banco alternativo)
+    exx
+    dec bc
     ld a, b
     or c
-    jr nz, drain_loop_start ; Si BC > 0, seguir
-    
-    pop iy                  ; Restaurar IY y salir
+    exx
+    jr nz, drain_loop_start ; Si BC' > 0, seguir
+
+drain_exit:
+    pop iy
     ret
 
-drain_exit_pop:
-    pop bc                  ; Limpiar pila (el push bc del inicio del loop)
+
+; =============================================================================
+; void scroll_main_zone(void)
+; Scroll optimizado de la zona de chat (líneas 2-19 -> 2-18).
+; Mueve bloques de VRAM teniendo en cuenta el entrelazado del Spectrum.
+; =============================================================================
+_scroll_main_zone:
+    push iy
+    di
+    
+    ld b, 0                 ; Offset scanline
+
+smz_scanline_loop:
+    push bc
+    ld iy, smz_block_table
+    ld c, 5                 ; 5 bloques
+
+smz_block_loop:
+    ld l, (iy+0)            ; SrcL
+    ld a, (iy+1)            ; SrcH Base
+    add a, b
+    ld h, a                 ; HL = Source
+    
+    ld e, (iy+2)            ; DestL
+    ld a, (iy+3)            ; DestH Base
+    add a, b
+    ld d, a                 ; DE = Dest
+    
+    ld a, (iy+4)            ; Len
+    
+    push bc
+    ld c, a
+    ld b, 0
+    ldir
+    pop bc
+    
+    ld de, 5
+    add iy, de
+    dec c
+    jr nz, smz_block_loop
+    
+    pop bc
+    inc b
+    ld a, b
+    cp 8
+    jr nz, smz_scanline_loop
+    
+    ; Scroll atributos (17 filas: 3->2 ... 19->18)
+    ld de, 0x5840
+    ld hl, 0x5860
+    ld bc, 544
+    ldir
+    
+    ; Limpiar última línea (19) usando cli_internal directamente
+    ; A = Y (19), C = Attr
+    ld a, (_current_attr)
+    ld c, a
+    ld a, 19
+    call cli_internal
+
+    ei
     pop iy
+    ret
+
+; Tabla de definición de bloques para el scroll
+; Estructura: SrcL, SrcH_Base, DestL, DestH_Base, Len
+smz_block_table:
+    ; Bloque 1: Filas 3-7 -> 2-6 (Tercio 1, 5 filas * 32 bytes)
+    defb 0x60, 0x40, 0x40, 0x40, 160
+    ; Bloque 2: Fila 8 -> 7 (Cruce Tercio 1->2)
+    defb 0x00, 0x48, 0xE0, 0x40, 32
+    ; Bloque 3: Filas 9-15 -> 8-14 (Tercio 2, 7 filas * 32 bytes)
+    defb 0x20, 0x48, 0x00, 0x48, 224
+    ; Bloque 4: Fila 16 -> 15 (Cruce Tercio 2->3)
+    defb 0x00, 0x50, 0xE0, 0x48, 32
+    ; Bloque 5: Filas 17-19 -> 16-18 (Tercio 3, 3 filas * 32 bytes)
+    defb 0x20, 0x50, 0x00, 0x50, 96
+
+; =============================================================================
+; void tokenize_params(char *par, uint8_t max_params)
+; Trocea un string IRC separando por espacios y rellenando el array global irc_params
+; Modifica el string 'par' in-situ (reemplaza espacios por NULLs)
+; Stack: [IX+6,7]=par, [IX+8]=max_params
+; =============================================================================
+_tokenize_params:
+    push iy
+    push ix
+    ld ix, 0
+    add ix, sp
+
+    ; Inicializar contador a 0
+    xor a
+    ld (_irc_param_count), a
+
+    ; HL = par (string a trocear)
+    ld l, (ix+6)
+    ld h, (ix+7)
+
+    ; Comprobar string nulo
+    ld a, h
+    or l
+    jp z, tp_exit
+    ld a, (hl)
+    or a
+    jp z, tp_exit
+
+    ; B = max_params (si es 0, usar 10 por defecto)
+    ld a, (ix+8)
+    or a
+    jr nz, tp_check_max
+    ld a, 10                ; IRC_MAX_PARAMS default
+
+tp_check_max:
+    cp 11                   ; > 10?
+    jr c, tp_max_ok
+    ld a, 10
+
+tp_max_ok:
+    ld b, a                 ; B = slots restantes (1..10)
+
+    ; IY = puntero al array de punteros (_irc_params)
+    ld iy, _irc_params
+
+    ; --- Saltar espacios/colons iniciales ---
+tp_skip_leading:
+    ld a, (hl)
+    or a
+    jp z, tp_exit           ; fin de string
+    cp ' '
+    jr z, tp_skip_lead_next
+    cp ':'
+    jr nz, tp_main_loop     ; encontrado inicio de token
+
+tp_skip_lead_next:
+    inc hl
+    jr tp_skip_leading
+
+    ; --- BUCLE PRINCIPAL DE TOKENIZADO ---
+    ; HL = puntero actual en el string
+    ; IY = puntero actual en el array irc_params
+    ; B  = slots restantes
+tp_main_loop:
+    ; Guard estricto: si no hay slots, NO escribir en _irc_params.
+    ld a, b
+    or a
+    jr z, tp_exit
+
+    ; Guardar inicio del token en irc_params[count]
+    ld (iy+0), l
+    ld (iy+1), h
+    inc iy
+    inc iy                  ; avanzar al siguiente slot (2 bytes por puntero)
+
+    ; Incrementar cuenta
+    ld a, (_irc_param_count)
+    inc a
+    ld (_irc_param_count), a
+
+    ; Decrementar cupo max
+    dec b
+    jr z, tp_exit           ; si llegamos al max, paramos
+
+    ; Buscar fin del token (espacio o NULL)
+tp_scan_word:
+    ld a, (hl)
+    or a
+    jp z, tp_exit           ; fin de string
+    cp ' '
+    jr z, tp_terminate
+    inc hl
+    jr tp_scan_word
+
+tp_terminate:
+    ld (hl), 0              ; terminar token con NULL
+    inc hl                  ; avanzar
+
+    ; Saltar espacios entre tokens
+tp_skip_spaces:
+    ld a, (hl)
+    or a
+    jp z, tp_exit           ; fin de string
+    cp ' '
+    jr nz, tp_main_loop     ; encontrado siguiente token
+    inc hl
+    jr tp_skip_spaces
+
+tp_exit:
+    pop ix
+    pop iy
+    ret
+
+
+; =============================================================================
+; char *sb_append(char *dst, const char *src, const char *limit)
+; Concatena src en dst asegurando no pasar de limit. Retorna nuevo dst en HL.
+; Stack: [IX+4,5]=dst, [IX+6,7]=src, [IX+8,9]=limit
+; =============================================================================
+_sb_append:
+    push ix
+    ld ix, 0
+    add ix, sp
+    
+    ; Cargar argumentos
+    ld l, (ix+4)
+    ld h, (ix+5)            ; HL = dst
+    ld e, (ix+6)
+    ld d, (ix+7)            ; DE = src
+    ld c, (ix+8)
+    ld b, (ix+9)            ; BC = limit
+    
+sba_loop:
+    ; 1. Chequear límite: if (dst >= limit) exit
+    ; Comparamos HL con BC usando resta temporal
+    push hl
+    or a                    ; Clear carry
+    sbc hl, bc              ; HL = dst - limit
+    pop hl
+    jr nc, sba_done         ; Si no carry, dst >= limit, salir
+    
+    ; 2. Leer fuente
+    ld a, (de)
+    or a
+    jr z, sba_done          ; Si es NULL, fin del string
+    
+    ; 3. Copiar
+    ld (hl), a
+    inc hl
+    inc de
+    jr sba_loop
+    
+sba_done:
+    ; HL ya contiene el nuevo dst (valor de retorno)
+    pop ix
+    ret
+
+; =============================================================================
+; OPTIMIZED C FUNCTIONS REPLACEMENT
+; High-performance replacements for spectalk.c bottlenecks
+; =============================================================================
+
+; Variables externas definidas en C (spectalk.c)
+EXTERN _main_newline
+EXTERN _main_col
+EXTERN _main_line
+EXTERN _current_attr
+EXTERN _g_ps64_y
+EXTERN _g_ps64_col
+EXTERN _g_ps64_attr
+EXTERN _ignore_count
+EXTERN _ignore_list
+
+; Funciones externas necesarias
+EXTERN _print_str64_char
+EXTERN _st_stricmp
+
+; -----------------------------------------------------------------------------
+; void main_putc(char c) __z88dk_fastcall
+; Imprime un caracter gestionando saltos de línea y coordenadas.
+; L = c
+; -----------------------------------------------------------------------------
+PUBLIC _main_putc
+_main_putc:
+    ld a, l
+    cp 10               ; ¿Es '\n'?
+    jp z, _main_newline
+    
+    ld b, a             ; Guardar caracter en B
+    
+    ; Chequear límite de columna (SCREEN_COLS = 64)
+    ld a, (_main_col)
+    cp 64
+    call nc, _main_newline
+    
+    ; Configurar variables globales para el driver de video (bypasea print_char64 de C)
+    ld a, (_main_line)
+    ld (_g_ps64_y), a
+    
+    ld a, (_main_col)
+    ld (_g_ps64_col), a
+    
+    ld a, (_current_attr)
+    ld (_g_ps64_attr), a
+    
+    ; Llamar al driver (L = caracter)
+    ld l, b
+    call _print_str64_char
+    
+    ; Incrementar columna: main_col++
+    ld hl, _main_col
+    inc (hl)
+    ret
+
+; -----------------------------------------------------------------------------
+; void main_puts(const char *s) __z88dk_fastcall
+; Imprime una cadena usando la versión optimizada de putc.
+; HL = string
+; -----------------------------------------------------------------------------
+PUBLIC _main_puts
+_main_puts:
+    ld d, h
+    ld e, l             ; DE = puntero string
+    
+puts_loop:
+    ld a, (de)
+    or a
+    ret z               ; Fin de cadena (\0)
+    
+    push de             ; Guardar puntero
+    ld l, a             ; Argumento para main_putc (L)
+    call _main_putc
+    pop de              ; Recuperar puntero
+    
+    inc de
+    jr puts_loop
+
+; -----------------------------------------------------------------------------
+; uint8_t is_ignored(const char *nick) __z88dk_fastcall
+; Verifica si un nick está en la lista de ignorados (Array de 16 bytes stride).
+; HL = nick
+; Retorna L=1 (true) o L=0 (false)
+; -----------------------------------------------------------------------------
+PUBLIC _is_ignored
+_is_ignored:
+    ld a, (_ignore_count)
+    or a
+    jr z, ign_fail      ; Si count == 0, retornar 0
+    
+    ld b, a             ; B = contador de bucle
+    ld de, _ignore_list ; DE = puntero al inicio de la lista
+    
+ign_loop:
+    ; Guardar contexto
+    push bc
+    push de
+    push hl
+    
+    ; Preparar llamada a st_stricmp(list_item, nick)
+    ; Convención C (stack): push right-to-left
+    push hl             ; Arg2: nick
+    push de             ; Arg1: list_item
+    call _st_stricmp
+    pop de              ; Limpiar pila
+    pop de
+    
+    ; Resultado en HL. Si es 0, hay coincidencia.
+    ld a, h
+    or l
+    jr z, ign_match
+    
+    ; Restaurar contexto
+    pop hl              ; nick
+    pop de              ; list_ptr actual
+    pop bc              ; contador
+    
+    ; Avanzar DE + 16 (tamaño fijo de cada entrada en ignore_list)
+    ld a, e
+    add a, 16
+    ld e, a
+    jr nc, ign_next
+    inc d
+    
+ign_next:
+    djnz ign_loop       ; Siguiente iteración
+    
+ign_fail:
+    ld l, 0
+    ret
+    
+ign_match:
+    ; Limpiar pila de los push iniciales del loop
+    pop hl
+    pop de
+    pop bc
+    ld l, 1
+    ret
+
+; =============================================================================
+; TEXT BUFFER MANIPULATION (Replaces memmove dependency)
+; =============================================================================
+
+; void text_shift_right(char *addr, uint16_t count) __z88dk_callee
+; Desplaza memoria hacia ARRIBA (hace hueco). Usa LDDR.
+; Entrada: HL = addr (origen), DE = count
+; Nota: Callee convention, no pushear nada extra si es posible o limpiar stack.
+; Para simplificar en C wrapper: usaremos fastcall pasando puntero y count global o struct?
+; Mejor usamos __z88dk_callee estándar: Stack: [RetAddr] [Count] [Addr]
+PUBLIC _text_shift_right
+_text_shift_right:
+    pop bc          ; Ret address
+    pop hl          ; Addr (Inicio del hueco)
+    pop de          ; Count (Bytes a mover)
+    push bc         ; Restore Ret
+    
+    ld b, d
+    ld c, e         ; BC = Count
+    ld a, b
+    or c
+    ret z
+    
+    add hl, bc      ; HL = Base + Count
+    dec hl          ; HL = Último byte origen
+    
+    ld d, h
+    ld e, l
+    inc de          ; DE = Destino (HL + 1)
+    
+    lddr
+    ret
+
+; void text_shift_left(char *addr, uint16_t count) __z88dk_callee
+; Desplaza memoria hacia ABAJO (borra hueco). Usa LDIR.
+; Stack: [RetAddr] [Count] [Addr]
+; Copia desde addr+1 hacia addr.
+PUBLIC _text_shift_left
+_text_shift_left:
+    pop bc          ; Ret
+    pop de          ; Addr (Destino)
+    pop hl          ; Count
+    push bc         ; Restore Ret
+    
+    ld b, h
+    ld c, l         ; BC = Count
+    ld a, b
+    or c
+    ret z
+    
+    ld h, d
+    ld l, e         ; HL = Destino
+    inc hl          ; HL = Origen (Destino + 1)
+    
+    ldir
     ret

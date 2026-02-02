@@ -1,26 +1,7 @@
 ;;
-;; divmmc_uart.asm - UART backend for divMMC/divTIESUS hardware
-;; SpecTalk ZX v1.0 - IRC Client for ZX Spectrum
-;; Copyright (C) 2026 M. Ignacio Monge Garcia
+;; divmmc_uart.asm - Optimized UART backend for divMMC/divTIESUS
+;; SpecTalk ZX v1.0
 ;;
-;; This program is free software; you can redistribute it and/or modify
-;; it under the terms of the GNU General Public License version 2 as
-;; published by the Free Software Foundation.
-;;
-;; This program is distributed in the hope that it will be useful,
-;; but WITHOUT ANY WARRANTY; without even the implied warranty of
-;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-;; GNU General Public License for more details.
-;;
-;; You should have received a copy of the GNU General Public License
-;; along with this program. If not, see <https://www.gnu.org/licenses/>.
-;;
-;; The divTIESUS Maple Edition implements a ZX-Uno register file accessed through
-;; ports 0xFC3B (register select) and 0xFD3B (register read/write). Its UART is
-;; exposed in registers 0xC6 (data) and 0xC7 (status).
-;;
-;; This file exports the same symbols as ay_uart.asm so spectalk code does not
-;; need any changes.
 
 SECTION code_user
 
@@ -49,10 +30,8 @@ SECTION code_user
 
 ; -----------------------------------------------------------------------------
 ; Internal helper: uartRead
-;   Returns: CF=1 if a byte was read, A=byte
-;            CF=0 if nothing to read
+; OPTIMIZACIÓN: Flujo unificado y reducción de saltos
 ; -----------------------------------------------------------------------------
-
 uartRead:
     ld a, (_poked_byte)
     and 1
@@ -60,70 +39,60 @@ uartRead:
 
     ld a, (_is_recv)
     and 1
-    jr nz, uartRead_recvRet
+    jr nz, uartRead_hw_latched
 
+    ; Check Hardware
     ld bc, ZXUNO_ADDR
     ld a, UART_STAT_REG
     out (c), a
-
     ld bc, ZXUNO_REG
     in a, (c)
     and UART_BYTE_RECIVED
-    jr nz, uartRead_retReadByte
+    jr nz, uartRead_hw_new
 
-    or a            ; clear carry
+    or a            ; CF=0 (No data)
     ret
 
 uartRead_retBuff:
     xor a
     ld (_poked_byte), a
     ld a, (_byte_buff)
-    scf
+    scf             ; CF=1 (Data)
     ret
 
-uartRead_retReadByte:
-    xor a
-    ld (_poked_byte), a
-    ld (_is_recv), a
+uartRead_hw_latched:
+    ; Flag was latched, just read data
+    jr uartRead_do_read
 
+uartRead_hw_new:
+    ; New byte available
+    ; Fallthrough to read
+
+uartRead_do_read:
     ld bc, ZXUNO_ADDR
     ld a, UART_DATA_REG
     out (c), a
-
     ld bc, ZXUNO_REG
     in a, (c)
 
-    scf
-    ret
-
-uartRead_recvRet:
-    ld bc, ZXUNO_ADDR
-    ld a, UART_DATA_REG
-    out (c), a
-
-    ld bc, ZXUNO_REG
-    in a, (c)
-
-    ; Preserve byte in L while clearing flags
+    ; Clear flags
     ld l, a
     xor a
     ld (_is_recv), a
     ld (_poked_byte), a
     ld a, l
-
-    scf
+    scf             ; CF=1 (Data)
     ret
 
 ; -----------------------------------------------------------------------------
 ; _ay_uart_init
 ; -----------------------------------------------------------------------------
-
 _ay_uart_init:
     xor a
     ld (_poked_byte), a
     ld (_is_recv), a
 
-    ; Prime reads (helps settle the UART registers)
+    ; Prime reads
     ld bc, ZXUNO_ADDR
     ld a, UART_STAT_REG
     out (c), a
@@ -136,17 +105,15 @@ _ay_uart_init:
     ld bc, ZXUNO_REG
     in a, (c)
 
-    ; Brief boot wait + drain RX garbage. HALT requires interrupts.
     ei
     ld b, 50
 uartInit_wait:
     push bc
-    call uartRead      ; discard if available
+    call uartRead
     pop bc
     halt
     djnz uartInit_wait
 
-    ; Additional bounded drain (no HALT) to clear any leftover bytes.
     ld bc, 0x0800
 uartInit_flush:
     push bc
@@ -161,36 +128,30 @@ uartInit_flush:
 
 ; -----------------------------------------------------------------------------
 ; _ay_uart_send
-;   fastcall: byte in L
 ; -----------------------------------------------------------------------------
-
 _ay_uart_send:
     ld a, l
     push af
 
-    ; Select status register and check for received byte.
+    ; Check receive flag update while sending
     ld bc, ZXUNO_ADDR
     ld a, UART_STAT_REG
     out (c), a
-
     ld bc, ZXUNO_REG
     in a, (c)
     and UART_BYTE_RECIVED
     jr z, uartSend_checkSent
 
-    ; Latch the fact that RX became ready (some cores may clear RX flag on status read).
     ld a, 1
     ld (_is_recv), a
 
 uartSend_checkSent:
-    ; Wait until TX is not busy.
     ld bc, ZXUNO_REG
 uartSend_wait_tx:
     in a, (c)
     and UART_BYTE_SENDING
     jr nz, uartSend_wait_tx
 
-    ; Select data register and output byte.
     ld bc, ZXUNO_ADDR
     ld a, UART_DATA_REG
     out (c), a
@@ -198,19 +159,16 @@ uartSend_wait_tx:
     ld bc, ZXUNO_REG
     pop af
     out (c), a
-
     ret
 
 ; -----------------------------------------------------------------------------
 ; _ay_uart_send_block
-;   callee: HL=buffer, DE=len
 ; -----------------------------------------------------------------------------
-
 _ay_uart_send_block:
-    pop bc          ; return address
-    pop hl          ; buffer
-    pop de          ; length
-    push bc         ; restore return address
+    pop bc
+    pop hl
+    pop de
+    push bc
 
     ld a, d
     or e
@@ -222,39 +180,35 @@ uartSendBlock_loop:
     ld l, a
     call _ay_uart_send
     pop hl
-
     inc hl
     dec de
     ld a, d
     or e
     jr nz, uartSendBlock_loop
-
     ret
 
 ; -----------------------------------------------------------------------------
-; _ay_uart_ready
-;   Returns L=1 if there is at least one byte available, else L=0
+; _ay_uart_ready / _ay_uart_ready_fast
+; OPTIMIZACIÓN: Salto directo si hay byte cacheado
 ; -----------------------------------------------------------------------------
-
 _ay_uart_ready:
+_ay_uart_ready_fast:
     ld a, (_poked_byte)
-    and 1
+    or a
     jr nz, uartReady_yes
 
     ld a, (_is_recv)
-    and 1
+    or a
     jr nz, uartReady_yes
 
     ld bc, ZXUNO_ADDR
     ld a, UART_STAT_REG
     out (c), a
-
     ld bc, ZXUNO_REG
     in a, (c)
     and UART_BYTE_RECIVED
     jr z, uartReady_no
 
-    ; Latch RX-ready state for subsequent read (see comment in _ay_uart_send).
     ld a, 1
     ld (_is_recv), a
 
@@ -266,15 +220,9 @@ uartReady_no:
     ld l, 0
     ret
 
-; Same semantics for this backend.
-_ay_uart_ready_fast:
-    jp _ay_uart_ready
-
 ; -----------------------------------------------------------------------------
 ; _ay_uart_read
-;   Returns L=byte if available, else L=0
 ; -----------------------------------------------------------------------------
-
 _ay_uart_read:
     call uartRead
     jr nc, uartRead_none

@@ -43,7 +43,7 @@ const char *theme_get_name(uint8_t theme_id);
 // =============================================================================
 // VERSION
 // =============================================================================
-#define VERSION "1.1"
+#define VERSION "1.2"
 
 // =============================================================================
 // SCREEN LAYOUT CONSTANTS
@@ -84,17 +84,18 @@ const char *theme_get_name(uint8_t theme_id);
 #define RING_BUFFER_SIZE 2048
 #define RING_BUFFER_MASK (RING_BUFFER_SIZE - 1)
 #define LINE_BUFFER_SIZE 128
-#define TX_BUFFER_SIZE   256
+// TX_BUFFER_SIZE eliminado - ya no se usa buffer global
 
 // IRC/user-visible string sizes (must match definitions in spectalk.c)
-#define IRC_SERVER_SIZE   48
-#define IRC_PORT_SIZE      8
-#define IRC_NICK_SIZE     20
-#define USER_MODE_SIZE     8
-#define NETWORK_NAME_SIZE 20
+#define IRC_SERVER_SIZE   32
+#define IRC_PORT_SIZE      6
+#define IRC_NICK_SIZE     18
+#define IRC_PASS_SIZE     24
+#define USER_MODE_SIZE     6
+#define NETWORK_NAME_SIZE 16
 
 // Cross-module buffers (must match definitions in spectalk.c)
-#define NAMES_TARGET_CHANNEL_SIZE 64
+#define NAMES_TARGET_CHANNEL_SIZE 32
 #define SEARCH_PATTERN_SIZE       32
 #define RX_LINE_SIZE              512
 
@@ -106,8 +107,8 @@ const char *theme_get_name(uint8_t theme_id);
 #define MAX_IGNORES 8
 
 typedef struct {
-    char name[32];           // Channel name "#retro" or query nick or "Server"
-    char mode[12];           // Channel mode (e.g. "+nt") - only for channels
+    char name[22];           // Channel name "#retro" or query nick or "Server"
+    char mode[6];           // Channel mode (e.g. "+nt") - only for channels
     uint16_t user_count;     // Number of users - only for channels
     uint8_t active;          // 1 if slot in use, 0 if empty
     uint8_t is_query;        // 0 = channel, 1 = query/PM window
@@ -123,6 +124,13 @@ typedef struct {
 #define SEARCH_NONE   0
 #define SEARCH_CHAN   1
 #define SEARCH_USER   2
+
+// Pending search types (para evitar mezcla de resultados)
+#define PEND_NONE         0
+#define PEND_LIST         1
+#define PEND_WHO          2
+#define PEND_SEARCH_CHAN  3
+#define PEND_SEARCH_USER  4
 
 // =============================================================================
 // TIMEOUTS (frames, HALT-based)
@@ -205,6 +213,8 @@ extern uint16_t rb_tail;
 extern char irc_server[IRC_SERVER_SIZE];
 extern char irc_port[IRC_PORT_SIZE];
 extern char irc_nick[IRC_NICK_SIZE];
+extern uint8_t irc_is_away;
+extern char irc_pass[IRC_PASS_SIZE];
 extern char user_mode[USER_MODE_SIZE];
 extern char network_name[NETWORK_NAME_SIZE];
 extern uint8_t connection_state;
@@ -214,6 +224,7 @@ extern uint8_t cursor_visible;
 extern uint8_t time_synced;
 extern uint8_t time_hour;
 extern uint8_t time_minute;
+extern uint8_t time_second;
 extern uint8_t sntp_waiting;
 extern uint8_t closed_reported;
 
@@ -249,15 +260,16 @@ extern uint8_t ATTR_MSG_JOIN;
 extern uint8_t ATTR_MSG_NICK;
 extern uint8_t ATTR_MSG_TIME;
 extern uint8_t ATTR_MSG_TOPIC;
+extern uint8_t ATTR_MSG_MOTD;
 extern uint8_t ATTR_MSG_PRIV_INV;
 
 // =============================================================================
 // CROSS-MODULE FUNCTIONS (defined in spectalk.c)
 // =============================================================================
 extern void main_print_time_prefix(void);
-extern void main_run_u16(uint16_t val, uint8_t attr, uint8_t min_width);
+extern void main_run_u16(uint16_t val, uint8_t attr, uint8_t min_width) __z88dk_callee;
 extern void reset_all_channels(void);
-extern void sntp_process_response(const char *line);
+void sntp_process_response(const char *line) __z88dk_fastcall;
 extern uint8_t ATTR_ERROR;
 extern uint8_t STATUS_RED;
 extern uint8_t STATUS_YELLOW;
@@ -276,9 +288,6 @@ extern uint8_t force_status_redraw;
 extern uint8_t ui_freeze_status;
 extern uint8_t other_channel_activity;
 
-// Transport control flags
-extern uint8_t uart_allow_cancel;
-
 // Names tracking
 extern uint8_t names_pending;
 extern uint16_t names_timeout_frames;
@@ -286,15 +295,34 @@ extern char names_target_channel[NAMES_TARGET_CHANNEL_SIZE];
 extern uint8_t counting_new_users;
 extern uint8_t show_names_list;
 
+// Keep-alive system
+extern uint16_t server_silence_frames;
+extern uint8_t  keepalive_ping_sent;
+extern uint16_t keepalive_timeout;
+
 // Pagination
 extern uint8_t pagination_active;
-extern uint8_t pagination_cancelled;
+extern uint8_t search_draining;
 extern uint16_t pagination_count;
 
 // Search
 extern uint8_t search_mode;
 extern char search_pattern[SEARCH_PATTERN_SIZE];
 extern uint16_t search_index;
+
+// Pending search system (evita mezcla de resultados)
+extern uint8_t pending_search_type;
+extern char pending_search_arg[32];
+extern uint8_t pending_search_requires_ready;
+extern uint8_t active_search_type;
+extern char active_search_arg[32];
+extern uint16_t search_drain_timeout;
+
+// Pending search functions
+void cancel_search_state(uint8_t drain) __z88dk_fastcall;
+void start_search_command(uint8_t type, const char *arg);
+void queue_search_command(uint8_t type, const char *arg);
+void pending_search_try_start(void);
 
 // IRC parsing
 extern char *irc_params[IRC_MAX_PARAMS];
@@ -304,7 +332,7 @@ extern uint8_t irc_param_count;
 extern char line_buffer[LINE_BUFFER_SIZE];
 extern uint8_t line_len;
 extern uint8_t cursor_pos;
-extern char tx_buffer[TX_BUFFER_SIZE];
+// tx_buffer eliminado - se usa uart_send_string directo
 
 // RX line buffer
 extern char rx_line[RX_LINE_SIZE];
@@ -341,17 +369,22 @@ extern const char S_CHANSERV[];
 extern const char S_NOTSET[];
 extern const char S_DISCONN[];
 extern const char S_NICKSERV[];
-extern const char S_PRIVMSG[];
+extern const char S_APPNAME[];
+extern const char S_APPDESC[];
+extern const char S_COPYRIGHT[];
 extern const char S_MAXWIN[];
 extern const char S_SWITCHTO[];
+extern const char S_PRIVMSG[];
+extern const char S_NOTICE[];
+extern const char S_TIMEOUT[];
 
 // =============================================================================
 // UI MACROS
 // =============================================================================
-#define ui_msg(attr, s) do { current_attr = attr; main_print(s); } while(0)
-#define ui_err(s)       do { current_attr = ATTR_ERROR; main_print(s); } while(0)
-#define ui_sys(s)       do { current_attr = ATTR_MSG_SYS; main_print(s); } while(0)
-#define ui_usage(a)     do { current_attr = ATTR_ERROR; main_puts("Usage: /"); main_print(a); } while(0)
+void ui_msg(uint8_t attr, const char *s) __z88dk_callee;
+void ui_err(const char *s) __z88dk_fastcall;
+void ui_sys(const char *s) __z88dk_fastcall;
+void ui_usage(const char *a) __z88dk_fastcall;
 
 #define ERR_NOTCONN() ui_err(S_NOTCONN)
 #define ERR_MSG(s)    ui_err(s)
@@ -366,41 +399,42 @@ extern const char S_SWITCHTO[];
 // =============================================================================
 // FUNCTION DECLARATIONS - UI (spectalk.c)
 // =============================================================================
-void main_print(const char *s);
-void main_puts(const char *s);
-void main_putc(char c);
+void main_print(const char *s) __z88dk_fastcall;
+void main_puts(const char *s) __z88dk_fastcall;
+void main_putc(char c) __z88dk_fastcall;
 void main_newline(void);
 void main_hline(void);
-void print_char64(uint8_t y, uint8_t col, uint8_t c, uint8_t attr);
-void print_str64(uint8_t y, uint8_t col, const char *s, uint8_t attr);
-uint8_t main_run(const char *s, uint8_t attr, uint8_t min_width);
-void main_run_char(char c, uint8_t attr);
+void print_char64(uint8_t y, uint8_t col, uint8_t c, uint8_t attr) __z88dk_callee;
+void print_str64(uint8_t y, uint8_t col, const char *s, uint8_t attr) __z88dk_callee;
+uint8_t main_run(const char *s, uint8_t attr, uint8_t min_width) __z88dk_callee;
+void main_run_char(char c, uint8_t attr) __z88dk_callee;
 void draw_status_bar(void);
 void redraw_input_full(void);
 uint8_t pagination_check(void);
 void reapply_screen_attributes(void);
 void cls_fast(void);
 void draw_status_bar_real(void);
+void fast_u8_to_str(char *buf, uint8_t val);
 
 // =============================================================================
 // FUNCTION DECLARATIONS - CHANNEL MANAGEMENT (spectalk.c)
 // =============================================================================
-int8_t find_channel(const char *name);
-int8_t find_query(const char *nick);
+int8_t find_channel(const char *name) __z88dk_fastcall;
+int8_t find_query(const char *nick) __z88dk_fastcall;
 int8_t find_empty_channel_slot(void);
-int8_t add_channel(const char *name);
-int8_t add_query(const char *nick);
-void remove_channel(uint8_t idx);
-void switch_to_channel(uint8_t idx);
+int8_t add_channel(const char *name) __z88dk_fastcall;
+int8_t add_query(const char *nick) __z88dk_fastcall;
+void remove_channel(uint8_t idx) __z88dk_fastcall;
+void switch_to_channel(uint8_t idx) __z88dk_fastcall;
 void nav_push(uint8_t idx);
 void nav_fix_on_delete(uint8_t deleted_idx);
 
 // =============================================================================
 // FUNCTION DECLARATIONS - IGNORE LIST (spectalk.c)
 // =============================================================================
-uint8_t is_ignored(const char *nick);
-uint8_t add_ignore(const char *nick);
-uint8_t remove_ignore(const char *nick);
+uint8_t is_ignored(const char *nick) __z88dk_fastcall;
+uint8_t add_ignore(const char *nick) __z88dk_fastcall;
+uint8_t remove_ignore(const char *nick) __z88dk_fastcall;
 
 // =============================================================================
 // FUNCTION DECLARATIONS - IRC PARAMS (spectalk.c)
@@ -413,31 +447,34 @@ const char* irc_param(uint8_t idx);
 // =============================================================================
 void uart_drain_to_buffer(void);
 void uart_drain_and_drop_all(void);
-void wait_drain(uint8_t frames);
-void uart_send_line(const char *s);
+void wait_drain(uint8_t frames) __z88dk_fastcall;
+void uart_send_crlf(void) __z88dk_fastcall;
+void uart_send_line(const char *s) __z88dk_fastcall;
 
 // AT response helpers (spectalk.c)
 uint8_t wait_for_response(const char *expected, uint16_t max_frames);
-uint8_t wait_for_response_any(const char *exp1, const char *exp2, const char *exp3, uint16_t max_frames);
 uint8_t wait_for_prompt_char(uint8_t prompt_ch, uint16_t max_frames);
+uint8_t esp_at_cmd(const char *cmd) __z88dk_fastcall;
 
 // =============================================================================
 // FUNCTION DECLARATIONS - IRC SEND (spectalk.c)
 // =============================================================================
-void irc_send_raw(const char *cmd);
-void irc_send_privmsg(const char *target, const char *msg);
-uint8_t esp_send_line_crlf_nowait(const char *line);
+// irc_send_raw eliminado - se usa uart_send_string directo
+void irc_send_cmd1(const char *cmd, const char *p1) __z88dk_callee;
+void irc_send_cmd2(const char *cmd, const char *p1, const char *p2) __z88dk_callee;
+void irc_send_privmsg(const char *target, const char *msg) __z88dk_callee;
+uint8_t esp_send_line_crlf_nowait(const char *line) __z88dk_fastcall;
 
 // =============================================================================
 // FUNCTION DECLARATIONS - IRC HANDLERS (irc_handlers.c)
 // =============================================================================
-void parse_irc_message(char *line);
+void parse_irc_message(char *line) __z88dk_fastcall;
 void process_irc_data(void);
 
 // =============================================================================
 // FUNCTION DECLARATIONS - USER COMMANDS (user_cmds.c)
 // =============================================================================
-void parse_user_input(char *line);
+void parse_user_input(char *line) __z88dk_fastcall;
 
 // =============================================================================
 // FUNCTION DECLARATIONS - MISC (spectalk.c)
@@ -447,8 +484,5 @@ void apply_theme(void);
 void init_screen(void);
 uint8_t esp_init(void);
 void draw_banner(void);
-
-// Attribute helpers (spectalk.c)
-uint8_t attr_with_ink(uint8_t base_attr, uint8_t ink_only);
 
 #endif // SPECTALK_H
