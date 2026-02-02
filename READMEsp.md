@@ -34,6 +34,9 @@ SpecTalk ZX es un cliente IRC con todas las funciones para el ZX Spectrum. Utili
   - Ring Buffer (2KB) para una recepción de datos fiable.
   - Drivers optimizados para divMMC (115200 baudios) y AY (9600 baudios).
 
+[![SpecTalkZX](images/snap1.png)](images/snap1.png)
+
+
 ## Requisitos de Hardware
 
 - **ZX Spectrum** 48K, 128K, +2, o +3.
@@ -61,6 +64,9 @@ SpecTalk ZX es un cliente IRC con todas las funciones para el ZX Spectrum. Utili
     - `/nick MiNickRetro`
 4.  **Entrar**: Entra a un canal:
     - `/join #spectrum`
+
+[![SpectalkZX theme1](images/theme1.png)](images/theme1.png) [![SpectalkZX theme2](images/theme2.png)](images/theme2.png) [![SpectalkZX theme3](images/theme3.png)](images/theme3.png)
+
 
 ## Referencia de Comandos
 
