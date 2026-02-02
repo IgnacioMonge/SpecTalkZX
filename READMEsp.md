@@ -125,24 +125,6 @@ make ay
 # 3. Limpiar artefactos
 make clean
 
-## Estructura del Proyecto
-
-SpecTalkZX/
-├── src/
-│   ├── spectalk.c       # Main module, UI, connection
-│   ├── irc_handlers.c   # IRC protocol parsing
-│   └── user_cmds.c      # Command processing
-├── asm/
-│   ├── spectalk_asm.asm # Optimized assembly routines
-│   ├── ay_uart.asm      # AY bit-bang UART driver
-│   └── divmmc_uart.asm  # Hardware UART driver
-├── include/
-│   ├── spectalk.h       # Common header
-│   ├── themes.h         # Color themes
-│   └── font64_data.h    # 4-pixel font data
-├── Makefile
-├── CHANGELOG.md
-└── LICENSE
 
 ## Licencia
 
