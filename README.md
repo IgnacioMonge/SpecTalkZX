@@ -115,13 +115,13 @@ This project uses a **Unity Build** strategy to optimize for the Z80 target.
 The `Makefile` supports different targets for different hardware backends:
 
 bash
-# 1. Standard Build (divMMC / divTIESUS - 115200 baud)
+1. Standard Build (divMMC / divTIESUS - 115200 baud)
 make
 
-# 2. Legacy Build (AY Interface - 9600 baud)
+2. Legacy Build (AY Interface - 9600 baud)
 make ay
 
-# 3. Clean artifacts
+3. Clean artifacts
 make clean
 
 
