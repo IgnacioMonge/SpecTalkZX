@@ -1327,107 +1327,91 @@ sstr_fail:
 ; Convierte uint16 a string decimal, retorna puntero al final
 ; Convención: cdecl
 ; -----------------------------------------------------------------------------
+; =============================================================================
+; CONVERSIONES NUMÉRICAS (CORREGIDO: STACK FIX + 5 DÍGITOS)
+; =============================================================================
+
+; -----------------------------------------------------------------------------
+; char* u16_to_dec(char *dst, uint16_t v) __z88dk_callee
+; -----------------------------------------------------------------------------
 _u16_to_dec:
     pop bc                  ; Retorno
     pop de                  ; dst
     pop hl                  ; v
-    push hl
-    push de
-    push bc
+    push bc                 ; Restaurar Retorno inmediatamente
     
-    push ix
-    ld ix, 0                ; IXL = flag "ya imprimimos algo"
+    ; --- INICIO LÓGICA ---
+    ; Usamos EXX para guardar el flag de ceros en B' sin tocar la pila
+    exx
+    ld b, 0                 ; Flag "Leading Zero" = 0
+    exx
     
+    ; Dígito 10000
     ld bc, -10000
     call u16_digit
+    
+    ; Dígito 1000
     ld bc, -1000
     call u16_digit
+    
+    ; Dígito 100
     ld bc, -100
     call u16_digit
+    
+    ; Dígito 10
     ld bc, -10
     call u16_digit
     
-    ; Unidades (siempre se imprime)
+    ; Unidades (siempre se imprimen)
     ld a, l
     add a, '0'
     ld (de), a
     inc de
     
     xor a
-    ld (de), a              ; NULL terminator
+    ld (de), a              ; Terminador NULL
     
-    ex de, hl               ; Retornar puntero al final
-    pop ix
+    ex de, hl               ; Retornar puntero final en HL
     ret
 
-; =============================================================================
-; char* u16_to_dec3(char *dst, uint16_t v)
-; Versión reducida: imprime hasta 4 dígitos (1000,100,10,1). Ideal para contadores.
-; Retorna puntero al NULL (igual que u16_to_dec).
-; =============================================================================
-
+; -----------------------------------------------------------------------------
+; Alias para compatibilidad
+; -----------------------------------------------------------------------------
 _u16_to_dec3:
-    pop bc                  ; return
-    pop de                  ; dst
-    pop hl                  ; v
-    push hl
-    push de
-    push bc
+    jp _u16_to_dec
 
-    push ix
-    ld ix, 0                ; IXL = flag "ya imprimimos algo"
-
-    ld bc, -1000
-    call u16_digit
-    ld bc, -100
-    call u16_digit
-    ld bc, -10
-    call u16_digit
-
-    ; Unidades (siempre)
-    ld a, l
-    add a, '0'
-    ld (de), a
-    inc de
-
-    xor a
-    ld (de), a              ; NULL
-
-    ex de, hl               ; devolver puntero al final (HL)
-    pop ix
-    ret
-
-; Subrutina: extrae un dígito restando BC repetidamente
-; input: HL = valor, BC = -potencia, DE = buffer
-; output: HL = residuo, DE avanzado si se imprimió
+; -----------------------------------------------------------------------------
+; Subrutina auxiliar (No toca la pila, usa registros)
+; -----------------------------------------------------------------------------
 u16_digit:
     ld a, '0' - 1
 u16_sub_loop:
     inc a
-    add hl, bc
-    jr c, u16_sub_loop
+    add hl, bc              ; Restar potencia (sumar negativo)
+    jr c, u16_sub_loop      ; Si hay carry, no hemos desbordado (unsigned add negativo)
     
-    ; Deshacer última resta
+    ; Deshacer la última resta
     sbc hl, bc
     
-    ; ¿Imprimir?
     cp '0'
-    jr nz, u16_do_print
+    jr nz, u16_print_force
     
-    ; Es cero - ¿ya imprimimos algo?
-    push af
-    ld a, ixl
+    ; Es un cero. Miramos el flag en B'
+    exx
+    ld a, b
+    exx
     or a
-    jr nz, u16_print_zero
-    pop af
-    ret                     ; Suprimir cero inicial
-
-u16_print_zero:
-    pop af
-u16_do_print:
+    ret z                   ; Si flag 0, no imprimir (leading zero)
+    ld a, '0'               ; Si flag 1, restaurar '0' para imprimir
+    
+u16_print_force:
     ld (de), a
     inc de
-    ld ixl, 1               ; Marcar que ya imprimimos
+    
+    ; Set flag = 1 en B'
+    exx
+    ld b, 1
+    exx
     ret
 
 ; -----------------------------------------------------------------------------

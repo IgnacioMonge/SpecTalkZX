@@ -631,43 +631,47 @@ static void h_numeric_5(void)
 
 static void h_numeric_default(void)
 {
-    // Re-parseamos el número
+    // 1. Re-parseamos el número para saber qué estamos manejando
     uint16_t num = str_to_u16(pkt_cmd);
-    
-    // 1. Gestión de Errores (400-599)
+
+    if ((num >= 2 && num <= 5) || (num >= 250 && num <= 266) || num == 396) {
+        return; // Salimos silenciosamente (comportamiento original)
+    }
+    // =========================================================================
+
+    // 2. Gestión de Errores (400-599)
     if (num >= 400 && num <= 599) {
+        // Si estábamos paginando o buscando, cancelamos para ver el error
         if (pagination_active || search_mode != SEARCH_NONE) cancel_search_state(0);
         
         current_attr = ATTR_ERROR;
         main_puts("Err "); main_puts(pkt_cmd); main_puts(": ");
         
-        // Imprimir parámetros de error si existen
+        // Imprimir parámetros de error (ej: el nick que ha fallado)
         uint8_t i;
         for (i = 1; i < irc_param_count; i++) {
             const char *p = irc_param(i);
-            if (p) { main_puts(p); main_putc(' '); }
+            if (p && *p) { main_puts(p); main_putc(' '); }
         }
         
         if (*pkt_txt) main_print(pkt_txt); else main_newline();
         return;
     }
 
-    // 2. Mensajes Informativos Genéricos (Fix para /raw version, time, info, etc.)
-    // Si llegamos aquí, mostramos TODO lo que envíe el servidor.
+    // 3. Mensajes Informativos Genéricos (Para /raw version, time, etc.)
     
-    // Detectar si es MOTD para usar color específico, si no SERVER
+    // Usar color de MOTD si corresponde, si no, color estándar de servidor
     if (num == 372 || num == 375 || num == 376) current_attr = ATTR_MSG_MOTD;
     else current_attr = ATTR_MSG_SERVER;
-    
-    // Header opcional: [351] ...
-    main_puts("["); main_puts(pkt_cmd); main_puts("] ");
 
-    // Imprimir parámetros intermedios (saltando el 0 que suele ser nuestro nick)
+    // Imprimir parámetros intermedios (saltando el 0 que es nuestro nick)
+    // Esto permite ver la respuesta de comandos como /raw time o /raw version
     if (irc_param_count > 1) {
         uint8_t i;
         for (i = 1; i < irc_param_count; i++) {
             const char *p = irc_param(i);
-            if (p) {
+            // PROTECCIÓN CRÍTICA: Verificar puntero antes de imprimir para evitar cuelgues
+            if (p && *p) {
                 main_puts(p);
                 main_putc(' ');
             }
@@ -678,6 +682,7 @@ static void h_numeric_default(void)
     if (pkt_txt && *pkt_txt) {
         main_print(pkt_txt);
     } else {
+        // Solo saltamos línea si hemos impreso algo (params) pero no hay texto final
         main_newline();
     }
 }
