@@ -329,33 +329,33 @@ _rb_push_full:
 
 ; -----------------------------------------------------------------------------
 ; _try_read_line_nodrain
-; Consume el buffer buscando un \n sin bloquear la CPU.
-; Optimizado para usar las nuevas máscaras.
+; Consume el buffer buscando un \n. Si hay desbordamiento, descarta bytes
+; de forma segura sin escribir en memoria hasta encontrar el \n.
 ; -----------------------------------------------------------------------------
 _try_read_line_nodrain:
     push iy
     
 trln_loop:
-    ; Check empty
+    ; 1. Comprobar si hay datos (Head != Tail)
     ld hl, (_rb_head)
     ld de, (_rb_tail)
     or a
     sbc hl, de
     jr z, trln_return_0
     
-    ; Read byte at tail
+    ; 2. Leer byte del anillo
     ld hl, _ring_buffer
     add hl, de
     ld c, (hl)          ; C = byte leído
     
-    ; Advance tail logic (Optimized)
+    ; 3. Avanzar Tail
     inc de
     ld a, d
     and RB_MASK_H       ; Máscara 0x07 solo en High
     ld d, a
     ld (_rb_tail), de
     
-    ; Analizar carácter
+    ; 4. Analizar carácter
     ld a, c
     cp 0x0D             ; Ignorar \r
     jr z, trln_loop
@@ -363,28 +363,31 @@ trln_loop:
     cp 0x0A             ; Fin de línea \n
     jr z, trln_newline
     
-    ; Check overflow del buffer de línea RX
+    ; 5. Chequear desbordamiento (SAFE CHECK)
     ld hl, (_rx_pos)
-    ld de, 510          ; Margen de seguridad
+    ld de, 510          ; Margen de seguridad (RX_LINE_SIZE - 2)
     or a
     sbc hl, de
-    jr nc, trln_overflow
+    jr nc, trln_overflow_state ; Si rx_pos >= 510, saltar a descarte seguro
     
-    ; Guardar carácter en rx_line
+    ; 6. Guardar carácter (Solo si no hay overflow)
     ld hl, (_rx_pos)
     ld de, _rx_line
     add hl, de
     ld (hl), c
     
-    ; Incrementar posición
+    ; 7. Incrementar posición
     ld hl, (_rx_pos)
     inc hl
     ld (_rx_pos), hl
     jr trln_loop
 
-trln_overflow:
+trln_overflow_state:
+    ; Marcar flag de overflow
     ld hl, 1
     ld (_rx_overflow), hl
+    ; IMPORTANTE: NO escribir C en memoria, ni incrementar rx_pos.
+    ; Simplemente volvemos al loop para consumir el siguiente byte.
     jr trln_loop
 
 trln_newline:
@@ -394,24 +397,24 @@ trln_newline:
     add hl, de
     ld (hl), 0          
     
-    ; Si hubo overflow previo, descartar línea
+    ; Comprobar si esta línea tuvo overflow
     ld hl, (_rx_overflow)
     ld a, l
     or h
-    jr z, trln_check_pos
+    jr z, trln_check_valid
     
-    ; Reset por overflow
+    ; Si hubo overflow, DESCARTAR línea completa y resetear
     ld hl, 0
     ld (_rx_overflow), hl
     ld (_rx_pos), hl
-    jr trln_loop
+    jr trln_loop        ; Volver a buscar siguiente línea
 
-trln_check_pos:
+trln_check_valid:
     ; Si longitud > 0, tenemos línea válida
     ld hl, (_rx_pos)
     ld a, l
     or h
-    jr z, trln_reset_continue
+    jr z, trln_loop     ; Ignorar líneas vacías
     
     ; Éxito: Reset rx_pos y retornar 1
     ld hl, 0
@@ -419,9 +422,6 @@ trln_check_pos:
     pop iy
     ld l, 1
     ret
-
-trln_reset_continue:
-    jr trln_loop
 
 trln_return_0:
     pop iy
@@ -1332,86 +1332,111 @@ sstr_fail:
 ; =============================================================================
 
 ; -----------------------------------------------------------------------------
-; char* u16_to_dec(char *dst, uint16_t v) __z88dk_callee
+; char* u16_to_dec(char *dst, uint16_t v)
+; Convierte uint16 a string decimal, retorna puntero al final
+; Convención: cdecl
 ; -----------------------------------------------------------------------------
 _u16_to_dec:
     pop bc                  ; Retorno
     pop de                  ; dst
     pop hl                  ; v
-    push bc                 ; Restaurar Retorno inmediatamente
+    push hl
+    push de
+    push bc
     
-    ; --- INICIO LÓGICA ---
-    ; Usamos EXX para guardar el flag de ceros en B' sin tocar la pila
-    exx
-    ld b, 0                 ; Flag "Leading Zero" = 0
-    exx
+    push ix
+    ld ix, 0                ; IXL = flag "ya imprimimos algo"
     
-    ; Dígito 10000
     ld bc, -10000
     call u16_digit
-    
-    ; Dígito 1000
     ld bc, -1000
     call u16_digit
-    
-    ; Dígito 100
     ld bc, -100
     call u16_digit
-    
-    ; Dígito 10
     ld bc, -10
     call u16_digit
     
-    ; Unidades (siempre se imprimen)
+    ; Unidades (siempre se imprime)
     ld a, l
     add a, '0'
     ld (de), a
     inc de
     
     xor a
-    ld (de), a              ; Terminador NULL
+    ld (de), a              ; NULL terminator
     
-    ex de, hl               ; Retornar puntero final en HL
+    ex de, hl               ; Retornar puntero al final
+    pop ix
     ret
 
-; -----------------------------------------------------------------------------
-; Alias para compatibilidad
-; -----------------------------------------------------------------------------
-_u16_to_dec3:
-    jp _u16_to_dec
+; =============================================================================
+; char* u16_to_dec3(char *dst, uint16_t v)
+; Versión reducida: imprime hasta 4 dígitos (1000,100,10,1). Ideal para contadores.
+; Retorna puntero al NULL (igual que u16_to_dec).
+; =============================================================================
 
-; -----------------------------------------------------------------------------
-; Subrutina auxiliar (No toca la pila, usa registros)
-; -----------------------------------------------------------------------------
+_u16_to_dec3:
+    pop bc                  ; return
+    pop de                  ; dst
+    pop hl                  ; v
+    push hl
+    push de
+    push bc
+
+    push ix
+    ld ix, 0                ; IXL = flag "ya imprimimos algo"
+
+    ld bc, -1000
+    call u16_digit
+    ld bc, -100
+    call u16_digit
+    ld bc, -10
+    call u16_digit
+
+    ; Unidades (siempre)
+    ld a, l
+    add a, '0'
+    ld (de), a
+    inc de
+
+    xor a
+    ld (de), a              ; NULL
+
+    ex de, hl               ; devolver puntero al final (HL)
+    pop ix
+    ret
+
+; Subrutina: extrae un dígito restando BC repetidamente
+; input: HL = valor, BC = -potencia, DE = buffer
+; output: HL = residuo, DE avanzado si se imprimió
 u16_digit:
     ld a, '0' - 1
 u16_sub_loop:
     inc a
-    add hl, bc              ; Restar potencia (sumar negativo)
-    jr c, u16_sub_loop      ; Si hay carry, no hemos desbordado (unsigned add negativo)
+    add hl, bc
+    jr c, u16_sub_loop
     
-    ; Deshacer la última resta
+    ; Deshacer última resta
     sbc hl, bc
     
+    ; ¿Imprimir?
     cp '0'
-    jr nz, u16_print_force
+    jr nz, u16_do_print
     
-    ; Es un cero. Miramos el flag en B'
-    exx
-    ld a, b
-    exx
+    ; Es cero - ¿ya imprimimos algo?
+    push af
+    ld a, ixl
     or a
-    ret z                   ; Si flag 0, no imprimir (leading zero)
-    ld a, '0'               ; Si flag 1, restaurar '0' para imprimir
-    
-u16_print_force:
+    jr nz, u16_print_zero
+    pop af
+    ret                     ; Suprimir cero inicial
+
+u16_print_zero:
+    pop af
+u16_do_print:
     ld (de), a
     inc de
-    
-    ; Set flag = 1 en B'
-    exx
-    ld b, 1
-    exx
+    ld ixl, 1               ; Marcar que ya imprimimos
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2023,8 +2048,14 @@ _main_putc:
     ; Chequear límite de columna (SCREEN_COLS = 64)
     ld a, (_main_col)
     cp 64
-    call nc, _main_newline
+    jr c, mputc_no_wrap
     
+    ; Necesitamos wrap - guardar B antes de llamar a main_newline
+    push bc
+    call _main_newline
+    pop bc
+    
+mputc_no_wrap:
     ; Configurar variables globales para el driver de video (bypasea print_char64 de C)
     ld a, (_main_line)
     ld (_g_ps64_y), a

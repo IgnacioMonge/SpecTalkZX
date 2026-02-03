@@ -193,7 +193,7 @@ static void cmd_connect(const char *args) __z88dk_fastcall
     rx_pos = 0; rx_overflow = 0;
     
     if (irc_nick[0]) {
-        char *line; // <--- RESTAURADO: Necesario porque se modifica el puntero
+        char *line; 
         uint8_t loop_done = 0;
         uint16_t silence_frames = 0;
         
@@ -281,17 +281,19 @@ static void cmd_nick(const char *args) __z88dk_fastcall
         return;
     }
     
-    strncpy(irc_nick, args, sizeof(irc_nick) - 1);
-    irc_nick[sizeof(irc_nick) - 1] = '\0';
-    
-    current_attr = ATTR_MSG_SYS;
-    main_puts("Nick set to: ");
-    main_print(irc_nick);
-    
     if (connection_state >= STATE_TCP_CONNECTED) {
-        irc_send_cmd1("NICK", irc_nick);
+        // Conectado: Solo enviar comando, el handler actualizará la UI/Variable si es exitoso
+        irc_send_cmd1("NICK", args);
+    } else {
+        // Desconectado: Actualizar inmediatamente
+        strncpy(irc_nick, args, sizeof(irc_nick) - 1);
+        irc_nick[sizeof(irc_nick) - 1] = '\0';
+        
+        current_attr = ATTR_MSG_SYS;
+        main_puts("Nick set to: ");
+        main_print(irc_nick);
+        draw_status_bar();
     }
-    draw_status_bar();
 }
 
 static void cmd_pass(const char *args) __z88dk_fastcall
@@ -324,7 +326,11 @@ static void cmd_join(const char *args) __z88dk_fastcall
     int8_t idx = find_channel(args);
     if (idx >= 0) {
         if ((uint8_t)idx == current_channel_idx) {
-            ui_sys("Already in "); main_print(channels[idx].name);
+            // FIX: Forzamos impresión en una sola línea sin ui_sys
+            current_attr = ATTR_MSG_SYS;
+            main_puts("Already in "); 
+            main_puts(channels[idx].name);
+            main_newline();
         } else {
             switch_to_channel((uint8_t)idx);
             current_attr = ATTR_MSG_SYS; main_puts(S_SWITCHTO); main_print(channels[idx].name);
@@ -343,15 +349,40 @@ static void cmd_join(const char *args) __z88dk_fastcall
     }
 }
 
+
 static void cmd_part(const char *args) __z88dk_fastcall
 {
-    const char *chan = args && *args ? args : irc_channel;
-    if (!chan[0]) { ui_err("Not in a channel"); return; }
-    
-    irc_send_cmd1("PART", chan);
-    
-    int8_t idx = find_channel(chan);
-    if (idx >= 0) { remove_channel((uint8_t)idx); draw_status_bar(); }
+    char *chan = irc_channel;
+    char *reason = NULL;
+    char *input = (char *)args; // Cast seguro: apunta al buffer de comando modificable
+
+    if (input && *input) {
+        if (*input == '#' || *input == '&') {
+            // Formato: /part #canal [razon]
+            chan = input;
+            char *sp = strchr(input, ' ');
+            if (sp) {
+                *sp = '\0';
+                reason = sp + 1;
+                while (*reason == ' ') reason++;
+            }
+        } else {
+            // Formato: /part razon (usa canal actual)
+            reason = input;
+        }
+    }
+
+    if (!chan[0]) {
+        ui_err("Not in a channel");
+        return;
+    }
+
+    // Enviar comando al servidor (no cerramos ventana localmente aún)
+    if (reason && *reason) {
+        irc_send_cmd2("PART", chan, reason);
+    } else {
+        irc_send_cmd1("PART", chan);
+    }
 }
 
 static void cmd_msg(const char *args) __z88dk_fastcall
@@ -521,19 +552,32 @@ static void cmd_names(const char *args) __z88dk_fastcall
 {
     if (!ensure_connected()) return;
     const char *target = (args && *args) ? args : irc_channel;
-    if (!target[0]) { ui_usage("names [#channel]"); return; }
+    
+    // Validar que tenemos un canal válido
+    if (!target[0] || target[0] != '#') {
+        ui_err("Must be in a channel or specify one");
+        return;
+    }
     
     counting_new_users = 1;
     show_names_list = 1;
+    start_pagination();
+    
     irc_send_cmd1("NAMES", target);
-    ui_sys("Listing users...");
+    current_attr = ATTR_MSG_SYS;
+    main_print("Listing users...");
 }
 
 static void cmd_topic(const char *args) __z88dk_fastcall
 {
     if (!ensure_connected()) return;
     const char *target = (args && *args) ? args : irc_channel;
-    if (!target[0]) { ui_usage("topic [#channel] [text]"); return; }
+    
+    // Validar que tenemos un canal válido
+    if (!target[0] || target[0] != '#') {
+        ui_err("Must be in a channel or specify one");
+        return;
+    }
     
     // Si hay texto después del canal, es un set topic
     const char *space = strchr(target, ' ');
@@ -656,7 +700,7 @@ static void cmd_kick(const char *args) __z88dk_fastcall
     if (!ensure_connected()) return;
     if (!ensure_args(args, "kick nick [reason]")) return;
     
-    if (current_channel_idx == 0 || channels[current_channel_idx].is_query || 
+    if (current_channel_idx == 0 || (channels[current_channel_idx].flags & CH_FLAG_QUERY) || 
         irc_channel[0] != '#') {
         ui_err("Must be in a channel");
         return;
@@ -838,7 +882,7 @@ static void sys_status(const char *args) __z88dk_fastcall
     current_attr = ATTR_MSG_CHAN;
     
     for (i = 0; i < MAX_CHANNELS; i++) {
-        if (channels[i].active && !channels[i].is_query) {
+        if ((channels[i].flags & CH_FLAG_ACTIVE) && !(channels[i].flags & CH_FLAG_QUERY)) {
             if (count > 0) main_puts(", ");
             main_putc('0' + i);
             main_puts(":");
@@ -989,11 +1033,11 @@ static void cmd_close_wrapper(const char *a) __z88dk_fastcall {
         ui_err("Cannot close server window");
         return;
     }
-    if (!channels[current_channel_idx].active) {
+    if (!(channels[current_channel_idx].flags & CH_FLAG_ACTIVE)) {
         ui_err("No window to close");
         return;
     }
-    if (channels[current_channel_idx].is_query) {
+    if (channels[current_channel_idx].flags & CH_FLAG_QUERY) {
         current_attr = ATTR_MSG_SYS;
         main_puts("Closed query with ");
         main_print(channels[current_channel_idx].name);
@@ -1010,15 +1054,15 @@ static void cmd_windows_wrapper(const char *a) __z88dk_fastcall {
     current_attr = ATTR_MSG_SYS;
     main_puts("Open windows:");
     for (i = 0; i < MAX_CHANNELS; i++) {
-        if (channels[i].active) {
+        if (channels[i].flags & CH_FLAG_ACTIVE) {
             main_putc(' ');
             if (i == current_channel_idx) main_puts("*");
             if (i == 9) main_putc('0'); else main_putc('1' + i);
             main_putc(':');
             if (i == 0) main_puts(S_SERVER);
             else {
-                if (channels[i].is_query) main_puts("@");
-                if (channels[i].has_unread) main_puts("+");
+                if (channels[i].flags & CH_FLAG_QUERY) main_puts("@");
+                if (channels[i].flags & CH_FLAG_UNREAD) main_puts("+");
                 main_puts(channels[i].name);
             }
             n++;
@@ -1115,7 +1159,7 @@ void parse_user_input(char *line) __z88dk_fastcall
     if (cmd_str[0] >= '0' && cmd_str[0] <= '9' && cmd_str[1] == 0) {
         uint8_t idx = (uint8_t)(cmd_str[0] - '0');
         
-        if (idx < MAX_CHANNELS && channels[idx].active) {
+        if (idx < MAX_CHANNELS && (channels[idx].flags & CH_FLAG_ACTIVE)) {
             if (idx == current_channel_idx) {
                 current_attr = ATTR_MSG_SYS;
                 main_puts("Already in "); 

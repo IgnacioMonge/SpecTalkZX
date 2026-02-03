@@ -114,6 +114,7 @@ uint16_t keepalive_timeout = 0;      // Timeout counter after PING sent
 // Pagination for long LIST/WHO results
 uint8_t pagination_active = 0;
 uint16_t pagination_count = 0;
+static uint8_t pagination_lines = 0;  // Líneas impresas desde última pausa
 uint8_t search_draining = 0;
 
 // SEARCH state
@@ -303,7 +304,7 @@ int8_t find_channel(const char *name) __z88dk_fastcall
 {
     uint8_t i;
     for (i = 0; i < MAX_CHANNELS; i++) {
-        if (channels[i].active && st_stricmp(channels[i].name, name) == 0) {
+        if ((channels[i].flags & CH_FLAG_ACTIVE) && st_stricmp(channels[i].name, name) == 0) {
             return (int8_t)i;
         }
     }
@@ -326,7 +327,7 @@ int8_t find_query(const char *nick) __z88dk_fastcall
     }
 
     for (i = 0; i < MAX_CHANNELS; i++) {
-        if (channels[i].active && channels[i].is_query && 
+        if ((channels[i].flags & (CH_FLAG_ACTIVE | CH_FLAG_QUERY)) == (CH_FLAG_ACTIVE | CH_FLAG_QUERY) && 
             st_stricmp(channels[i].name, nick) == 0) {
             return (int8_t)i;
         }
@@ -338,7 +339,7 @@ int8_t find_empty_channel_slot(void)
 {
     uint8_t i;
     for (i = 1; i < MAX_CHANNELS; i++) {
-        if (!channels[i].active) {
+        if (!(channels[i].flags & CH_FLAG_ACTIVE)) {
             return (int8_t)i;
         }
     }
@@ -355,9 +356,7 @@ int8_t add_channel(const char *name) __z88dk_fastcall
     channels[idx].name[sizeof(channels[idx].name) - 1] = '\0';
     channels[idx].mode[0] = '\0';
     channels[idx].user_count = 0;
-    channels[idx].active = 1;
-    channels[idx].is_query = 0;
-    channels[idx].has_unread = 0;
+    channels[idx].flags = CH_FLAG_ACTIVE;  // Solo active, no query ni unread
     channel_count++;
     return idx;
 }
@@ -385,9 +384,7 @@ int8_t add_query(const char *nick) __z88dk_fastcall
     channels[idx].name[sizeof(channels[idx].name) - 1] = '\0';
     channels[idx].mode[0] = '\0';
     channels[idx].user_count = 0;
-    channels[idx].active = 1;
-    channels[idx].is_query = 1;
-    channels[idx].has_unread = 0;
+    channels[idx].flags = CH_FLAG_ACTIVE | CH_FLAG_QUERY;  // Active + query
     channel_count++;
     return idx;
 }
@@ -398,7 +395,7 @@ void remove_channel(uint8_t idx) __z88dk_fastcall
     uint8_t next_idx = 0;
     uint8_t was_current = (idx == current_channel_idx);
 
-    if (idx >= MAX_CHANNELS || !channels[idx].active) return;
+    if (idx >= MAX_CHANNELS || !(channels[idx].flags & CH_FLAG_ACTIVE)) return;
     if (idx == 0) return;
 
     // 1. Si cerramos la ventana actual, buscar a dónde ir (usando índices ORIGINALES)
@@ -406,7 +403,7 @@ void remove_channel(uint8_t idx) __z88dk_fastcall
         // Buscar en historial hacia atrás el último slot válido que no sea el que cerramos
         for (i = nav_hist_ptr; i > 0; i--) {
             uint8_t h = nav_history[i - 1];
-            if (h != idx && h < MAX_CHANNELS && channels[h].active) {
+            if (h != idx && h < MAX_CHANNELS && (channels[h].flags & CH_FLAG_ACTIVE)) {
                 next_idx = h;
                 break;
             }
@@ -437,14 +434,14 @@ void remove_channel(uint8_t idx) __z88dk_fastcall
 
 void switch_to_channel(uint8_t idx) __z88dk_fastcall
 {
-    if (idx >= MAX_CHANNELS || !channels[idx].active) return;
+    if (idx >= MAX_CHANNELS || !(channels[idx].flags & CH_FLAG_ACTIVE)) return;
     if (idx == current_channel_idx) return;
     
     // GUARDAR DÓNDE ESTÁBAMOS ANTES DE CAMBIAR
     nav_push(current_channel_idx);
     
     current_channel_idx = idx;
-    channels[idx].has_unread = 0;
+    channels[idx].flags &= ~CH_FLAG_UNREAD;  // Clear unread
     other_channel_activity = 0;    
     set_border(BORDER_COLOR); 
     status_bar_dirty = 1;
@@ -455,19 +452,16 @@ void reset_all_channels(void)
 {
     uint8_t i;
     for (i = 0; i < MAX_CHANNELS; i++) {
-        channels[i].active = 0;
+        channels[i].flags = 0;
         channels[i].name[0] = '\0';
         channels[i].mode[0] = '\0';
         channels[i].user_count = 0;
-        channels[i].is_query = 0;
-        channels[i].has_unread = 0;
     }
     
     // Slot 0: SIEMPRE reservado para Server / ChanServ
-    channels[0].active = 1;
+    channels[0].flags = CH_FLAG_ACTIVE | CH_FLAG_QUERY;  // Active + query (no user count)
     strncpy(channels[0].name, S_SERVER, sizeof(channels[0].name) - 1);
     channels[0].name[sizeof(channels[0].name) - 1] = 0;
-    channels[0].is_query = 1;  // No user count for this window
     
     current_channel_idx = 0;
     channel_count = 1;
@@ -517,6 +511,7 @@ static uint8_t tick_counter = 0;
 // SCREEN STATE
 uint8_t main_line = MAIN_START;
 uint8_t main_col = 0;
+uint8_t wrap_indent = 0;  // Indentación para líneas que continúan (wrap)
 uint8_t current_attr;  // Initialized in apply_theme()
 // COMMAND HISTORY
 #define HISTORY_SIZE    4
@@ -665,13 +660,67 @@ extern void scroll_main_zone(void);
 
 // MAIN AREA OUTPUT
 
+// Helper interno para pausa de paginación (retorna 1 si cancelado)
+static uint8_t pagination_pause(void)
+{
+    uint8_t key;
+    
+    // Mostrar prompt en la última línea visible
+    print_line64_fast(MAIN_END, "-- Any key: more | EDIT: cancel --", ATTR_MSG_SYS);
+    
+    while (in_inkey() != 0) { HALT(); }
+    while ((key = in_inkey()) == 0) { 
+        HALT();
+        uart_drain_to_buffer(); 
+    }
+    while (in_inkey() != 0) { HALT(); }
+    
+    if (key == 7) {  // EDIT = cancelar
+        // Mostrar mensaje de cancelación en la última línea
+        print_line64_fast(MAIN_END, "Cancelled", ATTR_ERROR);
+        cancel_search_state(1);
+        return 1;
+    }
+    
+    // Continuar: limpiar pantalla y empezar desde arriba
+    clear_zone(MAIN_START, MAIN_LINES, ATTR_MAIN_BG);
+    main_line = MAIN_START;
+    main_col = 0;
+    pagination_lines = 0;
+    return 0;
+}
+
 void main_newline(void)
 {
     main_col = 0;
-    if (main_line < MAIN_END) {
-        main_line++;
+    
+    if (pagination_active) {
+        pagination_lines++;
+        // Pausar cuando llenamos la pantalla (dejando 1 línea para el prompt)
+        if (pagination_lines >= MAIN_LINES - 1) {
+            if (pagination_pause()) return;  // Cancelado
+        } else {
+            // Avanzar línea normalmente
+            if (main_line < MAIN_END) {
+                main_line++;
+            }
+        }
     } else {
-        scroll_main_zone();
+        // Sin paginación: scroll normal
+        if (main_line < MAIN_END) {
+            main_line++;
+        } else {
+            scroll_main_zone();
+        }
+    }
+    
+    // Aplicar indentación para líneas que continúan (wrap)
+    if (wrap_indent > 0) {
+        uint8_t i;
+        for (i = 0; i < wrap_indent; i++) {
+            print_char64(main_line, i, ' ', current_attr);
+        }
+        main_col = wrap_indent;
     }
 }
 
@@ -750,7 +799,6 @@ void main_run_u16(uint16_t val, uint8_t attr, uint8_t min_width) __z88dk_callee
 {
     char buf[8];
     char *end = u16_to_dec(buf, val);
-    *end = '\0';
     
     uint8_t len = (uint8_t)(end - buf);
     
@@ -782,7 +830,7 @@ void main_print(const char *s) __z88dk_fastcall
     // Fast path: Solo si estamos al inicio de la línea y el texto cabe en una línea
     // Para textos largos, usamos slow path que hace wrap automático
     
-    if (main_col == 0) {
+    if (main_col == 0 && wrap_indent == 0) {
         // Verificar si el texto es corto (cabe en pantalla)
         const char *p = s;
         uint8_t len = 0;
@@ -799,6 +847,7 @@ void main_print(const char *s) __z88dk_fastcall
     
     // Slow path: Carácter a carácter (maneja wrap automático)
     main_puts(s);
+    wrap_indent = 0;  // Resetear indentación antes del newline final
     main_newline();
 }
 
@@ -819,12 +868,25 @@ void cancel_search_state(uint8_t drain) __z88dk_fastcall
 {
     pagination_active = 0;
     pagination_count = 0;
+    pagination_lines = 0;
     search_mode = SEARCH_NONE;
     search_index = 0;
     search_draining = drain ? 1 : 0;
     search_drain_timeout = 0;
     active_search_type = PEND_NONE;
     active_search_arg[0] = '\0';
+    show_names_list = 0;  // También cancelar /names si estaba activo
+}
+
+// Inicia modo paginación preparando la pantalla
+void start_pagination(void)
+{
+    clear_zone(MAIN_START, MAIN_LINES, ATTR_MAIN_BG);
+    main_line = MAIN_START;
+    main_col = 0;
+    pagination_active = 1;
+    pagination_count = 0;
+    pagination_lines = 0;
 }
 
 // Helper: copia argumento (máx 31 chars)
@@ -846,8 +908,7 @@ void start_search_command(uint8_t type, const char *arg)
     memcpy(active_search_arg, tmp, sizeof(active_search_arg));
     active_search_arg[31] = 0;
 
-    pagination_active = 1;
-    pagination_count = 0;
+    start_pagination();
     search_index = 0;
     search_draining = 0;
     search_drain_timeout = 0;
@@ -931,55 +992,6 @@ void pending_search_try_start(void)
     start_search_command(t, arg);
 }
 
-// PAGINATION FOR LONG RESULTS (LIST/WHO)
-// Returns 1 if user cancelled, 0 otherwise
-uint8_t pagination_check(void)
-{
-    uint8_t key;
-    
-    if (!pagination_active) return 0;
-    
-    // Auto-limpieza visual al final del buffer
-    if (pagination_count == 0 && main_line >= MAIN_END - 3) {
-        clear_zone(MAIN_START, MAIN_LINES, ATTR_MAIN_BG);
-        main_line = MAIN_START;
-        main_col = 0;
-        return 0;
-    }
-    
-    if (main_line >= MAIN_END) {
-        current_attr = ATTR_MSG_SYS;
-        main_print("-- Any key: more | EDIT: cancel --");
-        
-        while (in_inkey() != 0) { HALT(); }
-        
-        // Esperar tecla (drenando UART para no desbordar hardware)
-        while ((key = in_inkey()) == 0) { 
-            HALT();
-            uart_drain_to_buffer(); 
-        }
-        
-        while (in_inkey() != 0) { HALT(); }
-        
-        // EDIT = key 7 -> CANCELAR
-        if (key == 7) {
-            cancel_search_state(1);  // Activar drenaje
-            
-            // NO borrar pantalla - mantener resultados visibles
-            // Solo añadir mensaje de cancelación
-            main_newline();
-            ui_err("Cancelled");
-            return 1;
-            
-        }
-        
-        clear_zone(MAIN_START, MAIN_LINES, ATTR_MAIN_BG);
-        main_line = MAIN_START;
-        main_col = 0;
-    }
-    return 0;
-}
-
 // STATUS BAR
 
 static void draw_clock(void)
@@ -1022,7 +1034,6 @@ void main_print_time_prefix(void)
 
     current_attr = ATTR_MSG_TIME;
 
-    main_putc('[');
     fast_u8_to_str(tmp, hh);
     main_putc(tmp[0]);
     main_putc(tmp[1]);
@@ -1030,15 +1041,51 @@ void main_print_time_prefix(void)
     fast_u8_to_str(tmp, mm);
     main_putc(tmp[0]);
     main_putc(tmp[1]);
-    main_putc(']');
+    main_putc('|');
     main_putc(' ');
 
     current_attr = saved_attr;
+    
+    // Activar indentación para wrap de líneas largas
+    wrap_indent = 7;  // XX:XX| + espacio = 7 columnas
 }
 
 
 // sb_append está implementada en ASM (spectalk_asm.asm)
 extern char *sb_append(char *dst, const char *src, const char *limit);
+
+// Extraer nombre de red del hostname: chat.freenode.net → freenode
+// Usa buffer estático de 16 chars
+static char *extract_network_short(char *hostname)
+{
+    static char net_short[16];
+    char *p = hostname;
+    char *first_dot = NULL;
+    char *second_dot = NULL;
+    
+    // Buscar los dos primeros puntos
+    while (*p) {
+        if (*p == '.') {
+            if (!first_dot) first_dot = p;
+            else if (!second_dot) { second_dot = p; break; }
+        }
+        p++;
+    }
+    
+    // Si hay dos puntos, extraer lo que hay entre ellos
+    // chat.freenode.net → freenode
+    if (first_dot && second_dot) {
+        char *src = first_dot + 1;
+        uint8_t len = (uint8_t)(second_dot - src);
+        if (len > 15) len = 15;
+        memcpy(net_short, src, len);
+        net_short[len] = '\0';
+        return net_short;
+    }
+    
+    // Si solo hay un punto o ninguno, retornar el original
+    return hostname;
+}
 
 // Variables estáticas para caché de repintado (estas SÍ deben ser estáticas para persistir)
 static char sb_last_status[64] = ""; 
@@ -1062,124 +1109,150 @@ static void draw_connection_indicator(void)
     draw_indicator(INFO_LINE, 31, ind_attr);
 }
 
-extern char *u16_to_dec3(char *dst, uint16_t v) __z88dk_callee;
+extern char *u16_to_dec3(char *dst, uint16_t v);
 void draw_status_bar_real(void)
 {
-    char *p = sb_left_part; 
+    char *p = sb_left_part;
+    char *limit = sb_left_part + 56;  // Dejar 8 chars para reloj+indicador
     
-    // Calcular límites absolutos para recortes seguros
-    char *limit_global = sb_left_part + 63;
-    
-    // --- 1. CONSTRUCCIÓN DE LA CADENA ---
+    // === BLOQUE 1: NICK ===
     *p++ = '[';
     if (irc_nick[0]) {
-        p = sb_append(p, irc_nick, sb_left_part + 11); // Max 10 chars
+        p = sb_append(p, irc_nick, sb_left_part + 11);
         if (user_mode[0]) {
-            *p++ = '(';
-            p = sb_append(p, user_mode, limit_global);
-            *p++ = ')';
+            *p++ = '('; p = sb_append(p, user_mode, sb_left_part + 15); *p++ = ')';
         }
     } else {
-        p = sb_append(p, "no-nick", limit_global);
+        p = sb_append(p, "no-nick", sb_left_part + 10);
     }
     *p++ = ']'; *p++ = ' '; *p++ = '[';
-
-    // Lógica contaje canales
+    
+    // === PRE-CALCULAR USUARIOS (para saber cuánto espacio reservar) ===
+    char user_buf[8] = "";
+    uint8_t user_len = 0;
+    if (irc_channel[0] && !(channels[current_channel_idx].flags & CH_FLAG_QUERY) && chan_user_count > 0) {
+        u16_to_dec3(user_buf, chan_user_count);
+        char *u = user_buf; while (*u++) user_len++;
+        user_len += 3;  // " []"
+    }
+    
+    // Espacio disponible para bloque central (canal+modos+red)
+    char *central_limit = limit - user_len;
+    
+    // === BLOQUE 2: PREFIJO CANAL ===
     if (current_channel_idx > 0) {
         if (other_channel_activity) *p++ = '*';
-        
-        if (channel_count > 1) { 
-            uint8_t cur = current_channel_idx; 
-            uint8_t tot = channel_count - 1;
-            
-            // Optimización manual de itoa simple
-            if (cur >= 10) { *p++ = '1'; *p++ = '0' + (cur - 10); } 
-            else *p++ = '0' + cur;
-            
+        if (channel_count > 1) {
+            uint8_t cur = current_channel_idx, tot = channel_count - 1;
+            if (cur >= 10) { *p++ = '1'; *p++ = '0' + (cur - 10); } else *p++ = '0' + cur;
             *p++ = '/';
-            
-            if (tot >= 10) { *p++ = '1'; *p++ = '0' + (tot - 10); } 
-            else *p++ = '0' + tot;
-            
+            if (tot >= 10) { *p++ = '1'; *p++ = '0' + (tot - 10); } else *p++ = '0' + tot;
             *p++ = ':';
         }
     } else if (other_channel_activity) {
         *p++ = '*';
     }
 
-    // --- NOMBRE DE VENTANA / ESTADO / RED ---
+    // === BLOQUE 3: CONTENIDO CENTRAL ===
     if (current_channel_idx == 0 && channel_count == 1) {
+        // Solo ventana servidor - mostrar estado/red
         if (connection_state >= STATE_TCP_CONNECTED) {
-            if (network_name[0]) { 
-                p = sb_append(p, network_name, sb_left_part + 40);
+            if (network_name[0]) {
+                p = sb_append(p, network_name, central_limit - 1);
             } else if (irc_server[0]) {
-                p = sb_append(p, irc_server, sb_left_part + 40);
-            } else { 
-                p = sb_append(p, "connected", limit_global);
+                p = sb_append(p, extract_network_short(irc_server), central_limit - 1);
+            } else {
+                p = sb_append(p, "connected", central_limit - 1);
             }
         } else if (connection_state == STATE_WIFI_OK) {
-             p = sb_append(p, "wifi-ready", limit_global);
+            p = sb_append(p, "wifi-ready", central_limit - 1);
         } else {
-             p = sb_append(p, "offline", limit_global);
+            p = sb_append(p, "offline", central_limit - 1);
         }
+        
     } else if (irc_channel[0]) {
-        if (channels[current_channel_idx].is_query && current_channel_idx != 0) *p++ = '@';
+        // Canal o query activo
+        if ((channels[current_channel_idx].flags & CH_FLAG_QUERY) && current_channel_idx != 0) *p++ = '@';
         
-        // A. Nombre del canal (Límite 35)
-        if (current_channel_idx == 0 && network_name[0]) {
-             p = sb_append(p, network_name, sb_left_part + 35);
-        } else {
-             p = sb_append(p, irc_channel, sb_left_part + 35);
+        // Obtener elementos a mostrar
+        char *chan = (current_channel_idx == 0 && network_name[0]) ? network_name : irc_channel;
+        char *modes = (!(channels[current_channel_idx].flags & CH_FLAG_QUERY) && chan_mode[0]) ? chan_mode : NULL;
+        char *net = NULL;
+        
+        if (current_channel_idx != 0) {
+            net = network_name[0] ? network_name : 
+                 (irc_server[0] ? extract_network_short(irc_server) : NULL);
         }
         
-        // B. Modos (Límite 45)
-        if (!channels[current_channel_idx].is_query && chan_mode[0]) {
-            *p++ = '(';
-            p = sb_append(p, chan_mode, sb_left_part + 45);
-            *p++ = ')';
+        // Calcular longitudes
+        uint8_t space = (uint8_t)(central_limit - p - 1);
+        uint8_t chan_len = 0, mode_len = 0, net_len = 0;
+        const char *t;
+        
+        t = chan; while (*t++) chan_len++;
+        if (modes) { t = modes; while (*t++) mode_len++; mode_len += 2; }  // "()"
+        if (net) { t = net; while (*t++) net_len++; net_len += 1; }        // "@"
+        
+        // Decidir qué cabe: canal siempre, luego modos, luego red
+        uint8_t show_modes = 0, show_net = 0;
+        
+        if (chan_len + mode_len + net_len <= space) {
+            show_modes = (mode_len > 0);
+            show_net = (net_len > 0);
+        } else if (chan_len + mode_len <= space) {
+            show_modes = (mode_len > 0);
+        } else if (chan_len + net_len <= space) {
+            show_net = (net_len > 0);
         }
-
-        // C. Red
-        if (current_channel_idx != 0 && (network_name[0] || irc_server[0]) && (p < sb_left_part + 48)) {
-            *p++ = '@'; 
-            char *net = network_name[0] ? network_name : irc_server;
-            if (net == irc_server && net[0]=='i' && net[1]=='r' && net[2]=='c' && net[3]=='.') net += 4;
-            p = sb_append(p, net, sb_left_part + 52);
+        // else: solo canal (truncado si es necesario)
+        
+        // Calcular espacio para canal
+        uint8_t chan_space = space;
+        if (show_modes) chan_space -= mode_len;
+        if (show_net) chan_space -= net_len;
+        
+        // Escribir canal
+        p = sb_append(p, chan, p + chan_space);
+        
+        // Escribir modos
+        if (show_modes) {
+            *p++ = '('; p = sb_append(p, modes, central_limit - (show_net ? net_len + 1 : 1)); *p++ = ')';
         }
-
-    } else if (connection_state >= STATE_TCP_CONNECTED) {
-         if (network_name[0]) p = sb_append(p, network_name, limit_global);
-         else if (irc_server[0]) p = sb_append(p, irc_server, sb_left_part + 40);
-         else p = sb_append(p, "connected", limit_global);
-    } else if (connection_state == STATE_WIFI_OK) {
-         p = sb_append(p, "wifi-ready", limit_global);
+        
+        // Escribir red
+        if (show_net) {
+            *p++ = '@'; p = sb_append(p, net, central_limit - 1);
+        }
+        
     } else {
-         p = sb_append(p, "offline", limit_global);
+        // Estado de conexión sin canal activo
+        if (connection_state >= STATE_TCP_CONNECTED) {
+            if (network_name[0]) {
+                p = sb_append(p, network_name, central_limit - 1);
+            } else if (irc_server[0]) {
+                p = sb_append(p, extract_network_short(irc_server), central_limit - 1);
+            } else {
+                p = sb_append(p, "connected", central_limit - 1);
+            }
+        } else if (connection_state == STATE_WIFI_OK) {
+            p = sb_append(p, "wifi-ready", central_limit - 1);
+        } else {
+            p = sb_append(p, "offline", central_limit - 1);
+        }
     }
     
-    if (p < limit_global) *p++ = ']';
-    else *(limit_global - 1) = ']';
+    *p++ = ']';
     
-    // Usuarios (solo canales) - OPTIMIZADO con u16_to_dec3 (hasta 4 dígitos)
-    if (irc_channel[0] && !channels[current_channel_idx].is_query && chan_user_count > 0) {
-        if (p < limit_global - 6) {
-            extern char *u16_to_dec3(char *dst, uint16_t v) __z88dk_callee;
-
-            char buf[8];
-            *p++ = ' '; *p++ = '[';
-
-            u16_to_dec3(buf, chan_user_count);
-
-            char *n = buf;
-            while (*n) *p++ = *n++;
-
-            if (p < limit_global) *p++ = ']';
-            else *(limit_global - 1) = ']';
-        }
-    } 
-    *p = 0; 
+    // === BLOQUE 4: USUARIOS ===
+    if (user_buf[0]) {
+        *p++ = ' '; *p++ = '[';
+        char *u = user_buf; while (*u) *p++ = *u++;
+        *p++ = ']';
+    }
     
-    // --- 2. RENDERIZADO RÁPIDO ---
+    *p = 0;
+    
+    // === RENDERIZADO ===
     if (force_status_redraw || strcmp(sb_left_part, sb_last_status) != 0) {
         print_line64_fast(INFO_LINE, sb_left_part, ATTR_STATUS);
         strncpy(sb_last_status, sb_left_part, sizeof(sb_last_status) - 1);
@@ -1273,17 +1346,19 @@ static void input_put_char_at(uint16_t abs_pos, char c)
 
 static void redraw_input_from(uint8_t start_pos)
 {
-    uint8_t row, col, i;
+    uint8_t i;
     uint16_t abs_pos;
+    uint8_t row, col;
 
+    // 1. Si redibujamos desde el inicio, pintar prompt
     if (start_pos == 0) {
-        put_char64_input_cached(INPUT_START, 0, '>', ATTR_PROMPT);
-        put_char64_input_cached(INPUT_START, 1, ' ', ATTR_PROMPT);
+        input_draw_prompt();
     }
 
+    // 2. Dibujar el texto actual (usando caché normal)
     for (i = start_pos; i < line_len; i++) {
         abs_pos = (uint16_t)i + 2;
-        // OPTIMIZADO: Divisiones por 64 -> Shifts/Masks
+        // Cálculo seguro de coordenadas
         row = INPUT_START + (abs_pos >> 6);
         col = abs_pos & 63;
         
@@ -1291,59 +1366,54 @@ static void redraw_input_from(uint8_t start_pos)
         put_char64_input_cached(row, col, line_buffer[i], ATTR_INPUT);
     }
 
-    // Clear a small tail after EOL to remove stale characters without full redraw
+    // 3. Limpieza Segura: Borrar SOLO el carácter siguiente al final del texto.
+    // IMPORTANTE: en 64 cols, 1 atributo cubre 2 chars (col>>1).
+    // Si usamos ATTR_INPUT_BG aquí, puede cambiar el atributo del último char real (alternancia).
     abs_pos = (uint16_t)line_len + 2;
-    // OPTIMIZADO: Divisiones por 64 -> Shifts/Masks
     row = INPUT_START + (abs_pos >> 6);
     col = abs_pos & 63;
-
-    uint8_t clear_count = 0;
-    while (row <= INPUT_END && clear_count < 8) {
+    
+    if (row <= INPUT_END) {
+        // Mantener el mismo atributo que el input para no contaminar la celda de atributos compartida
         put_char64_input_cached(row, col, ' ', ATTR_INPUT);
-        col++;
-        if (col >= SCREEN_COLS) { col = 0; row++; }
-        clear_count++;
     }
 
-    // cursor refresh
+    // 4. Restaurar cursor
     refresh_cursor_char(cursor_pos, 1);
 }
+
 
 void redraw_input_full(void)
 {
     uint16_t i;
-    // Coordenadas iniciales: line 22, Columna 2 (después del "> ")
     uint8_t row = INPUT_START;
     uint8_t col = 2; 
 
-    // 1. Resetear la caché lógica (ASM)
     input_cache_invalidate();
-    
-    // 2. Limpieza Visual Masiva
-    // Borramos las lines visualmente de golpe.
-    for (i = INPUT_START; i <= INPUT_END; i++) {
-        clear_line((uint8_t)i, ATTR_INPUT_BG);
-    }
-
-    // 3. Dibujar Prompt
     input_draw_prompt();
 
-    // 4. Dibujar Texto (Bucle optimizado)
-    // Solo iteramos hasta line_len (lo que hay escrito).
+    // 1. Dibujar texto
     for (i = 0; i < line_len; i++) {
-        // Llamada directa a la rutina de pintado
         put_char64_input_cached(row, col, line_buffer[i], ATTR_INPUT);
-
-        // Cálculo de posición incremental (sin divisiones ni módulos lentos)
-        col++;
-        if (col >= SCREEN_COLS) {
+        if (++col >= SCREEN_COLS) {
             col = 0;
-            row++;
-            if (row > INPUT_END) break; // Protección
+            if (++row > INPUT_END) break;
         }
     }
 
-    // 5. Restaurar cursor
+    // 2. Limpiar resto de la línea actual (si queda algo)
+    if (row <= INPUT_END) {
+        while (col < SCREEN_COLS) {
+            put_char64_input_cached(row, col++, ' ', ATTR_INPUT_BG);
+        }
+        row++;
+    }
+
+    // 3. Limpiar líneas restantes de golpe (usando ASM para ahorrar espacio)
+    if (row <= INPUT_END) {
+        clear_zone(row, (INPUT_END - row) + 1, ATTR_INPUT_BG);
+    }
+
     refresh_cursor_char(cursor_pos, 1);
 }
 
@@ -1361,13 +1431,13 @@ static void input_clear(void)
 
 void fast_u8_to_str(char *buf, uint8_t val)
 {
-    uint8_t tens = 0;
-    // Restas sucesivas: más rápido y pequeño que l_div para N < 100
+    char tens = '0';
+    // Bucle simple: Ocupa menos bytes que los if/else de rangos
     while (val >= 10) {
         val -= 10;
         tens++;
     }
-    buf[0] = '0' + tens;
+    buf[0] = tens;
     buf[1] = '0' + val;
 }
 
@@ -1404,25 +1474,25 @@ static void input_add_char(char c) __z88dk_fastcall
 static void input_backspace(void)
 {
     if (cursor_pos > 0) {
-        uint8_t was_at_end = (cursor_pos == line_len);
+        uint8_t old_len;
+
+        // 1) Borrar cursor visual en la posición actual (evita "rastros" de '_')
         refresh_cursor_char(cursor_pos, 0);
 
+        // 2) Guardar longitud previa y retroceder cursor lógico
+        old_len = line_len;
         cursor_pos--;
-        
-        // Desplazamiento a la izquierda con memmove (Reemplaza bloque ASM ldir)
-        if (cursor_pos < line_len - 1) {
-            text_shift_left(line_buffer + cursor_pos, line_len - cursor_pos - 1);
-        }
-        
-        line_len--;
-        line_buffer[line_len] = 0;
 
-        if (was_at_end) {
-            input_put_char_at((uint16_t)(cursor_pos + 1) + 2, ' ');
-            refresh_cursor_char(cursor_pos, 1);
-        } else {
-            redraw_input_from((uint8_t)cursor_pos);
-        }
+        // 3) Shift-left con ASM: mover también el terminador '\0'
+        //    Mueve bytes desde [cursor_pos+1 .. old_len] hacia [cursor_pos .. old_len-1]
+        //    (incluye el '\0' en old_len)
+        text_shift_left(&line_buffer[cursor_pos], (uint16_t)(old_len - cursor_pos));
+
+        // 4) Actualizar longitud (el buffer ya quedó bien terminado por el shift)
+        line_len = (uint8_t)(old_len - 1);
+
+        // 5) Redibujar desde el punto de cambio
+        redraw_input_from(cursor_pos);
     }
 }
 
@@ -1472,6 +1542,13 @@ static uint8_t last_k = 0;
 static uint16_t repeat_timer = 0;
 static uint8_t debounce_zero = 0;
 
+// Helper: convertir a minúscula para comparación
+static uint8_t to_lower(uint8_t c)
+{
+    if (c >= 'A' && c <= 'Z') return c + 32;
+    return c;
+}
+
 static uint8_t read_key(void)
 {
     uint8_t k = in_inkey();
@@ -1491,6 +1568,14 @@ static uint8_t read_key(void)
 
     // New key - return immediately
     if (k != last_k) {
+        // Ignorar cambio de mayúscula a minúscula (soltar Shift)
+        // Ej: 'S' seguido de 's' = mismo carácter, solo cambió el shift
+        if (to_lower(k) == to_lower(last_k) && 
+            ((last_k >= 'A' && last_k <= 'Z') || (last_k >= 'a' && last_k <= 'z'))) {
+            last_k = k;  // Actualizar pero no emitir
+            return 0;
+        }
+        
         last_k = k;
 
         if (k == KEY_BACKSPACE) {
@@ -1891,7 +1976,7 @@ void irc_send_privmsg(const char *target, const char *msg) __z88dk_callee
         main_print(msg);
     } else {
         int8_t query_idx = add_query(target);
-        if (query_idx >= 0 && !channels[query_idx].active) status_bar_dirty = 1;
+        if (query_idx >= 0 && !(channels[query_idx].flags & CH_FLAG_ACTIVE)) status_bar_dirty = 1;
 
         main_print_time_prefix();
 

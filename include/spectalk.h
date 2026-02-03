@@ -106,14 +106,18 @@ const char *theme_get_name(uint8_t theme_id);
 #define NAV_HIST_SIZE 6
 #define MAX_IGNORES 8
 
+// Channel flags (bitfield para ahorrar memoria y alinear struct a 32 bytes)
+#define CH_FLAG_ACTIVE     0x01
+#define CH_FLAG_QUERY      0x02
+#define CH_FLAG_UNREAD     0x04
+
 typedef struct {
     char name[22];           // Channel name "#retro" or query nick or "Server"
-    char mode[6];           // Channel mode (e.g. "+nt") - only for channels
+    char mode[6];            // Channel mode (e.g. "+nt") - only for channels
     uint16_t user_count;     // Number of users - only for channels
-    uint8_t active;          // 1 if slot in use, 0 if empty
-    uint8_t is_query;        // 0 = channel, 1 = query/PM window
-    uint8_t has_unread;      // 1 if unread messages (for activity indicator)
-} ChannelInfo;
+    uint8_t flags;           // CH_FLAG_ACTIVE | CH_FLAG_QUERY | CH_FLAG_UNREAD
+    uint8_t _pad;            // Padding para alinear a 32 bytes (i*32 = shift)
+} ChannelInfo;               // TOTAL: 32 bytes (potencia de 2)
 
 // =============================================================================
 // IRC PARSING
@@ -234,6 +238,7 @@ extern uint8_t closed_reported;
 // Main text cursor position (shared with command handlers)
 extern uint8_t main_line;
 extern uint8_t main_col;
+extern uint8_t wrap_indent;  // Indentación para líneas que continúan
 
 // Channels
 extern ChannelInfo channels[];
@@ -322,6 +327,7 @@ extern uint16_t search_drain_timeout;
 
 // Pending search functions
 void cancel_search_state(uint8_t drain) __z88dk_fastcall;
+void start_pagination(void);
 void start_search_command(uint8_t type, const char *arg);
 void queue_search_command(uint8_t type, const char *arg);
 void pending_search_try_start(void);
@@ -412,7 +418,6 @@ uint8_t main_run(const char *s, uint8_t attr, uint8_t min_width) __z88dk_callee;
 void main_run_char(char c, uint8_t attr) __z88dk_callee;
 void draw_status_bar(void);
 void redraw_input_full(void);
-uint8_t pagination_check(void);
 void reapply_screen_attributes(void);
 void cls_fast(void);
 void draw_status_bar_real(void);

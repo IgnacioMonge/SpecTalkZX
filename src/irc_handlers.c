@@ -31,7 +31,7 @@ static char pkt_empty[] = "";
 static void mark_channel_activity(uint8_t idx)
 {
     if ((uint8_t)idx != current_channel_idx) {
-        channels[idx].has_unread = 1;
+        channels[idx].flags |= CH_FLAG_UNREAD;
         other_channel_activity = 1;
         status_bar_dirty = 1;
     }
@@ -71,7 +71,7 @@ static void h_nick(void)
 
     uint8_t i;
     for (i = 1; i < MAX_CHANNELS; i++) {
-        if (channels[i].active && channels[i].is_query) {
+        if ((channels[i].flags & (CH_FLAG_ACTIVE | CH_FLAG_QUERY)) == (CH_FLAG_ACTIVE | CH_FLAG_QUERY)) {
             if (st_stricmp(channels[i].name, pkt_usr) == 0) {
                 strncpy(channels[i].name, new_nick, sizeof(channels[i].name) - 1);
                 channels[i].name[sizeof(channels[i].name) - 1] = 0;
@@ -336,17 +336,38 @@ static void h_part(void)
 
     int8_t idx = find_channel(chan);
     if (idx >= 0) {
-        if (strcmp(pkt_usr, irc_nick) == 0) {
-            current_attr = ATTR_MSG_JOIN;
-            main_puts("<< You left "); main_print(chan);
+        if (st_stricmp(pkt_usr, irc_nick) == 0) {
+            // Usuario local sale: cerrar ventana primero para caer en la anterior
             remove_channel((uint8_t)idx);
+            
+            // Feedback en la ventana de destino (ej: Status)
+            current_attr = ATTR_MSG_JOIN;
+            main_print_time_prefix();
+            main_puts("<< You left "); 
+            main_print(chan);
             draw_status_bar();
         } else {
+            // Otro usuario sale
             if (channels[idx].user_count > 0) channels[idx].user_count--;
+            
             if ((uint8_t)idx == current_channel_idx) {
                 current_attr = ATTR_MSG_JOIN;
-                main_puts("<< "); main_puts(pkt_usr); main_puts(" left "); main_print(chan);
+                main_print_time_prefix();
+                main_puts("<< "); 
+                main_puts(pkt_usr); 
+                main_puts(" left");
+                
+                if (pkt_txt && *pkt_txt) {
+                    main_puts(" ("); 
+                    main_print(pkt_txt); 
+                    main_run_char(')', ATTR_MSG_JOIN);
+                } else {
+                    main_newline();
+                }
+                
                 draw_status_bar();
+            } else {
+                mark_channel_activity((uint8_t)idx);
             }
         }
     }
@@ -359,27 +380,57 @@ static void h_quit(void)
     if (*pkt_txt) { main_puts(" ("); main_puts(pkt_txt); main_puts(")"); }
     main_newline();
     
-    int8_t idx = find_query(pkt_usr);
-    if (idx > 0) {
-        mark_channel_activity((uint8_t)idx);
-        if ((uint8_t)idx == current_channel_idx) ui_err("--- User closed connection ---");
+    {
+        int8_t qidx = find_query(pkt_usr);
+        if (qidx > 0) {
+            mark_channel_activity((uint8_t)qidx);
+            if ((uint8_t)qidx == current_channel_idx) ui_err("--- User closed connection ---");
+        }
     }
-    
-    uint8_t i;
-    for (i = 0; i < MAX_CHANNELS; i++) {
-        if (channels[i].active && channels[i].user_count > 0) channels[i].user_count--;
+
+    // QUIT no incluye canal. Heurística segura:
+    // si SOLO hay 1 canal real (# o &) activo (no query), entonces el QUIT
+    // necesariamente afecta a ese canal en este cliente -> decremento ahí.
+    {
+        uint8_t i;
+        uint8_t joined_cnt = 0;
+        uint8_t target_idx = 0;
+
+        for (i = 1; i < MAX_CHANNELS; i++) {
+            if ((channels[i].flags & CH_FLAG_ACTIVE) &&
+                !(channels[i].flags & CH_FLAG_QUERY) &&
+                (channels[i].name[0] == '#' || channels[i].name[0] == '&')) {
+
+                joined_cnt++;
+                target_idx = i;
+                if (joined_cnt > 1) break; // no hace falta seguir
+            }
+        }
+
+        if (joined_cnt == 1) {
+            if (channels[target_idx].user_count > 0) {
+                channels[target_idx].user_count--;
+                if (target_idx == current_channel_idx) draw_status_bar();
+            } else {
+                // evita underflow; aun así refresca si estás mirando ese canal
+                if (target_idx == current_channel_idx) draw_status_bar();
+            }
+        } else {
+            // joined_cnt == 0 o >1: no tocar contadores (sin lista de nicks no es determinista)
+            if (channels[current_channel_idx].flags & CH_FLAG_ACTIVE) draw_status_bar();
+        }
     }
-    if (channels[current_channel_idx].active) draw_status_bar();
 }
 
 static void h_kick(void)
 {
-    char *channel = pkt_par;
-    char *target = NULL;
-    char *sp = strchr(pkt_par, ' ');
-    if (sp) { *sp = '\0'; target = sp + 1; }
-    if (!target || !*target) return;
-    
+    // tokenize_params() ya ha separado los params en irc_params[] y ha eliminado espacios en pkt_par.
+    const char *channel = irc_param(0);
+    const char *target  = irc_param(1);
+
+    if (!channel || !*channel) return;
+    if (!target  || !*target)  return;
+
     int8_t idx = find_channel(channel);
 
     if (st_stricmp(target, irc_nick) == 0) {
@@ -405,6 +456,7 @@ static void h_kick(void)
         }
     }
 }
+
 
 static void h_kill(void)
 {
@@ -444,7 +496,7 @@ static void h_numeric_401(void)
 
     if (bad_nick && *bad_nick) {
         int8_t idx = find_query(bad_nick);
-        if (idx > 0 && channels[idx].is_query) {
+        if (idx > 0 && (channels[idx].flags & CH_FLAG_QUERY)) {
             remove_channel((uint8_t)idx);
             draw_status_bar();
         }
@@ -524,8 +576,9 @@ static void h_numeric_353(void)
     }
     
     if (show_names_list) {
-        current_attr = ATTR_MSG_CHAN;
+        current_attr = ATTR_MSG_NICK;  // Magenta para lista de nicks
         main_print(pkt_txt);
+        pagination_count++;
     }
 }
 
@@ -538,14 +591,35 @@ static void h_numeric_366(void)
         names_pending = 0; names_timeout_frames = 0;
         names_target_channel[0] = '\0';
     }
-    show_names_list = 0; draw_status_bar();
+    
+    // Finalizar paginación de /names
+    if (show_names_list && pagination_active) {
+        current_attr = ATTR_MSG_SYS;
+        if (pagination_count > 0) {
+            char buf[8];
+            extern char *u16_to_dec3(char *dst, uint16_t v);
+            u16_to_dec3(buf, chan_user_count);
+            main_puts("-- ");
+            main_puts(buf);
+            main_print(" users --");
+        }
+        pagination_active = 0;
+        pagination_count = 0;
+    }
+    
+    show_names_list = 0; 
+    draw_status_bar();
 }
 
 static void h_numeric_321(void)
 {
     if (search_mode != SEARCH_NONE || pending_search_type != PEND_NONE) {
-        pagination_active = 1; pagination_count = 0;
-        ui_sys("Listing...");
+        // Solo activar si no estaba ya activa (evitar doble reset)
+        if (!pagination_active) {
+            start_pagination();
+        }
+        current_attr = ATTR_MSG_SYS;
+        main_print("Listing...");
     }
 }
 
@@ -565,7 +639,6 @@ static void h_numeric_322_352(void)
     // Optimization: check search_mode which implies num type
     if (!pagination_active) return;
     if (search_mode == SEARCH_NONE) return;
-    if (pagination_check()) return;
 
     if (search_mode == SEARCH_CHAN) { // 322
         const char *chan = irc_param(1);
@@ -655,8 +728,12 @@ static void h_numeric_default(void)
     // 1. Re-parseamos el número para saber qué estamos manejando
     uint16_t num = str_to_u16(pkt_cmd);
 
-    if ((num >= 2 && num <= 5) || (num >= 250 && num <= 266) || num == 396) {
-        return; // Salimos silenciosamente (comportamiento original)
+    // Filtrar ruido de conexión y canal (silencioso)
+    // 001-005: welcome/server info, 250-266: stats, 329: channel creation time,
+    // 333: topic who/time, 396: host hidden
+    if ((num >= 1 && num <= 5) || (num >= 250 && num <= 266) || 
+        num == 329 || num == 333 || num == 396) {
+        return;
     }
     // =========================================================================
 
@@ -710,7 +787,17 @@ static void h_numeric_default(void)
 
 static void h_default_cmd(void)
 {
+    // Ignore numerics and single-char commands
     if ((pkt_cmd[0] >= '0' && pkt_cmd[0] <= '9') || !pkt_cmd[1]) return;
+    
+    // Ignore corrupted/fragmented lines: IRC commands are ALL UPPERCASE
+    // If any lowercase letter exists, it's likely a fragment (e.g., "PublicWiFi", "spectalk")
+    const char *p = pkt_cmd;
+    while (*p && *p != ' ') {
+        if (*p >= 'a' && *p <= 'z') return;
+        p++;
+    }
+    
     current_attr = ATTR_MSG_SYS;
     main_puts(">< "); main_puts(pkt_cmd);
     if (*pkt_par) { main_putc(' '); main_puts(pkt_par); }
@@ -745,8 +832,8 @@ static const CmdEntry CMD_TABLE[] = {
     { "ERROR",   h_error },
     { "KILL",    h_kill },
     { "CAP",     h_cap },
-    { "PONG",    h_ignore }, // Ignore replies
-    { NULL, NULL } // Terminator
+    { "PONG",    h_ignore },
+    { NULL, NULL }
 };
 
 static const NumEntry NUM_TABLE[] = {
@@ -757,6 +844,9 @@ static const NumEntry NUM_TABLE[] = {
     { 353, h_numeric_353 },
     { 366, h_numeric_366 },
     { 1,   h_numeric_1 },
+    { 2,   h_ignore },
+    { 3,   h_ignore },
+    { 4,   h_ignore },
     { 5,   h_numeric_5 },
     { 305, h_numeric_305_306 },
     { 306, h_numeric_305_306 },
@@ -802,11 +892,11 @@ void parse_irc_message(char *line) __z88dk_fastcall
     }
     pkt_cmd = cmd_start;
 
-    // Drain filter
+    // Drain filter - ignora resultados de búsquedas/listings cancelados
     if (search_draining && pkt_cmd[0] >= '0' && pkt_cmd[0] <= '9') {
         uint16_t num = str_to_u16(pkt_cmd);
-        if (num == 322 || num == 352) return;
-        if (num == 323 || num == 315) { search_draining = 0; return; }
+        if (num == 322 || num == 352 || num == 353) return;  // LIST, WHO, NAMES results
+        if (num == 323 || num == 315 || num == 366) { search_draining = 0; return; }  // End markers
     }
 
     pkt_par = skip_to(cmd_start, ' ');
@@ -825,9 +915,6 @@ void parse_irc_message(char *line) __z88dk_fastcall
         p++;
     }
 
-    // Ignore 001-005 without text? kept logic:
-    if (pkt_cmd[0] == '0' && pkt_cmd[1] == '0' && pkt_cmd[2] >= '1' && pkt_cmd[2] <= '5' && !pkt_cmd[3]) return;
-
     // Tokenize params (modifies pkt_par in place)
     tokenize_params(pkt_par, 0);
 
@@ -844,7 +931,7 @@ void parse_irc_message(char *line) __z88dk_fastcall
         return;
     }
 
-    // 2. Commands (Linear Search - fast enough for < 20 cmds)
+    // 2. Commands (Linear Search)
     const CmdEntry *c = CMD_TABLE;
     while (c->cmd) {
         if (strcmp(c->cmd, pkt_cmd) == 0) {

@@ -54,7 +54,7 @@ static const Theme themes[] = {
         "Default",
         (PAPER_BLUE  | INK_WHITE | BRIGHT),    // banner
         (PAPER_WHITE | INK_BLUE),              // status
-        (PAPER_BLACK | INK_CYAN | BRIGHT),     // msg_chan
+        (PAPER_BLACK | INK_WHITE),             // msg_chan (blanco sin brillo)
         (PAPER_BLACK | INK_YELLOW | BRIGHT),   // msg_self
         (PAPER_BLACK | INK_GREEN | BRIGHT),    // msg_priv
         (PAPER_BLACK | INK_WHITE),             // main_bg
