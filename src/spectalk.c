@@ -19,7 +19,7 @@
  */
 
 #include "../include/spectalk.h"
-#include "../include/font64_data.h"
+// font64_data.h ya no se necesita - fuente comprimida integrada en spectalk_asm.asm
 #include "../include/themes.h"
 
 const char *theme_get_name(uint8_t theme_id)
@@ -54,7 +54,7 @@ const char S_SWITCHTO[] = "Switched to ";
 const char S_PRIVMSG[] = "PRIVMSG ";
 const char S_NOTICE[]  = "NOTICE ";
 const char S_TIMEOUT[] = "Connection timeout";
-
+const char S_NOWIN[]   = "Not in Server window";
 // =============================================================================
 // THEME SYSTEM - Global attributes set by apply_theme()
 // =============================================================================
@@ -220,8 +220,8 @@ uint8_t line_len = 0;
 uint8_t cursor_pos = 0;
 
 // CAPS LOCK state (from BitStream)
-volatile uint8_t caps_lock_mode = 0;
-volatile uint8_t caps_latch = 0;
+uint8_t caps_lock_mode = 0;
+uint8_t caps_latch = 0;
 
 // =============================================================================
 // IRC STATE
@@ -502,7 +502,7 @@ uint8_t time_hour = 0;
 uint8_t time_minute = 0;
 uint8_t time_second = 0;        // Nuevo: Segundos explícitos
 uint8_t time_synced = 0;        // Flag: time has been synced
-static uint8_t sntp_init_sent = 0;     // Flag: SNTP init commands sent
+uint8_t sntp_init_sent = 0;     // Flag: SNTP init commands sent (not static - needs reset on disconnect)
 uint8_t sntp_waiting = 0;       // Flag: waiting for SNTP response
 
 // Simple ticker for 50Hz counting
@@ -566,8 +566,9 @@ static void history_nav_down(void)
     if (hist_pos < 0) return;
     hist_pos--;
     if (hist_pos < 0) {
-        memcpy(line_buffer, temp_input, LINE_BUFFER_SIZE);
-        line_len = strlen(line_buffer);
+        uint8_t tlen = strlen(temp_input);
+        memcpy(line_buffer, temp_input, tlen + 1);
+        line_len = tlen;
     } else {
         // OPTIMIZADO: % 4 -> & 3
         idx = (hist_head + HISTORY_SIZE - 1 - hist_pos) & 3;
@@ -678,7 +679,10 @@ static uint8_t pagination_pause(void)
     if (key == 7) {  // EDIT = cancelar
         // Mostrar mensaje de cancelación en la última línea
         print_line64_fast(MAIN_END, "Cancelled", ATTR_ERROR);
-        cancel_search_state(1);
+        // FIX: No activar drenaje (drain=0) en cancelación manual
+        // El drenaje solo tiene sentido cuando encolamos nueva búsqueda,
+        // no cuando el usuario cancela explícitamente
+        cancel_search_state(0);
         return 1;
     }
     
@@ -864,6 +868,10 @@ void main_hline(void)
 // =============================================================================
 
 // Limpia estado de búsqueda/paginación
+// Contador de estabilización post-drenaje (frames desde que terminó search_draining)
+// Declarado aquí para ser accesible desde cancel_search_state
+static uint8_t post_drain_settle = 0;
+
 void cancel_search_state(uint8_t drain) __z88dk_fastcall
 {
     pagination_active = 0;
@@ -876,6 +884,7 @@ void cancel_search_state(uint8_t drain) __z88dk_fastcall
     active_search_type = PEND_NONE;
     active_search_arg[0] = '\0';
     show_names_list = 0;  // También cancelar /names si estaba activo
+    post_drain_settle = 0;  // Reset estabilización para próxima búsqueda
 }
 
 // Inicia modo paginación preparando la pantalla
@@ -974,11 +983,18 @@ void pending_search_try_start(void)
     }
 
     // No iniciar si aún estamos drenando o hay búsqueda activa
-    if (search_draining) return;
+    if (search_draining) {
+        post_drain_settle = 0;  // Reset mientras drena
+        return;
+    }
     if (pagination_active || search_mode != SEARCH_NONE) return;
     
-    // No iniciar si hay datos pendientes en el buffer
-    if (rb_head != rb_tail) return;
+    // Esperar breve estabilización post-drenaje (10 frames = 0.2s)
+    // Esto permite procesar líneas residuales sin bloquear indefinidamente
+    if (post_drain_settle < 10) {
+        post_drain_settle++;
+        return;
+    }
 
     // Copiar y limpiar pending
     t = pending_search_type;
@@ -987,6 +1003,7 @@ void pending_search_try_start(void)
     pending_search_type = PEND_NONE;
     pending_search_requires_ready = 0;
     pending_search_arg[0] = 0;
+    post_drain_settle = 0;  // Reset para próximo ciclo
 
     // Iniciar el comando
     start_search_command(t, arg);
@@ -1654,42 +1671,56 @@ void sntp_process_response(const char *line) __z88dk_fastcall
 {
     // Format: +CIPSNTPTIME:Fri Dec 27 21:45:30 2024
     // or:     +CIPSNTPTIME:Thu Jan 01 00:00:00 1970 (not synced)
-    
+
     uint8_t i;
-    
-    // Check for +CIPSNTPTIME: prefix
-    if (rx_pos < 20) return;
-    if (line[0] != '+' || line[1] != 'C') return; // Chequeo rápido
-    
+    uint8_t len;
+
+    if (!line || !*line) return;
+
+    // Compute line length (do NOT rely on rx_pos; try_read_line_nodrain() doesn't update it)
+    len = 0;
+    while (line[len]) len++;
+
+    // Need at least "+CIPSNTPTIME:" + something
+    if (len < 20) return;
+
+    // Quick prefix check
+    if (line[0] != '+' || line[1] != 'C') return;
+
     // Check if it's 1970 (not synced)
-    if (rx_pos < 4) { sntp_waiting = 0; return; }
-    for (i = 0; i <= (uint8_t)(rx_pos - 4); i++) {
-        if (line[i] == '1' && line[i+1] == '9' &&
-            line[i+2] == '7' && line[i+3] == '0') {
-            sntp_waiting = 0;
-            return;
+    // (Search within the received line, bounded by len)
+    if (len >= 4) {
+        for (i = 0; i <= (uint8_t)(len - 4); i++) {
+            if (line[i] == '1' && line[i + 1] == '9' &&
+                line[i + 2] == '7' && line[i + 3] == '0') {
+                sntp_waiting = 0;
+                return;
+            }
         }
     }
 
     // Find time pattern HH:MM:SS
-    for (i = 13; i < rx_pos - 7; i++) {
+    // Prefix "+CIPSNTPTIME:" is 13 chars, so time won't start before that.
+    // Bound check uses len (not rx_pos).
+    for (i = 13; i < (uint8_t)(len - 7); i++) {
         if (line[i] >= '0' && line[i] <= '2' &&
-            line[i+2] == ':' && line[i+5] == ':') {
-            
+            line[i + 2] == ':' && line[i + 5] == ':') {
+
             // Found HH:MM:SS - Update global clock directly
-            time_hour = (line[i] - '0') * 10 + (line[i+1] - '0');
-            time_minute = (line[i+3] - '0') * 10 + (line[i+4] - '0');
-            time_second = (line[i+6] - '0') * 10 + (line[i+7] - '0');
-            
+            time_hour   = (line[i]     - '0') * 10 + (line[i + 1] - '0');
+            time_minute = (line[i + 3] - '0') * 10 + (line[i + 4] - '0');
+            time_second = (line[i + 6] - '0') * 10 + (line[i + 7] - '0');
+
             tick_counter = 0; // Reset sub-second counter for accuracy
-            
+
             time_synced = 1;
             sntp_waiting = 0;
             draw_status_bar();
             return;
         }
     }
-    
+
+    // If we got a +CIPSNTPTIME line but couldn't parse it, stop waiting.
     sntp_waiting = 0;
 }
 
@@ -1869,35 +1900,78 @@ static void sync_time(void)
 void force_disconnect(void)
 {
     uint8_t i;
-    for (i = 0; i < 55; i++) {
-        HALT();
-        uart_drain_and_drop_all(); 
+    
+    // Solo intentar escape +++ si estamos en modo transparente (STATE_TCP_CONNECTED+)
+    // En otros estados, las esperas de 2.2s son innecesarias
+    if (connection_state >= STATE_TCP_CONNECTED) {
+        // Drenar buffer antes de empezar
+        for (i = 0; i < 10; i++) {
+            HALT();
+            uart_drain_and_drop_all(); 
+        }
+        
+        // Secuencia de escape +++ (requiere ~1s silencio antes y después)
+        for (i = 0; i < 55; i++) {
+            HALT();
+            uart_drain_and_drop_all(); 
+        }
+        
+        ay_uart_send('+');
+        ay_uart_send('+');
+        ay_uart_send('+');
+        
+        for (i = 0; i < 55; i++) {
+            HALT();
+            uart_drain_and_drop_all();
+        }
     }
     
-    ay_uart_send('+');
-    ay_uart_send('+');
-    ay_uart_send('+');
-    
-    for (i = 0; i < 55; i++) {
-        HALT();
-        uart_drain_and_drop_all();
-    }
-    
-    // 2. Cerrar conexión TCP explícitamente
+    // Cerrar conexión TCP explícitamente
     uart_send_line("AT+CIPCLOSE");
     // Esperamos respuesta brevemente, ignorando si da ERROR (ya cerrado)
     (void)wait_for_response(S_OK, 50);
     
-    // 3. Desactivar Modo Transparente (Volver a modo normal)
+    // Desactivar Modo Transparente (Volver a modo normal)
     uart_send_line("AT+CIPMODE=0");
     (void)wait_for_response(S_OK, 50);
 
-    // 4. Resetear estado lógico del cliente
+    // =========================================================================
+    // RESET COMPLETO DE ESTADO DE CONEXIÓN
+    // =========================================================================
+    
+    // Estado de conexión básico
     connection_state = STATE_WIFI_OK;
     closed_reported = 0;
+    
+    // Keep-alive system
     server_silence_frames = 0;
     keepalive_ping_sent = 0;
     keepalive_timeout = 0;
+    
+    // Away status
+    irc_is_away = 0;
+    autoaway_counter = 0;
+    autoaway_active = 0;
+    
+    // SNTP/Time sync (permite reconfigurar en nueva conexión)
+    sntp_init_sent = 0;
+    time_synced = 0;
+    sntp_waiting = 0;
+    
+    // Network info
+    network_name[0] = '\0';
+    user_mode[0] = '\0';
+    
+    // Names tracking
+    names_pending = 0;
+    names_timeout_frames = 0;
+    names_target_channel[0] = '\0';
+    counting_new_users = 0;
+    
+    // Search/pagination state
+    cancel_search_state(0);
+    
+    // Channels
     reset_all_channels();
 }
 
@@ -2184,9 +2258,12 @@ void main(void)
                 
                 // Auto-away check (cada segundo, si configurado y conectado)
                 if (autoaway_minutes && connection_state == STATE_IRC_READY && !irc_is_away) {
-                    if (++autoaway_counter >= (uint16_t)autoaway_minutes * 60) {
+                    if (autoaway_counter < 65000) autoaway_counter++;  // Prevenir overflow
+                    if (autoaway_counter >= (uint16_t)autoaway_minutes * 60) {
                         uart_send_line("AWAY :Auto-away");
                         autoaway_active = 1;
+                        irc_is_away = 1;  // Prevenir envío duplicado antes de recibir 306
+                        autoaway_counter = 0;  // Reset para evitar re-trigger
                     }
                 }
                 
@@ -2249,12 +2326,12 @@ void main(void)
             }
             
             // 1.6. PENDING SEARCH SYSTEM
-            // Timeout para search_draining: si no hay datos en ~1 segundo, liberar
+            // Timeout para search_draining: fallback de emergencia si no llega end-marker
+            // Nota: el cierre normal es por end-markers (323/315/366) en irc_handlers.c
             if (search_draining) {
-                if (rb_head != rb_tail) {
-                    search_drain_timeout = 0;  // Hay datos, resetear timeout
-                } else if (++search_drain_timeout > 50) {
-                    // Sin datos durante ~1 segundo, liberar drenaje
+                // FIX: Usar timeout absoluto (~3 segundos = 150 frames)
+                // No resetear con datos - IRC siempre tiene tráfico
+                if (++search_drain_timeout > 150) {
                     search_draining = 0;
                     search_drain_timeout = 0;
                 }

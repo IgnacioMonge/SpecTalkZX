@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.1] - 2026-02-04 "Slim & Steady"
+
+### Optimized
+
+#### Nibble-Packed Font Compression (~390 bytes saved)
+- **Discovery**: Original 768-byte font uses only 10 unique byte values
+- **Discovery**: Lines 6 and 7 of every glyph are always 0x00
+- **Solution**: Compress each glyph from 8 bytes to 3 bytes using nibble packing
+- **Implementation**:
+  - `font_lut`: 10-byte lookup table for unique values
+  - `font64_packed`: 288 bytes (96 glyphs × 3 bytes)
+  - `unpack_glyph`: ~80-byte decompression routine
+- **Total**: 378 bytes vs 768 bytes original = **390 bytes saved**
+- **Performance**: Adds ~50 T-states per character (~22ms per full screen redraw) - imperceptible
+
+#### Attribute Address Lookup Table
+- Added `_attr_row_base`: precalculated table of 24 attribute row addresses
+- Eliminates repeated `y*32 + 0x5800` calculations throughout codebase
+- Optimized `_attr_addr` function to use table lookup
+
+#### Search Command Unification
+- New `do_search_or_queue()` helper consolidates duplicate logic
+- Simplified `cmd_list`, `cmd_who`, and `cmd_search` functions
+- Removed ~60 bytes of redundant code
+
+### Fixed
+
+#### /search Returns "No results" Incorrectly (Critical)
+- **Problem**: `/search` command frequently returned "No results" even when matches existed
+- **Root cause 1**: Condition `rb_head != rb_tail` in search logic was too restrictive
+- **Root cause 2**: Cancelling with EDIT activated drain mode (`search_draining=1`) but end-markers never arrived
+- **Root cause 3**: Drain timeout reset whenever buffer had data (IRC always has traffic), so timeout never triggered
+- **Solution**: 
+  - Removed `rb_head != rb_tail` check from `do_search_or_queue()`
+  - Changed `cancel_search_state(1)` to `cancel_search_state(0)` in `pagination_pause()` - manual cancel doesn't need drain
+  - Changed drain timeout to absolute 3 seconds (150 frames) without resetting on buffer activity
+- **Files**: `user_cmds.c` line 116, `spectalk.c` lines 682, 2331
+
+#### /quit Does Not Update Connection State (Critical)
+- **Problem**: After `/quit`, `!status` still showed "IRC ready" instead of "WiFi OK"
+- **Root cause**: `cmd_quit()` called `force_disconnect()` but didn't update `connection_state`
+- **Effect**: User believed they were still connected; subsequent commands would fail confusingly
+- **Solution**: Added `connection_state = STATE_WIFI_OK;` after `force_disconnect()` in `cmd_quit()`
+- **File**: `user_cmds.c` line 502
+
+### Technical Notes
+- Font data now integrated directly in `spectalk_asm.asm` (removed `font64_data.h` include)
+- New BSS variable: `glyph_buffer` (8 bytes) for decompression workspace
+- Removed `font64_packed.asm` as separate file - consolidated into main ASM
+- Build command updated: remove `asm/font64_packed.asm` from compilation
+- Drain timeout changed from conditional 5s to absolute 3s for reliability
+
+---
+
 ## [1.2.0] - 2026-02-02 "The Final Polish"
 
 ### Added

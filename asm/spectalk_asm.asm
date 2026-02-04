@@ -67,7 +67,7 @@ EXTERN _caps_latch
 EXTERN _g_ps64_y
 EXTERN _g_ps64_col
 EXTERN _g_ps64_attr
-EXTERN _font64
+; _font64 eliminado - ahora usamos fuente comprimida integrada
 EXTERN _input_cache_char
 EXTERN _input_cache_attr
 EXTERN _ay_uart_send
@@ -100,8 +100,15 @@ EXTERN _rx_overflow
 ; RING BUFFER CONSTANTS
 ; Size: 2048 bytes
 ; =============================================================================
-DEFC RB_MASK_L = 0xFF
-DEFC RB_MASK_H = 0x07
+DEFC RB_MASK_H = 0x07   ; Solo se usa la máscara alta (la baja hace overflow natural)
+
+; =============================================================================
+; VARIABLES BSS (Buffer para descompresión de fuente)
+; =============================================================================
+SECTION bss_user
+glyph_buffer: defs 8    ; Buffer temporal para glifo descomprimido
+
+SECTION code_user
 
 ; =============================================================================
 ; UTILIDADES BÁSICAS
@@ -118,12 +125,12 @@ _set_border:
 
 ; -----------------------------------------------------------------------------
 ; void notification_beep(void)
-; Genera un pitido usando la rutina de la ROM
+; Genera un pitido audible usando el altavoz del Spectrum
 ; -----------------------------------------------------------------------------
 _notification_beep:
     push iy
     
-    ld hl, 1000        ; Duración del pitido
+    ld hl, 4000        ; Duración aumentada para beep audible (era 1000)
     
 beep_loop:
     ld a, l
@@ -131,9 +138,9 @@ beep_loop:
     or 0x08            ; Asegurar MIC on
     ld b, a            ; Guardamos los bits de audio en B
     
-    ; --- CAMBIO: INYECTAR COLOR DEL TEMA ---
+    ; --- INYECTAR COLOR DEL TEMA ---
     ld a, (_BORDER_COLOR) 
-    and 0x07           ; Nos aseguramos de limpiar basura, solo bits 0-2
+    and 0x07           ; Solo bits 0-2 (color)
     or b               ; Mezclamos: Audio (bits 3-4) + Borde (bits 0-2)
     ; ---------------------------------------
     
@@ -365,7 +372,7 @@ trln_loop:
     
     ; 5. Chequear desbordamiento (SAFE CHECK)
     ld hl, (_rx_pos)
-    ld de, 510          ; Margen de seguridad (RX_LINE_SIZE - 2)
+    ld de, 511          ; Margen de seguridad (RX_LINE_SIZE - 1)
     or a
     sbc hl, de
     jr nc, trln_overflow_state ; Si rx_pos >= 510, saltar a descarte seguro
@@ -437,6 +444,202 @@ _screen_row_base:
     defw 0x4800, 0x4820, 0x4840, 0x4860, 0x4880, 0x48A0, 0x48C0, 0x48E0
     defw 0x5000, 0x5020, 0x5040, 0x5060, 0x5080, 0x50A0, 0x50C0, 0x50E0
 
+; Tabla de direcciones de atributos (24 filas)
+; Elimina cálculo repetido de 0x5800 + y*32
+_attr_row_base:
+    defw 0x5800, 0x5820, 0x5840, 0x5860, 0x5880, 0x58A0, 0x58C0, 0x58E0
+    defw 0x5900, 0x5920, 0x5940, 0x5960, 0x5980, 0x59A0, 0x59C0, 0x59E0
+    defw 0x5A00, 0x5A20, 0x5A40, 0x5A60, 0x5A80, 0x5AA0, 0x5AC0, 0x5AE0
+
+; =============================================================================
+; FUENTE COMPRIMIDA - NIBBLE PACKED (Ahorra ~390 bytes vs font64 original)
+; =============================================================================
+; Solo 10 valores únicos en toda la fuente original:
+; 0x00, 0x22, 0x44, 0x55, 0x66, 0x88, 0xAA, 0xCC, 0xEE, 0xFF
+; Líneas 6 y 7 de cada glifo son SIEMPRE 0x00 (se regeneran en runtime)
+; Cada glifo: 3 bytes comprimidos (6 nibbles = líneas 0-5)
+
+font_lut:
+    defb 0x00, 0x22, 0x44, 0x55, 0x66, 0x88, 0xAA, 0xCC, 0xEE, 0xFF
+
+font64_packed:
+    defb 0x00, 0x00, 0x00  ; ' ' (ASCII 32)
+    defb 0x55, 0x55, 0x05  ; '!' (ASCII 33)
+    defb 0x06, 0x60, 0x00  ; '"' (ASCII 34)
+    defb 0x06, 0x86, 0x86  ; '#' (ASCII 35)
+    defb 0x28, 0x58, 0x18  ; '$' (ASCII 36)
+    defb 0x61, 0x47, 0x56  ; '%' (ASCII 37)
+    defb 0x26, 0x26, 0x74  ; '&' (ASCII 38)
+    defb 0x25, 0x00, 0x00  ; ''' (ASCII 39)
+    defb 0x25, 0x55, 0x52  ; '(' (ASCII 40)
+    defb 0x52, 0x22, 0x25  ; ')' (ASCII 41)
+    defb 0x06, 0x28, 0x26  ; '*' (ASCII 42)
+    defb 0x02, 0x28, 0x22  ; '+' (ASCII 43)
+    defb 0x00, 0x02, 0x25  ; ',' (ASCII 44)
+    defb 0x00, 0x08, 0x00  ; '-' (ASCII 45)
+    defb 0x00, 0x00, 0x77  ; '.' (ASCII 46)
+    defb 0x11, 0x22, 0x55  ; '/' (ASCII 47)
+    defb 0x26, 0x68, 0x62  ; '0' (ASCII 48)
+    defb 0x27, 0x22, 0x28  ; '1' (ASCII 49)
+    defb 0x26, 0x12, 0x58  ; '2' (ASCII 50)
+    defb 0x81, 0x21, 0x62  ; '3' (ASCII 51)
+    defb 0x56, 0x68, 0x11  ; '4' (ASCII 52)
+    defb 0x85, 0x71, 0x17  ; '5' (ASCII 53)
+    defb 0x45, 0x76, 0x62  ; '6' (ASCII 54)
+    defb 0x81, 0x12, 0x22  ; '7' (ASCII 55)
+    defb 0x26, 0x26, 0x62  ; '8' (ASCII 56)
+    defb 0x26, 0x64, 0x17  ; '9' (ASCII 57)
+    defb 0x00, 0x50, 0x05  ; ':' (ASCII 58)
+    defb 0x02, 0x02, 0x25  ; ';' (ASCII 59)
+    defb 0x01, 0x25, 0x21  ; '<' (ASCII 60)
+    defb 0x00, 0x80, 0x80  ; '=' (ASCII 61)
+    defb 0x05, 0x21, 0x25  ; '>' (ASCII 62)
+    defb 0x26, 0x12, 0x02  ; '?' (ASCII 63)
+    defb 0x26, 0x88, 0x52  ; '@' (ASCII 64)
+    defb 0x26, 0x68, 0x66  ; 'A' (ASCII 65)
+    defb 0x76, 0x76, 0x67  ; 'B' (ASCII 66)
+    defb 0x45, 0x55, 0x54  ; 'C' (ASCII 67)
+    defb 0x76, 0x66, 0x67  ; 'D' (ASCII 68)
+    defb 0x85, 0x75, 0x58  ; 'E' (ASCII 69)
+    defb 0x85, 0x75, 0x55  ; 'F' (ASCII 70)
+    defb 0x26, 0x58, 0x62  ; 'G' (ASCII 71)
+    defb 0x66, 0x86, 0x66  ; 'H' (ASCII 72)
+    defb 0x82, 0x22, 0x28  ; 'I' (ASCII 73)
+    defb 0x41, 0x11, 0x62  ; 'J' (ASCII 74)
+    defb 0x66, 0x87, 0x66  ; 'K' (ASCII 75)
+    defb 0x55, 0x55, 0x58  ; 'L' (ASCII 76)
+    defb 0x68, 0x88, 0x66  ; 'M' (ASCII 77)
+    defb 0x66, 0x68, 0x86  ; 'N' (ASCII 78)
+    defb 0x26, 0x66, 0x62  ; 'O' (ASCII 79)
+    defb 0x76, 0x67, 0x55  ; 'P' (ASCII 80)
+    defb 0x26, 0x66, 0x74  ; 'Q' (ASCII 81)
+    defb 0x76, 0x67, 0x66  ; 'R' (ASCII 82)
+    defb 0x45, 0x21, 0x62  ; 'S' (ASCII 83)
+    defb 0x82, 0x22, 0x22  ; 'T' (ASCII 84)
+    defb 0x66, 0x66, 0x68  ; 'U' (ASCII 85)
+    defb 0x66, 0x66, 0x62  ; 'V' (ASCII 86)
+    defb 0x66, 0x88, 0x82  ; 'W' (ASCII 87)
+    defb 0x66, 0x26, 0x66  ; 'X' (ASCII 88)
+    defb 0x66, 0x62, 0x22  ; 'Y' (ASCII 89)
+    defb 0x81, 0x22, 0x58  ; 'Z' (ASCII 90)
+    defb 0x75, 0x55, 0x57  ; '[' (ASCII 91)
+    defb 0x55, 0x22, 0x11  ; '\' (ASCII 92)
+    defb 0x72, 0x22, 0x27  ; ']' (ASCII 93)
+    defb 0x26, 0x00, 0x00  ; '^' (ASCII 94)
+    defb 0x00, 0x00, 0x09  ; '_' (ASCII 95)
+    defb 0x55, 0x20, 0x00  ; '`' (ASCII 96)
+    defb 0x07, 0x14, 0x64  ; 'a' (ASCII 97)
+    defb 0x55, 0x76, 0x67  ; 'b' (ASCII 98)
+    defb 0x04, 0x55, 0x54  ; 'c' (ASCII 99)
+    defb 0x11, 0x46, 0x64  ; 'd' (ASCII 100)
+    defb 0x02, 0x68, 0x54  ; 'e' (ASCII 101)
+    defb 0x26, 0x57, 0x55  ; 'f' (ASCII 102)
+    defb 0x46, 0x64, 0x17  ; 'g' (ASCII 103)
+    defb 0x55, 0x76, 0x66  ; 'h' (ASCII 104)
+    defb 0x20, 0x72, 0x28  ; 'i' (ASCII 105)
+    defb 0x10, 0x41, 0x62  ; 'j' (ASCII 106)
+    defb 0x55, 0x67, 0x66  ; 'k' (ASCII 107)
+    defb 0x55, 0x55, 0x62  ; 'l' (ASCII 108)
+    defb 0x06, 0x88, 0x66  ; 'm' (ASCII 109)
+    defb 0x07, 0x66, 0x66  ; 'n' (ASCII 110)
+    defb 0x02, 0x66, 0x62  ; 'o' (ASCII 111)
+    defb 0x07, 0x67, 0x55  ; 'p' (ASCII 112)
+    defb 0x04, 0x64, 0x11  ; 'q' (ASCII 113)
+    defb 0x04, 0x55, 0x55  ; 'r' (ASCII 114)
+    defb 0x04, 0x52, 0x17  ; 's' (ASCII 115)
+    defb 0x28, 0x22, 0x21  ; 't' (ASCII 116)
+    defb 0x06, 0x66, 0x68  ; 'u' (ASCII 117)
+    defb 0x06, 0x66, 0x62  ; 'v' (ASCII 118)
+    defb 0x06, 0x88, 0x82  ; 'w' (ASCII 119)
+    defb 0x06, 0x26, 0x66  ; 'x' (ASCII 120)
+    defb 0x06, 0x64, 0x17  ; 'y' (ASCII 121)
+    defb 0x08, 0x12, 0x58  ; 'z' (ASCII 122)
+    defb 0x42, 0x52, 0x24  ; '{' (ASCII 123)
+    defb 0x55, 0x00, 0x55  ; '|' (ASCII 124)
+    defb 0x72, 0x12, 0x27  ; '}' (ASCII 125)
+    defb 0x36, 0x00, 0x00  ; '~' (ASCII 126)
+    defb 0x99, 0x96, 0x06  ; DEL (ASCII 127)
+
+; =============================================================================
+; DESCOMPRESOR DE GLIFO
+; Input: A = char (ASCII 32-127)
+; Output: HL = puntero a glyph_buffer con 8 bytes del glifo descomprimido
+; Preserva: IY (requerido por z88dk)
+; Destruye: AF, BC, DE
+; =============================================================================
+unpack_glyph:
+    push bc
+    push de
+    
+    ; Calcular offset: (char - 32) * 3
+    sub 32
+    ld l, a
+    ld h, 0
+    ld d, h
+    ld e, l
+    add hl, hl          ; *2
+    add hl, de          ; *3
+    ld de, font64_packed
+    add hl, de          ; HL = puntero a glifo comprimido (3 bytes)
+    
+    ld de, glyph_buffer
+    
+    ; Desempaquetar 3 bytes -> 6 líneas (0-5)
+    ld b, 3
+unpack_loop:
+    ld a, (hl)          ; Leer byte comprimido
+    ld c, a             ; Guardar copia
+    
+    ; Nibble alto -> línea N
+    srl a
+    srl a
+    srl a
+    srl a               ; A = índice (0-9)
+    push hl
+    push bc
+    ld hl, font_lut
+    add a, l
+    ld l, a
+    jr nc, unpack_no_carry1
+    inc h
+unpack_no_carry1:
+    ld a, (hl)          ; A = valor real desde LUT
+    pop bc
+    pop hl
+    ld (de), a
+    inc de
+    
+    ; Nibble bajo -> línea N+1
+    ld a, c
+    and 0x0F            ; A = índice bajo
+    push hl
+    push bc
+    ld hl, font_lut
+    add a, l
+    ld l, a
+    jr nc, unpack_no_carry2
+    inc h
+unpack_no_carry2:
+    ld a, (hl)
+    pop bc
+    pop hl
+    ld (de), a
+    inc de
+    
+    inc hl              ; Siguiente byte comprimido
+    djnz unpack_loop
+    
+    ; Líneas 6 y 7 siempre 0x00
+    xor a
+    ld (de), a
+    inc de
+    ld (de), a
+    
+    ld hl, glyph_buffer
+    pop de
+    pop bc
+    ret
+
 ; =============================================================================
 ; SIStheme GRÁFICO - functions
 ; =============================================================================
@@ -482,31 +685,31 @@ sla_done:
 ; Stack: [IX+6]=y, [IX+7]=phys_x
 ; -----------------------------------------------------------------------------
 _attr_addr:
-    push iy
+    ; OPTIMIZADO: Usa tabla precalculada en lugar de y*32+0x5800
     push ix
     ld ix, 0
     add ix, sp
     
-    ld a, (ix+6)
+    ; Lookup en tabla: _attr_row_base[y]
+    ld a, (ix+4)        ; y
+    add a, a            ; y*2 (tabla de words)
     ld l, a
     ld h, 0
-    add hl, hl
-    add hl, hl
-    add hl, hl
-    add hl, hl
-    add hl, hl
-    
-    ld de, 0x5800
+    ld de, _attr_row_base
     add hl, de
+    ld a, (hl)
+    inc hl
+    ld h, (hl)
+    ld l, a             ; HL = base de atributos de fila
     
-    ld a, (ix+7)
+    ; Añadir phys_x
+    ld a, (ix+5)
     add a, l
     ld l, a
     jr nc, aa_done
     inc h
 aa_done:
     pop ix
-    pop iy
     ret
 
 ; -----------------------------------------------------------------------------
@@ -672,16 +875,10 @@ p64_use_space:
     ld a, 32
     
 p64_calc_font:
-    ; Calcular dirección fuente: font64 + (ch-32)*8
-    sub 32
-    ld l, a
-    ld h, 0
-    add hl, hl
-    add hl, hl
-    add hl, hl
-    ld de, _font64
-    add hl, de
-    push hl                 ; Guardar puntero fuente
+    ; A contiene el carácter validado (32-127)
+    ; Descomprimir glifo a glyph_buffer
+    call unpack_glyph       ; Input: A = char, Output: HL = glyph_buffer
+    push hl                 ; Guardar puntero fuente descomprimida
     
     ; Calcular dirección screen
     ld a, (_g_ps64_y)
@@ -700,7 +897,7 @@ p64_calc_font:
     ld d, 0
     add hl, de              ; HL = dirección pantalla
     
-    pop de                  ; DE = puntero fuente
+    pop de                  ; DE = puntero fuente (glyph_buffer)
     
     ; Decidir lado izquierdo o derecho
     ld a, (_g_ps64_col)
@@ -783,6 +980,19 @@ _print_line64_fast:
     push ix
     ld ix, 0
     add ix, sp
+
+    ; ----------------------------------------------------------
+    ; FIX (punto 2): sincronizar contexto global usado por
+    ; print_str64_char / _print_str64_char
+    ; No cambia el renderizado de esta rutina.
+    ; ----------------------------------------------------------
+    ld a, (ix+6)            ; y
+    ld (_g_ps64_y), a
+    xor a
+    ld (_g_ps64_col), a     ; col = 0 (inicio de línea)
+    ld a, (ix+9)            ; attr
+    ld (_g_ps64_attr), a
+    ; ----------------------------------------------------------
     
     ; 1. CALCULAR DIRECCIÓN DE PANTALLA (Solo una vez)
     ld a, (ix+6)            ; Y (0-23)
@@ -832,17 +1042,11 @@ pl64_loop:
     push de                 ; Guardar puntero string
     push hl                 ; Guardar puntero VRAM
     
-    ; Obtener glifo fuente: (char - 32) * 8
-    sub 32                  ; ASCII -> Offset
-    ld l, a
-    ld h, 0
-    add hl, hl              ; x2
-    add hl, hl              ; x4
-    add hl, hl              ; x8
-    ld bc, _font64
-    add hl, bc
+    ; Obtener glifo usando fuente comprimida
+    ; A ya contiene el char (32-127)
+    call unpack_glyph       ; Retorna HL = puntero a glyph_buffer
     push hl
-    pop iy                  ; IY = Puntero al glifo fuente
+    pop iy                  ; IY = Puntero al glifo descomprimido
     
     pop hl                  ; Recuperar VRAM
     
@@ -882,14 +1086,9 @@ pl64_char1:
     push de
     push hl
     
-    sub 32
-    ld l, a
-    ld h, 0
-    add hl, hl
-    add hl, hl
-    add hl, hl
-    ld bc, _font64
-    add hl, bc
+    ; Obtener glifo usando fuente comprimida
+    ; A ya contiene el char (32-127)
+    call unpack_glyph       ; Retorna HL = puntero a glyph_buffer
     push hl
     pop iy
     
@@ -992,6 +1191,7 @@ pl64_attrs:
     pop iy
     ret
 
+    
 ; -----------------------------------------------------------------------------
 ; void draw_indicator(uint8_t y, uint8_t phys_x, uint8_t attr)
 ; Dibuja un círculo de state 8x8
@@ -1777,61 +1977,131 @@ drain_exit:
     pop iy
     ret
 
-
 ; =============================================================================
 ; void scroll_main_zone(void)
 ; Scroll optimizado de la zona de chat (líneas 2-19 -> 2-18).
-; Mueve bloques de VRAM teniendo en cuenta el entrelazado del Spectrum.
+; Versión UNROLLED: elimina tabla y loop interno manteniendo exactamente
+; los mismos 5 bloques y longitudes que la versión original.
 ; =============================================================================
 _scroll_main_zone:
     push iy
     di
-    
-    ld b, 0                 ; Offset scanline
+
+    xor a                   ; A = offset scanline (0..7)
 
 smz_scanline_loop:
-    push bc
-    ld iy, smz_block_table
-    ld c, 5                 ; 5 bloques
+    ; ---------------------------------------------------------
+    ; BLOQUE 1: Filas 3-7 -> 2-6 (Src: 0x4060, Dest: 0x4040, Len: 160)
+    ; ---------------------------------------------------------
+    ld h, 0x40
+    ld l, 0x60
+    ld d, 0x40
+    ld e, 0x40
 
-smz_block_loop:
-    ld l, (iy+0)            ; SrcL
-    ld a, (iy+1)            ; SrcH Base
-    add a, b
-    ld h, a                 ; HL = Source
-    
-    ld e, (iy+2)            ; DestL
-    ld a, (iy+3)            ; DestH Base
-    add a, b
-    ld d, a                 ; DE = Dest
-    
-    ld a, (iy+4)            ; Len
-    
-    push bc
-    ld c, a
-    ld b, 0
+    ld c, a                 ; C = offset
+    ld a, h
+    add a, c
+    ld h, a
+    ld a, d
+    add a, c
+    ld d, a
+    ld a, c                 ; restaurar A=offset
+
+    ld bc, 160
     ldir
-    pop bc
-    
-    ld de, 5
-    add iy, de
-    dec c
-    jr nz, smz_block_loop
-    
-    pop bc
-    inc b
-    ld a, b
+
+    ; ---------------------------------------------------------
+    ; BLOQUE 2: Fila 8 -> 7 (Src: 0x4800, Dest: 0x40E0, Len: 32)
+    ; ---------------------------------------------------------
+    ld h, 0x48
+    ld l, 0x00
+    ld d, 0x40
+    ld e, 0xE0
+
+    ld c, a
+    ld a, h
+    add a, c
+    ld h, a
+    ld a, d
+    add a, c
+    ld d, a
+    ld a, c
+
+    ld bc, 32
+    ldir
+
+    ; ---------------------------------------------------------
+    ; BLOQUE 3: Filas 9-15 -> 8-14 (Src: 0x4820, Dest: 0x4800, Len: 224)
+    ; ---------------------------------------------------------
+    ld h, 0x48
+    ld l, 0x20
+    ld d, 0x48
+    ld e, 0x00
+
+    ld c, a
+    ld a, h
+    add a, c
+    ld h, a
+    ld a, d
+    add a, c
+    ld d, a
+    ld a, c
+
+    ld bc, 224
+    ldir
+
+    ; ---------------------------------------------------------
+    ; BLOQUE 4: Fila 16 -> 15 (Src: 0x5000, Dest: 0x48E0, Len: 32)
+    ; ---------------------------------------------------------
+    ld h, 0x50
+    ld l, 0x00
+    ld d, 0x48
+    ld e, 0xE0
+
+    ld c, a
+    ld a, h
+    add a, c
+    ld h, a
+    ld a, d
+    add a, c
+    ld d, a
+    ld a, c
+
+    ld bc, 32
+    ldir
+
+    ; ---------------------------------------------------------
+    ; BLOQUE 5: Filas 17-19 -> 16-18 (Src: 0x5020, Dest: 0x5000, Len: 96)
+    ; ---------------------------------------------------------
+    ld h, 0x50
+    ld l, 0x20
+    ld d, 0x50
+    ld e, 0x00
+
+    ld c, a
+    ld a, h
+    add a, c
+    ld h, a
+    ld a, d
+    add a, c
+    ld d, a
+    ld a, c
+
+    ld bc, 96
+    ldir
+
+    ; Siguiente scanline (0..7)
+    inc a
     cp 8
     jr nz, smz_scanline_loop
-    
-    ; Scroll atributos (17 filas: 3->2 ... 19->18)
+
+    ; Scroll atributos (17 filas: 3->2 ... 19->18) (idéntico a tu versión)
     ld de, 0x5840
     ld hl, 0x5860
     ld bc, 544
     ldir
-    
-    ; Limpiar última línea (19) usando cli_internal directamente
-    ; A = Y (19), C = Attr
+
+    ; Limpiar última línea (19) píxeles + atributos (idéntico a tu versión)
     ld a, (_current_attr)
     ld c, a
     ld a, 19
@@ -1841,19 +2111,6 @@ smz_block_loop:
     pop iy
     ret
 
-; Tabla de definición de bloques para el scroll
-; Estructura: SrcL, SrcH_Base, DestL, DestH_Base, Len
-smz_block_table:
-    ; Bloque 1: Filas 3-7 -> 2-6 (Tercio 1, 5 filas * 32 bytes)
-    defb 0x60, 0x40, 0x40, 0x40, 160
-    ; Bloque 2: Fila 8 -> 7 (Cruce Tercio 1->2)
-    defb 0x00, 0x48, 0xE0, 0x40, 32
-    ; Bloque 3: Filas 9-15 -> 8-14 (Tercio 2, 7 filas * 32 bytes)
-    defb 0x20, 0x48, 0x00, 0x48, 224
-    ; Bloque 4: Fila 16 -> 15 (Cruce Tercio 2->3)
-    defb 0x00, 0x50, 0xE0, 0x48, 32
-    ; Bloque 5: Filas 17-19 -> 16-18 (Tercio 3, 3 filas * 32 bytes)
-    defb 0x20, 0x50, 0x00, 0x50, 96
 
 ; =============================================================================
 ; void tokenize_params(char *par, uint8_t max_params)
@@ -2080,6 +2337,7 @@ mputc_no_wrap:
 ; Imprime una cadena usando la versión optimizada de putc.
 ; HL = string
 ; -----------------------------------------------------------------------------
+
 PUBLIC _main_puts
 _main_puts:
     ld d, h
@@ -2097,6 +2355,7 @@ puts_loop:
     
     inc de
     jr puts_loop
+
 
 ; -----------------------------------------------------------------------------
 ; uint8_t is_ignored(const char *nick) __z88dk_fastcall

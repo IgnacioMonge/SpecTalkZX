@@ -30,9 +30,19 @@ SECTION code_user
 
 ; -----------------------------------------------------------------------------
 ; Internal helper: uartRead
-; OPTIMIZACIÓN: Flujo unificado y reducción de saltos
+; OPTIMIZACIÓN: Flujo unificado y reducción de saltos.
+; OPTIMIZACIÓN IO: inc b para pasar de ZXUNO_ADDR (FC3B) a ZXUNO_REG (FD3B)
+; OPTIMIZACIÓN REG: Uso de E para preservación temporal (evita tocar HL)
+; -----------------------------------------------------------------------------
+; -----------------------------------------------------------------------------
+; Internal helper: uartRead
+; OPTIMIZACIÓN: Flujo unificado y reducción de saltos.
+; OPTIMIZACIÓN IO: inc b para pasar de ZXUNO_ADDR (FC3B) a ZXUNO_REG (FD3B)
+; OPTIMIZACIÓN REG: Uso de E para preservación temporal (evita tocar HL)
+; FIX: Race condition (DI/EI) para proteger _poked_byte y _is_recv
 ; -----------------------------------------------------------------------------
 uartRead:
+    di              ; CRÍTICO: Protección contra interrupciones
     ld a, (_poked_byte)
     and 1
     jr nz, uartRead_retBuff
@@ -45,12 +55,16 @@ uartRead:
     ld bc, ZXUNO_ADDR
     ld a, UART_STAT_REG
     out (c), a
-    ld bc, ZXUNO_REG
+    
+    ; OPTIMIZACIÓN: FC3B -> FD3B (4 ciclos vs 10 ciclos)
+    inc b           
+    
     in a, (c)
     and UART_BYTE_RECIVED
     jr nz, uartRead_hw_new
 
     or a            ; CF=0 (No data)
+    ei              ; Restaurar interrupciones
     ret
 
 uartRead_retBuff:
@@ -58,6 +72,7 @@ uartRead_retBuff:
     ld (_poked_byte), a
     ld a, (_byte_buff)
     scf             ; CF=1 (Data)
+    ei              ; Restaurar interrupciones
     ret
 
 uartRead_hw_latched:
@@ -72,20 +87,26 @@ uartRead_do_read:
     ld bc, ZXUNO_ADDR
     ld a, UART_DATA_REG
     out (c), a
-    ld bc, ZXUNO_REG
+    
+    ; OPTIMIZACIÓN: FC3B -> FD3B
+    inc b
+    
     in a, (c)
 
-    ; Clear flags
-    ld l, a
+    ; Clear flags & Return data
+    ; OPTIMIZACIÓN: Usar E para swap, evitando L para proteger HL del caller
+    ld e, a         ; Guardar dato en E
     xor a
     ld (_is_recv), a
     ld (_poked_byte), a
-    ld a, l
+    ld a, e         ; Restaurar dato a A
     scf             ; CF=1 (Data)
+    ei              ; Restaurar interrupciones
     ret
 
 ; -----------------------------------------------------------------------------
 ; _ay_uart_init
+; OPTIMIZACIÓN: Reducción de tiempos de espera y bucle de flush ajustado
 ; -----------------------------------------------------------------------------
 _ay_uart_init:
     xor a
@@ -96,17 +117,21 @@ _ay_uart_init:
     ld bc, ZXUNO_ADDR
     ld a, UART_STAT_REG
     out (c), a
-    ld bc, ZXUNO_REG
+    
+    inc b           ; OPTIMIZACIÓN
+    
     in a, (c)
 
     ld bc, ZXUNO_ADDR
     ld a, UART_DATA_REG
     out (c), a
-    ld bc, ZXUNO_REG
+    
+    inc b           ; OPTIMIZACIÓN
+    
     in a, (c)
 
     ei
-    ld b, 50
+    ld b, 10        ; OPTIMIZACIÓN: Reducido de 50 a 10 halts
 uartInit_wait:
     push bc
     call uartRead
@@ -114,7 +139,7 @@ uartInit_wait:
     halt
     djnz uartInit_wait
 
-    ld bc, 0x0800
+    ld bc, 0x0200   ; OPTIMIZACIÓN: Reducido de 0x0800 a 512 bytes
 uartInit_flush:
     push bc
     call uartRead
@@ -137,7 +162,9 @@ _ay_uart_send:
     ld bc, ZXUNO_ADDR
     ld a, UART_STAT_REG
     out (c), a
-    ld bc, ZXUNO_REG
+    
+    inc b           ; OPTIMIZACIÓN
+    
     in a, (c)
     and UART_BYTE_RECIVED
     jr z, uartSend_checkSent
@@ -156,13 +183,17 @@ uartSend_wait_tx:
     ld a, UART_DATA_REG
     out (c), a
 
-    ld bc, ZXUNO_REG
+    ; OPTIMIZACIÓN: B=FC -> B=FD para escribir dato
+    inc b
+    
     pop af
     out (c), a
     ret
 
 ; -----------------------------------------------------------------------------
 ; _ay_uart_send_block
+; NOTA: Se mantienen push/pop hl obligatorios. _ay_uart_send usa L como entrada
+; y destruye BC. No podemos usar LD L, (HL) sin corromper el puntero base.
 ; -----------------------------------------------------------------------------
 _ay_uart_send_block:
     pop bc
@@ -189,7 +220,7 @@ uartSendBlock_loop:
 
 ; -----------------------------------------------------------------------------
 ; _ay_uart_ready / _ay_uart_ready_fast
-; OPTIMIZACIÓN: Salto directo si hay byte cacheado
+; OPTIMIZACIÓN: Salto directo si hay byte cacheado y uso de inc b
 ; -----------------------------------------------------------------------------
 _ay_uart_ready:
 _ay_uart_ready_fast:
@@ -204,7 +235,9 @@ _ay_uart_ready_fast:
     ld bc, ZXUNO_ADDR
     ld a, UART_STAT_REG
     out (c), a
-    ld bc, ZXUNO_REG
+    
+    inc b           ; OPTIMIZACIÓN
+    
     in a, (c)
     and UART_BYTE_RECIVED
     jr z, uartReady_no

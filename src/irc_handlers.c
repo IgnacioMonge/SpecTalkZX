@@ -331,16 +331,23 @@ static void h_join(void)
 
 static void h_part(void)
 {
-    char *chan = pkt_par;
-    if (*chan == ':') chan++;
+    // FIX: Usar irc_param(0) para obtener solo el canal, ignorando el motivo (:reason)
+    // Esto corrige el bug donde "PART #chan :bye" impedía encontrar el canal.
+    const char *p = irc_param(0);
+    char *chan = (char *)p;
+    
+    // Fallback por seguridad
+    if (!chan || !*chan) chan = pkt_par;
+    if (chan && *chan == ':') chan++;
 
     int8_t idx = find_channel(chan);
     if (idx >= 0) {
         if (st_stricmp(pkt_usr, irc_nick) == 0) {
-            // Usuario local sale: cerrar ventana primero para caer en la anterior
+            // Usuario local sale: cerrar ventana
+            // remove_channel se encarga de cambiar el índice y limpiar pantalla (con el fix anterior)
             remove_channel((uint8_t)idx);
             
-            // Feedback en la ventana de destino (ej: Status)
+            // Si remove_channel nos movió a otra ventana (ej. Status), damos feedback allí
             current_attr = ATTR_MSG_JOIN;
             main_print_time_prefix();
             main_puts("<< You left "); 
@@ -723,6 +730,34 @@ static void h_numeric_5(void)
     }
 }
 
+static void h_join_error(void)
+{
+    // Param 0: Nick, Param 1: Canal
+    const char *bad_chan = irc_param(1);
+    
+    current_attr = ATTR_ERROR;
+    main_puts("Cannot join "); 
+    if (bad_chan && *bad_chan) main_print(bad_chan);
+    else main_print("channel");
+    
+    main_puts(": ");
+    if (pkt_txt && *pkt_txt) main_print(pkt_txt); 
+    else main_print("Access denied");
+
+    // SEGURIDAD: Si la ventana existe (estado zombie), forzar su cierre inmediato.
+    // Esto corrige el bug visual de la barra de estado.
+    if (bad_chan && *bad_chan) {
+        int8_t idx = find_channel(bad_chan);
+        if (idx > 0) {
+            remove_channel((uint8_t)idx);
+            // Si estábamos en esa ventana, remove_channel nos mueve a otra
+            // y redibuja la barra de estado automáticamente.
+            if ((uint8_t)idx == current_channel_idx) draw_status_bar();
+        }
+    }
+}
+
+
 static void h_numeric_default(void)
 {
     // 1. Re-parseamos el número para saber qué estamos manejando
@@ -854,6 +889,14 @@ static const NumEntry NUM_TABLE[] = {
     { 332, h_numeric_332 },
     { 401, h_numeric_401 },
     { 451, h_numeric_451 },
+    // --- ERRORES DE JOIN ---
+    { 403, h_join_error }, // No such channel
+    { 404, h_join_error }, // Cannot send to channel
+    { 405, h_join_error }, // Too many channels
+    { 471, h_join_error }, // Channel is full
+    { 473, h_join_error }, // Invite only
+    { 474, h_join_error }, // Banned
+
     { 0,   NULL }
 };
 
@@ -895,7 +938,7 @@ void parse_irc_message(char *line) __z88dk_fastcall
     // Drain filter - ignora resultados de búsquedas/listings cancelados
     if (search_draining && pkt_cmd[0] >= '0' && pkt_cmd[0] <= '9') {
         uint16_t num = str_to_u16(pkt_cmd);
-        if (num == 322 || num == 352 || num == 353) return;  // LIST, WHO, NAMES results
+        if (num == 321 || num == 322 || num == 352 || num == 353) return;  // LIST start/results, WHO, NAMES
         if (num == 323 || num == 315 || num == 366) { search_draining = 0; return; }  // End markers
     }
 
@@ -946,31 +989,18 @@ void parse_irc_message(char *line) __z88dk_fastcall
 
 void process_irc_data(void)
 {
-    int16_t c;
     uint16_t bytes_this_call = 0;
     uint8_t lines_this_call = 0;
     uint8_t max_lines;
+    uint16_t linelen;
 
     if (connection_state == STATE_WIFI_OK && sntp_waiting) {
-        uart_drain_to_buffer();
-        while ((c = rb_pop()) != -1) {
-            uint8_t b = (uint8_t)c;
-            if (b == '\r') continue;
-            if (b == '\n') {
-                if (!rx_overflow && rx_pos > 0) {
-                    rx_line[rx_pos] = '\0';
-                    if (rx_line[0] == '+') sntp_process_response(rx_line);
-                }
-                rx_pos = 0; rx_overflow = 0;
-                continue;
-            }
-            if (!rx_overflow) {
-                if (rx_pos < (sizeof(rx_line) - 1)) rx_line[rx_pos++] = (char)b;
-                else rx_overflow = 1;
-            }
-        }
-        return;
+    uart_drain_to_buffer();
+    while (try_read_line_nodrain()) {
+        if (rx_line[0] == '+') sntp_process_response(rx_line);
     }
+    goto end_of_tick;
+}
 
     if (connection_state < STATE_TCP_CONNECTED) return;
 
@@ -993,40 +1023,30 @@ void process_irc_data(void)
         else                    max_lines = 6;
     }
 
-    while ((c = rb_pop()) != -1) {
-        uint8_t b = (uint8_t)c;
-        bytes_this_call++;
+    while (try_read_line_nodrain()) {
+        // Budget accounting: approximate per-line cost without byte-by-byte rb_pop() overhead.
+        linelen = 0;
+        while (rx_line[linelen]) linelen++;
+        bytes_this_call += (linelen + 1);
         if (bytes_this_call >= RX_TICK_PARSE_BYTE_BUDGET) return;
 
-        if (b == '\r') continue;
-
-        if (b == '\n') {
-            if (!rx_overflow && rx_pos > 0) {
-                rx_line[rx_pos] = '\0';
-                if (strcmp(rx_line, S_CLOSED) == 0) {
-                    if (!closed_reported) {
-                        closed_reported = 1;
-                        ui_err("Connection closed by server");
-                        connection_state = STATE_WIFI_OK;
-                        cursor_visible = 1;
-                        reset_all_channels();
-                        draw_status_bar();
-                    }
-                } else {
-                    server_silence_frames = 0;
-                    keepalive_ping_sent = 0;
-                    parse_irc_message(rx_line);
-                    lines_this_call++;
-                }
+        if (strcmp(rx_line, S_CLOSED) == 0) {
+            if (!closed_reported) {
+                closed_reported = 1;
+                ui_err("Connection closed by server");
+                connection_state = STATE_WIFI_OK;
+                cursor_visible = 1;
+                reset_all_channels();
+                draw_status_bar();
             }
-            rx_pos = 0; rx_overflow = 0;
-            if (lines_this_call >= max_lines) return;
             continue;
         }
 
-        if (!rx_overflow) {
-            if (rx_pos < (sizeof(rx_line) - 1)) rx_line[rx_pos++] = (char)b;
-            else rx_overflow = 1;
-        }
+        server_silence_frames = 0;
+        keepalive_ping_sent = 0;
+        parse_irc_message(rx_line);
+        lines_this_call++;
+        if (lines_this_call >= max_lines) return;
     }
+    end_of_tick:
 }
