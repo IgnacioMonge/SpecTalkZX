@@ -222,7 +222,7 @@ SpecTalk supports up to 10 simultaneous windows:
 
 ## Configuration File
 
-SpecTalk can load settings from a configuration file on your SD card. The file should be named `SPECTALK.CFG` and placed in the root directory.
+SpecTalk can load settings from a configuration file on your SD card. The file should be named `SPECTALK.CFG` and placed in the `SYS/CONFIG/` directory.
 
 ### File Format
 

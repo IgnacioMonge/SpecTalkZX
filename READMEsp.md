@@ -222,7 +222,7 @@ SpecTalk soporta hasta 10 ventanas simultáneas:
 
 ## Archivo de Configuración
 
-SpecTalk puede cargar ajustes desde un archivo de configuración en tu tarjeta SD. El archivo debe llamarse `SPECTALK.CFG` y estar en el directorio raíz.
+SpecTalk puede cargar ajustes desde un archivo de configuración en tu tarjeta SD. El archivo debe llamarse `SPECTALK.CFG` y estar en el directorio `SYS/CONFIG/`.
 
 ### Formato del Archivo
 
