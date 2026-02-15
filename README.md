@@ -8,7 +8,7 @@
 
 ![Platform](https://img.shields.io/badge/Platform-ZX%20Spectrum-blue)
 ![License](https://img.shields.io/badge/License-GPLv2-green)
-![Version](https://img.shields.io/badge/Version-1.2.1-orange)
+![Version](https://img.shields.io/badge/Version-1.2.2-orange)
 
 ---
 
@@ -25,13 +25,14 @@ SpecTalk ZX is a fully-featured IRC client for the ZX Spectrum, bringing modern 
 - **Multi-window interface** supporting up to 10 simultaneous channels/queries
 - **3 color themes**: Default (blue), Terminal (green/black), Colorful (cyan)
 - **Activity indicators**: Visual markers for windows with unread messages
+- **Mention highlighting**: Windows with nick mentions displayed in highlight color
 - **Connection indicator**: Three-state LED (🔴 No WiFi → 🟡 WiFi OK → 🟢 Connected)
 - **Real-time clock** synchronized via SNTP
 
 ### IRC Protocol
 - **Full IRC compliance**: JOIN, PART, QUIT, NICK, PRIVMSG, NOTICE, TOPIC, MODE, KICK, WHO, WHOIS, LIST, NAMES
 - **CTCP support**: VERSION, PING, TIME, ACTION
-- **NickServ integration**: Automatic identification with `/pass`
+- **NickServ integration**: Quick identification with `/id` command or automatic with `/pass`
 - **Away system**: Manual `/away` and automatic `/autoaway` with idle timer
 - **User ignore**: Block messages from specific users with `/ignore`
 - **Channel search**: Find channels or users by pattern
@@ -127,6 +128,7 @@ Local commands that don't require server connection.
 | `!help` | `!h` | Display help screens |
 | `!status` | `!s` | Show connection status and statistics |
 | `!init` | `!i` | Reinitialize ESP8266 module |
+| `!config` | `!cfg` | Show current configuration values |
 | `!theme N` | — | Change color theme (1, 2, or 3) |
 | `!about` | — | Show version and credits |
 
@@ -139,6 +141,7 @@ Local commands that don't require server connection.
 | `/server host[:port]` | `/connect` | Connect to IRC server (default port: 6667) |
 | `/nick name` | — | Set or change nickname |
 | `/pass password` | — | Set NickServ password for auto-identify |
+| `/id [password]` | — | Identify with NickServ (uses saved password if none given) |
 | `/quit [message]` | — | Disconnect from server with optional message |
 
 #### Channels
@@ -165,7 +168,7 @@ Local commands that don't require server connection.
 | Command | Alias | Description |
 |---------|-------|-------------|
 | `/0` ... `/9` | — | Switch to window by number (0 = server) |
-| `/channels` | `/w` | List all open windows |
+| `/channels` | `/w` | List all open windows (mentions highlighted) |
 | `/close` | — | Close current window |
 
 #### Tools
@@ -188,6 +191,13 @@ Local commands that don't require server connection.
 
 > **Auto-away behavior**: When enabled, automatically sets you away after N minutes of inactivity. Sending any message clears auto-away automatically. Manual `/away` must be cleared manually with `/away`.
 
+#### Preferences
+
+| Command | Alias | Description |
+|---------|-------|-------------|
+| `/beep` | — | Toggle sound on nick mention (on/off) |
+| `/quits` | — | Toggle display of QUIT messages (on/off) |
+
 ---
 
 ## Window Management
@@ -201,11 +211,64 @@ SpecTalk supports up to 10 simultaneous windows:
 - Use `/0` through `/9` to switch windows
 - Use `/w` or `/channels` to see all open windows
 - Activity indicator (●) shows windows with unread messages
+- Mention indicator (!) shows windows where your nick was mentioned (highlighted in color)
 
 ### Private Messages
 - Incoming PMs automatically create a query window
 - Use `/query nick` to manually open a private chat
 - Use `/close` to close the current query window
+
+---
+
+## Configuration File
+
+SpecTalk can load settings from a configuration file on your SD card. The file should be named `SPECTALK.CFG` and placed in the root directory.
+
+### File Format
+
+Plain text file with one setting per line in `key=value` format:
+
+```
+nick=MyNickname
+server=irc.libera.chat
+port=6667
+pass=mynickservpassword
+theme=1
+autoaway=15
+beep=1
+quits=1
+tz=+1
+```
+
+### Available Settings
+
+| Setting | Description | Values | Default |
+|---------|-------------|--------|---------|
+| `nick` | Default nickname | Any valid IRC nick | (none) |
+| `server` | IRC server hostname | Hostname or IP | (none) |
+| `port` | Server port | 1-65535 | 6667 |
+| `pass` | NickServ password | Any string | (none) |
+| `theme` | Color theme | 1, 2, or 3 | 1 |
+| `autoaway` | Auto-away minutes | 0-60 (0=off) | 0 |
+| `beep` | Sound on mention | 0 or 1 | 1 |
+| `quits` | Show quit messages | 0 or 1 | 1 |
+| `tz` | Timezone offset | -12 to +12 | 0 |
+
+### Viewing Current Configuration
+
+Use `!config` or `!cfg` to display all current configuration values:
+
+```
+nick=MyNickname
+server=irc.libera.chat
+port=6667
+pass=(set)
+theme=1
+autoaway=15 min
+beep=on
+quits=on
+tz=+1
+```
 
 ---
 
@@ -260,7 +323,10 @@ The project uses **Unity Build** strategy: all C sources are compiled as a singl
 | Indicator yellow but won't connect | Verify WiFi credentials with NetManZX |
 | "Connection timeout" after idle | Normal behavior - keep-alive detected dead connection |
 | Messages from user won't stop | Use `/ignore nick` to block them |
-| Can't identify with NickServ | Use `/pass yourpassword` before connecting |
+| Can't identify with NickServ | Use `/id password` or set `pass=` in config file |
+| Forgot current settings | Use `!config` to view all configuration values |
+| Too many quit messages | Use `/quits` to toggle them off |
+| No sound on mentions | Use `/beep` to toggle sound on |
 
 ---
 

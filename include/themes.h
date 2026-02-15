@@ -82,9 +82,9 @@ static const Theme themes[] = {
         (PAPER_BLACK | INK_GREEN | BRIGHT),    // msg_self
         (PAPER_BLACK | INK_GREEN | BRIGHT),    // msg_priv
         (PAPER_BLACK | INK_GREEN),             // main_bg
-        (PAPER_GREEN | INK_BLACK),             // input
-        (PAPER_GREEN | INK_BLACK),             // input_bg
-        (PAPER_GREEN | INK_BLACK),             // prompt
+        (PAPER_BLACK | INK_GREEN | BRIGHT),    // input
+        (PAPER_BLACK | INK_GREEN | BRIGHT),    // input_bg
+        (PAPER_BLACK | INK_GREEN | BRIGHT),    // prompt
         (PAPER_BLACK | INK_GREEN),             // msg_server
         (PAPER_BLACK | INK_GREEN),             // msg_join
         (PAPER_BLACK | INK_GREEN | BRIGHT),    // msg_nick

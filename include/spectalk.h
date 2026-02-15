@@ -27,23 +27,20 @@
 // =============================================================================
 // SDCC COMPATIBILITY
 // =============================================================================
-// Theme helpers
-const char *theme_get_name(uint8_t theme_id);
-
-
 #ifdef __SDCC
 #define ST_NAKED __naked
 #pragma disable_warning 110
 #else
 #define ST_NAKED
-// Theme helpers
-
 #endif
+
+// Theme helper (defined in spectalk.c)
+const char *theme_get_name(uint8_t theme_id);
 
 // =============================================================================
 // VERSION
 // =============================================================================
-#define VERSION "1.2"
+#define VERSION "1.2.2"
 
 // =============================================================================
 // SCREEN LAYOUT CONSTANTS
@@ -77,6 +74,10 @@ const char *theme_get_name(uint8_t theme_id);
 #define STATE_WIFI_OK       1
 #define STATE_TCP_CONNECTED 2
 #define STATE_IRC_READY     3
+#define CH_FLAG_ACTIVE     0x01
+#define CH_FLAG_QUERY      0x02
+#define CH_FLAG_UNREAD     0x04
+#define CH_FLAG_MENTION    0x08
 
 // =============================================================================
 // buffer SIZES
@@ -84,7 +85,6 @@ const char *theme_get_name(uint8_t theme_id);
 #define RING_BUFFER_SIZE 2048
 #define RING_BUFFER_MASK (RING_BUFFER_SIZE - 1)
 #define LINE_BUFFER_SIZE 128
-// TX_BUFFER_SIZE eliminado - ya no se usa buffer global
 
 // IRC/user-visible string sizes (must match definitions in spectalk.c)
 #define IRC_SERVER_SIZE   32
@@ -97,6 +97,8 @@ const char *theme_get_name(uint8_t theme_id);
 // Cross-module buffers (must match definitions in spectalk.c)
 #define NAMES_TARGET_CHANNEL_SIZE 32
 #define SEARCH_PATTERN_SIZE       32
+// RX_LINE_SIZE: Also defined in spectalk_asm.asm line 420 (ld de, RX_LINE_SIZE-2)
+// If changed, update ASM constant accordingly
 #define RX_LINE_SIZE              512
 
 // =============================================================================
@@ -106,10 +108,7 @@ const char *theme_get_name(uint8_t theme_id);
 #define NAV_HIST_SIZE 6
 #define MAX_IGNORES 8
 
-// Channel flags (bitfield para ahorrar memoria y alinear struct a 32 bytes)
-#define CH_FLAG_ACTIVE     0x01
-#define CH_FLAG_QUERY      0x02
-#define CH_FLAG_UNREAD     0x04
+// Channel flags already defined above (lines 80-83)
 
 typedef struct {
     char name[22];           // Channel name "#retro" or query nick or "Server"
@@ -135,6 +134,7 @@ typedef struct {
 #define PEND_WHO          2
 #define PEND_SEARCH_CHAN  3
 #define PEND_SEARCH_USER  4
+#define PEND_NAMES        5
 
 // =============================================================================
 // TIMEOUTS (frames, HALT-based)
@@ -146,6 +146,7 @@ typedef struct {
 
 // Pagination
 #define PAGINATION_THRESHOLD 40
+#define PAGINATION_MAX_COUNT 60000  // Límite de seguridad para evitar overflow
 
 // Names timeout
 #define NAMES_TIMEOUT_FRAMES 500
@@ -156,8 +157,12 @@ typedef struct {
 #define DRAIN_NORMAL    32
 #define DRAIN_FAST      192
 #define RX_TICK_DRAIN_MAX        255
-#define RX_TICK_PARSE_BYTE_BUDGET 4096
+#define RX_TICK_PARSE_BYTE_BUDGET 1024  // Reduced from 4096 to prevent UI lag
 #define RX_TICK_LINE_BUDGET_MAX   32
+
+// Buffer pressure thresholds
+#define BUFFER_PRESSURE_THRESHOLD (RING_BUFFER_SIZE * 3 / 4)  // 1536 bytes = 75%
+#define BUFFER_CRITICAL_MARGIN 128  // Reserve 128 bytes before full
 
 // =============================================================================
 // FRAME MACRO
@@ -169,25 +174,26 @@ typedef struct {
 // =============================================================================
 extern void set_border(uint8_t color) __z88dk_fastcall;
 extern void notification_beep(void);
+extern void mention_beep(void);
 extern void check_caps_toggle(void);
 extern uint8_t key_shift_held(void);
 extern void input_cache_invalidate(void);
 extern void print_str64_char(uint8_t ch) __z88dk_fastcall;
 extern void print_line64_fast(uint8_t y, const char *s, uint8_t attr);
+extern void redraw_input_asm(void);
 extern void draw_indicator(uint8_t y, uint8_t phys_x, uint8_t attr);
 extern void clear_line(uint8_t y, uint8_t attr);
 extern void clear_zone(uint8_t start, uint8_t lines, uint8_t attr);
-extern void ldir_copy_fwd(void *dst, const void *src, uint16_t len);
 extern uint16_t screen_row_base[];
 extern uint8_t* screen_line_addr(uint8_t y, uint8_t phys_x, uint8_t scanline);
 extern uint8_t* attr_addr(uint8_t y, uint8_t phys_x);
-extern char* str_append(char *dst, const char *src);
-extern char* str_append_n(char *dst, const char *src, uint8_t max);
 extern int st_stricmp(const char *a, const char *b);
 extern const char* st_stristr(const char *hay, const char *needle);
+extern uint8_t st_strlen(const char *s) __z88dk_fastcall;
 extern char* u16_to_dec(char *dst, uint16_t v);
 extern uint16_t str_to_u16(const char *s) __z88dk_fastcall;
 extern char* skip_to(char *s, char c);
+extern void st_copy_n(char *dst, const char *src, uint8_t max_len);
 extern void uart_send_string(const char *s) __z88dk_fastcall;
 extern void strip_irc_codes(char *s);
 extern int16_t rb_pop(void);
@@ -199,10 +205,8 @@ extern uint8_t try_read_line_nodrain(void);
 // =============================================================================
 extern void     ay_uart_init(void);
 extern void     ay_uart_send(uint8_t byte) __z88dk_fastcall;
-extern void     ay_uart_send_block(void *buf, uint16_t len) __z88dk_callee;
 extern uint8_t  ay_uart_read(void);
 extern uint8_t  ay_uart_ready(void);
-extern uint8_t  ay_uart_ready_fast(void);
 
 // =============================================================================
 // GLOBAL variables (defined in spectalk.c)
@@ -218,9 +222,14 @@ extern char irc_server[IRC_SERVER_SIZE];
 extern char irc_port[IRC_PORT_SIZE];
 extern char irc_nick[IRC_NICK_SIZE];
 extern uint8_t irc_is_away;
+extern char away_message[64];
+extern uint8_t away_reply_cd;
 extern uint8_t autoaway_minutes;
 extern uint16_t autoaway_counter;
 extern uint8_t autoaway_active;
+extern uint8_t beep_enabled;
+extern uint8_t show_quits;
+extern int8_t sntp_tz;
 extern char irc_pass[IRC_PASS_SIZE];
 extern char user_mode[USER_MODE_SIZE];
 extern char network_name[NETWORK_NAME_SIZE];
@@ -274,7 +283,7 @@ extern uint8_t ATTR_MSG_MOTD;
 // CROSS-MODULE FUNCTIONS (defined in spectalk.c)
 // =============================================================================
 extern void main_print_time_prefix(void);
-extern void main_run_u16(uint16_t val, uint8_t attr, uint8_t min_width) __z88dk_callee;
+extern void main_run_u16(uint16_t val, uint8_t attr) __z88dk_callee;
 extern void reset_all_channels(void);
 void sntp_process_response(const char *line) __z88dk_fastcall;
 extern uint8_t ATTR_ERROR;
@@ -302,6 +311,7 @@ extern char names_target_channel[NAMES_TARGET_CHANNEL_SIZE];
 extern uint8_t counting_new_users;
 extern uint8_t show_names_list;
 
+
 // Keep-alive system
 extern uint16_t server_silence_frames;
 extern uint8_t  keepalive_ping_sent;
@@ -309,28 +319,22 @@ extern uint16_t keepalive_timeout;
 
 // Pagination
 extern uint8_t pagination_active;
-extern uint8_t search_draining;
+extern uint8_t search_data_lost;
+extern uint8_t buffer_pressure;
 extern uint16_t pagination_count;
+extern uint8_t pagination_timeout;
 
 // Search
 extern uint8_t search_mode;
+extern uint8_t search_flush_state;    // 0=idle, 1=draining, 2=command sent
+extern uint8_t search_header_rcvd;    // Flag: server sent 321/352 (not rate-limited)
 extern char search_pattern[SEARCH_PATTERN_SIZE];
 extern uint16_t search_index;
 
-// Pending search system (evita mezcla de resultados)
-extern uint8_t pending_search_type;
-extern char pending_search_arg[32];
-extern uint8_t pending_search_requires_ready;
-extern uint8_t active_search_type;
-extern char active_search_arg[32];
-extern uint16_t search_drain_timeout;
-
-// Pending search functions
-void cancel_search_state(uint8_t drain) __z88dk_fastcall;
+// Search functions
+void cancel_search_state(void);
 void start_pagination(void);
 void start_search_command(uint8_t type, const char *arg);
-void queue_search_command(uint8_t type, const char *arg);
-void pending_search_try_start(void);
 
 // IRC parsing
 extern char *irc_params[IRC_MAX_PARAMS];
@@ -345,20 +349,22 @@ extern uint8_t cursor_pos;
 // RX line buffer
 extern char rx_line[RX_LINE_SIZE];
 extern uint16_t rx_pos;
-extern uint16_t rx_overflow;
+extern uint16_t rx_last_len;
+extern uint8_t rx_overflow;  // Flag: overflow detected (0 or 1)
 
 // UART drain
 extern uint8_t uart_drain_limit;
+extern uint8_t uart_aggressive_drain;
 
 // Print context (used by ASM)
 extern uint8_t g_ps64_y;
 extern uint8_t g_ps64_col;
 extern uint8_t g_ps64_attr;
-extern const char *g_ps64_str;
+// g_ps64_str solo se usa internamente en spectalk.c, no necesita extern
 
 // Caps lock
-extern volatile uint8_t caps_lock_mode;
-extern volatile uint8_t caps_latch;
+extern uint8_t caps_lock_mode;
+extern uint8_t caps_latch;
 
 // Input cache
 extern uint8_t input_cache_char[][SCREEN_COLS];
@@ -380,11 +386,38 @@ extern const char S_NICKSERV[];
 extern const char S_APPNAME[];
 extern const char S_APPDESC[];
 extern const char S_COPYRIGHT[];
+extern const char S_LICENSE[];
 extern const char S_MAXWIN[];
 extern const char S_SWITCHTO[];
 extern const char S_PRIVMSG[];
 extern const char S_NOTICE[];
 extern const char S_TIMEOUT[];
+extern const char S_NOWIN[];
+extern const char S_CANCELLED[];
+extern const char S_RANGE_MINUTES[];
+extern const char S_MUST_CHAN[];
+extern const char S_ARROW_IN[];
+extern const char S_ARROW_OUT[];
+extern const char S_EMPTY_PAT[];
+extern const char S_ALREADY_IN[];
+extern const char S_CRLF[];
+extern const char S_ASTERISK[];
+extern const char S_COLON_SP[];
+extern const char S_SP_COLON[];
+extern const char S_SP_PAREN[];
+extern const char S_AT_CIPCLOSE[];
+extern const char S_AT_CIPMODE0[];
+extern const char S_AT_CIPMUX0[];
+extern const char S_AT_CIPSERVER0[];
+extern const char S_PROMPT[];
+extern const char S_CAP_END[];
+extern const char S_GLOBAL[];
+extern const char S_TOPIC_PFX[];
+extern const char S_YOU_LEFT[];
+extern const char S_CONN_REFUSED[];
+extern const char S_INIT_DOTS[];
+extern const char S_ACTION[];
+extern const char S_PONG[];
 
 // =============================================================================
 // UI MACROS
@@ -408,13 +441,16 @@ void ui_usage(const char *a) __z88dk_fastcall;
 // FUNCTION DECLARATIONS - UI (spectalk.c)
 // =============================================================================
 void main_print(const char *s) __z88dk_fastcall;
+void main_print_wrapped_ram(char *s) __z88dk_fastcall;
 void main_puts(const char *s) __z88dk_fastcall;
+void main_puts2(const char *a, const char *b) __z88dk_callee;
+void main_puts3(const char *a, const char *b, const char *c) __z88dk_callee;
 void main_putc(char c) __z88dk_fastcall;
 void main_newline(void);
 void main_hline(void);
 void print_char64(uint8_t y, uint8_t col, uint8_t c, uint8_t attr) __z88dk_callee;
 void print_str64(uint8_t y, uint8_t col, const char *s, uint8_t attr) __z88dk_callee;
-uint8_t main_run(const char *s, uint8_t attr, uint8_t min_width) __z88dk_callee;
+void main_run2(const char *s, uint8_t attr) __z88dk_callee;
 void main_run_char(char c, uint8_t attr) __z88dk_callee;
 void draw_status_bar(void);
 void redraw_input_full(void);
@@ -447,14 +483,14 @@ uint8_t remove_ignore(const char *nick) __z88dk_fastcall;
 // FUNCTION DECLARATIONS - IRC PARAMS (spectalk.c)
 // =============================================================================
 void tokenize_params(char *par, uint8_t max_params);
-const char* irc_param(uint8_t idx);
+const char* irc_param(uint8_t idx) __z88dk_fastcall;
 
 // =============================================================================
 // FUNCTION DECLARATIONS - UART/TRANSPORT (spectalk.c)
 // =============================================================================
 void uart_drain_to_buffer(void);
-void uart_drain_and_drop_all(void);
 void wait_drain(uint8_t frames) __z88dk_fastcall;
+void flush_all_rx_buffers(void);
 void uart_send_crlf(void) __z88dk_fastcall;
 void uart_send_line(const char *s) __z88dk_fastcall;
 
@@ -470,7 +506,6 @@ uint8_t esp_at_cmd(const char *cmd) __z88dk_fastcall;
 void irc_send_cmd1(const char *cmd, const char *p1) __z88dk_callee;
 void irc_send_cmd2(const char *cmd, const char *p1, const char *p2) __z88dk_callee;
 void irc_send_privmsg(const char *target, const char *msg) __z88dk_callee;
-uint8_t esp_send_line_crlf_nowait(const char *line) __z88dk_fastcall;
 
 // =============================================================================
 // FUNCTION DECLARATIONS - IRC HANDLERS (irc_handlers.c)
@@ -487,9 +522,13 @@ void parse_user_input(char *line) __z88dk_fastcall;
 // FUNCTION DECLARATIONS - MISC (spectalk.c)
 // =============================================================================
 void force_disconnect(void);
+void force_disconnect_wifi(void);
 void apply_theme(void);
 void init_screen(void);
 uint8_t esp_init(void);
 void draw_banner(void);
+
+// Configuration file (esxDOS)
+uint8_t config_load(void);
 
 #endif // SPECTALK_H

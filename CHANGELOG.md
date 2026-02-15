@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.2] - 2026-02-15 "Identity Crisis"
+
+### Added
+
+#### NickServ Quick Identification (`/id`)
+- **New command**: `/id [password]` for fast NickServ identification
+- If password provided: sends `IDENTIFY <password>` to NickServ
+- If no password: uses the password from config file (`pass=...`)
+- Replaces tedious `/msg NickServ identify password` workflow
+- Visual confirmation: "Identifying with NickServ..."
+
+#### Configuration Viewer (`!config`)
+- **New command**: `!config` (alias `!cfg`) displays current configuration
+- Shows all configurable variables and their values:
+  - `nick=`, `server=`, `port=`, `pass=` (hidden if set)
+  - `theme=`, `autoaway=`, `beep=`, `quits=`, `tz=`
+- Useful for verifying settings loaded from config file
+
+#### Mention Highlighting in Window List
+- **Enhanced `/w` command**: channels with mentions now display in highlight color
+- Channels where your nick was mentioned show in `ATTR_MSG_PRIV` (typically magenta)
+- Makes it easier to spot which conversations need attention
+
+### Optimized
+
+#### Memory Footprint Reduction (~136 bytes BSS + ~26 bytes code)
+
+- **Command history buffer**: Reduced `HISTORY_LEN` from 128 to 96 bytes per entry
+  - 4 entries × 32 bytes saved = **128 bytes BSS**
+  - IRC commands rarely exceed 96 characters in practice
+
+- **Shift key mapping**: Replaced 4-way if/else chain with lookup table
+  - `static const uint8_t shift_keys[] = {KEY_LEFT, KEY_DOWN, KEY_UP, KEY_RIGHT}`
+  - Saves ~10 bytes of code, slightly faster execution
+
+- **Status bar buffer**: Changed `user_buf[8]` from stack to static
+  - Reduces stack frame setup overhead (~8 bytes code)
+
+- **String literal deduplication**: Added `S_CONNECTED` constant
+  - Shared across 2 call sites in `sb_pick_status()`
+  - Saves ~8 bytes
+
+### Technical Notes
+- New commands in help system: `!config` (index 3), `/id` (index 9)
+- Help system now shows `!` prefix for first 6 commands (was 5)
+- `NUM_USER_CMDS` increased to 31
+- Command table updated with new entries and aliases
+
+---
+
 ## [1.2.1] - 2026-02-04 "Slim & Steady"
 
 ### Optimized

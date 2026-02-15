@@ -25,10 +25,8 @@
 
     PUBLIC _ay_uart_init
     PUBLIC _ay_uart_send
-    PUBLIC _ay_uart_send_block
     PUBLIC _ay_uart_read
     PUBLIC _ay_uart_ready
-    PUBLIC _ay_uart_ready_fast
 
 ;; ============================================================
 ;; DATA SEQUENCE FOR SPEED INITIALIZATION
@@ -221,114 +219,6 @@ transmitNext:
     ret
 
 ;; ============================================================
-;; ay_uart_send_block - Send a block of bytes
-;; C prototype: void ay_uart_send_block(void *buf, uint16_t len) __z88dk_callee;
-;; Parameters on stack: [ret addr][buf][len]
-;; networkuces overhead by keeping DI once for all bytes
-;; ============================================================
-_ay_uart_send_block:
-    ; Get parameters from stack (callee convention)
-    pop bc                  ; BC = return address
-    pop hl                  ; HL = buf (first param)
-    pop de                  ; DE = len (second param)
-    push bc                 ; Restore return address
-    
-    ; Check for zero length
-    ld a, d
-    or e
-    ret z
-    
-    di
-    push hl
-    push de
-    push bc
-    push af
-    
-    ; HL = buffer, DE = remaining count
-    
-    ; === OPTIMIZATION: Initialize constants ONCE ===
-    ; Select AY's PORT A (only once for entire block)
-    ld bc, 0xFFFD
-    ld a, 0x0E
-    out (c), a
-    
-    ; Calculate baud delay once: IX = baud - 2
-    push hl                 ; Save buffer pointer temporarily
-    ld hl, (_baud)
-    ld bc, 0x0002
-    or a
-    sbc hl, bc
-    push hl
-    pop ix                  ; IX = baud - 2 (constant for loop)
-    pop hl                  ; Restore buffer pointer
-    ; === End optimization setup ===
-    
-sendBlockLoop:
-    push de                 ; Save remaining count
-    push hl                 ; Save buffer pointer
-    
-    ld a, (hl)              ; Get byte to send
-    
-    ; === Core transmit (optimized) ===
-    cpl                     ; Complement byte
-    scf                     ; Set carry for start bit
-    ld b, 11                ; 1 start + 8 data + 2 stop bits
-    
-sendBlockBit:
-    push bc
-    push af
-    
-    ld a, 0xFE
-    push ix
-    pop hl                  ; HL = baud - 2 (from IX)
-    ld bc, 0xBFFD
-    jp nc, sendBlockOne
-    
-    ; Transmit Zero (bit 3 = 0):
-    and 0xF7
-    out (c), a
-    jr sendBlockNext
-    
-sendBlockOne:
-    ; Transmit One (bit 3 = 1):
-    or 0x08
-    out (c), a
-    jr sendBlockNext
-    
-sendBlockNext:
-    dec hl
-    ld a, h
-    or l
-    jr nz, sendBlockNext
-    
-    nop
-    nop
-    nop
-    
-    pop af
-    pop bc
-    or a
-    rra                     ; Rotate right through carry
-    djnz sendBlockBit
-    ; === End core transmit ===
-    
-    pop hl                  ; Restore buffer pointer
-    inc hl                  ; Next byte
-    pop de                  ; Restore remaining count
-    dec de
-    ld a, d
-    or e
-    jr nz, sendBlockLoop
-    
-    ; Done
-    pop af
-    pop bc
-    pop de
-    pop hl
-    ei
-    ret
-
-;; ============================================================
 ;; ay_uart_ready - Check if data available
 ;; Output: L = 1 if ready, 0 if not
 ;; ============================================================
@@ -357,37 +247,6 @@ checkPortReady:
     ret
     
 notReadyRet:
-    ld l, 0
-    ret
-
-;; ============================================================
-;; ay_uart_ready_fast - Check if data available (FAST VERSION)
-;; ASSUMES: AY register 0x0E (PORT A) is already selected
-;; Output: L = 1 if ready, 0 if not
-;; Optimization: Saves ~8 cycles by skipping register selection
-;; USE ONLY in contexts where PORT A is guaranteed to be selected
-;; ============================================================
-_ay_uart_ready_fast:
-    ; Check cached byte first
-    ld a, (_isSecondByteAvail)
-    or a
-    jr z, checkPortReadyFast
-    ld l, 1
-    ret
-    
-checkPortReadyFast:
-    ; ASSUMES reg 0x0E already selected - skip out (0xFFFD), 0x0E
-    ; Read port directly
-    ld bc, 0xBFFD
-    in a, (c)
-    
-    ; RX is bit 7, start bit = 0
-    and 0x80
-    jr nz, notReadyRetFast
-    ld l, 1                 ; Start bit detected
-    ret
-    
-notReadyRetFast:
     ld l, 0
     ret
 
@@ -603,31 +462,4 @@ secondByteFinished:
     pop af
     ld l, a
     ei
-    ret
-
-;; ============================================================
-;; check_cancel_key - Check if EDIT (CAPS SHIFT + 1) is pressed
-;; Output: L = 1 if pressed, 0 if not
-;; ============================================================
-    PUBLIC _check_cancel_key
-    
-_check_cancel_key:
-    ; Check CAPS SHIFT (port 0xFEFE, bit 0)
-    ld a, 0xFE
-    in a, (0xFE)
-    bit 0, a
-    jr nz, noCancel     ; CAPS SHIFT not pressed
-    
-    ; CAPS SHIFT is pressed, now check 1 (port 0xF7FE, bit 0)
-    ld a, 0xF7
-    in a, (0xFE)
-    bit 0, a
-    jr nz, noCancel     ; 1 not pressed
-    
-    ; EDIT (CS+1) is pressed
-    ld l, 1
-    ret
-    
-noCancel:
-    ld l, 0
     ret

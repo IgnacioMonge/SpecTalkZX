@@ -8,7 +8,7 @@
 
 ![Plataforma](https://img.shields.io/badge/Plataforma-ZX%20Spectrum-blue)
 ![Licencia](https://img.shields.io/badge/Licencia-GPLv2-green)
-![Versión](https://img.shields.io/badge/Versión-1.2.1-orange)
+![Versión](https://img.shields.io/badge/Versión-1.2.2-orange)
 
 ---
 
@@ -25,13 +25,14 @@ SpecTalk ZX es un cliente IRC completo para ZX Spectrum que trae la funcionalida
 - **Interfaz multi-ventana** soportando hasta 10 canales/consultas simultáneas
 - **3 temas de color**: Default (azul), Terminal (verde/negro), Colorful (cian)
 - **Indicadores de actividad**: Marcadores visuales para ventanas con mensajes sin leer
+- **Resaltado de menciones**: Ventanas con menciones de tu nick mostradas en color destacado
 - **Indicador de conexión**: LED de tres estados (🔴 Sin WiFi → 🟡 WiFi OK → 🟢 Conectado)
 - **Reloj en tiempo real** sincronizado vía SNTP
 
 ### Protocolo IRC
 - **Compatibilidad IRC completa**: JOIN, PART, QUIT, NICK, PRIVMSG, NOTICE, TOPIC, MODE, KICK, WHO, WHOIS, LIST, NAMES
 - **Soporte CTCP**: VERSION, PING, TIME, ACTION
-- **Integración con NickServ**: Identificación automática con `/pass`
+- **Integración con NickServ**: Identificación rápida con `/id` o automática con `/pass`
 - **Sistema Away**: `/away` manual y `/autoaway` automático con temporizador de inactividad
 - **Ignorar usuarios**: Bloquea mensajes de usuarios específicos con `/ignore`
 - **Búsqueda de canales**: Encuentra canales o usuarios por patrón
@@ -127,6 +128,7 @@ Comandos locales que no requieren conexión al servidor.
 | `!help` | `!h` | Mostrar pantallas de ayuda |
 | `!status` | `!s` | Mostrar estado de conexión y estadísticas |
 | `!init` | `!i` | Reinicializar módulo ESP8266 |
+| `!config` | `!cfg` | Mostrar valores de configuración actuales |
 | `!theme N` | — | Cambiar tema de color (1, 2 o 3) |
 | `!about` | — | Mostrar versión y créditos |
 
@@ -139,6 +141,7 @@ Comandos locales que no requieren conexión al servidor.
 | `/server host[:puerto]` | `/connect` | Conectar a servidor IRC (puerto por defecto: 6667) |
 | `/nick nombre` | — | Establecer o cambiar nickname |
 | `/pass contraseña` | — | Establecer contraseña NickServ para auto-identificación |
+| `/id [contraseña]` | — | Identificarse con NickServ (usa contraseña guardada si no se indica) |
 | `/quit [mensaje]` | — | Desconectar del servidor con mensaje opcional |
 
 #### Canales
@@ -165,7 +168,7 @@ Comandos locales que no requieren conexión al servidor.
 | Comando | Alias | Descripción |
 |---------|-------|-------------|
 | `/0` ... `/9` | — | Cambiar a ventana por número (0 = servidor) |
-| `/channels` | `/w` | Listar todas las ventanas abiertas |
+| `/channels` | `/w` | Listar todas las ventanas abiertas (menciones resaltadas) |
 | `/close` | — | Cerrar ventana actual |
 
 #### Herramientas
@@ -188,6 +191,13 @@ Comandos locales que no requieren conexión al servidor.
 
 > **Comportamiento de auto-away**: Cuando está activado, te pone automáticamente away tras N minutos de inactividad. Enviar cualquier mensaje quita el auto-away automáticamente. El `/away` manual debe quitarse manualmente con `/away`.
 
+#### Preferencias
+
+| Comando | Alias | Descripción |
+|---------|-------|-------------|
+| `/beep` | — | Alternar sonido en mención de nick (on/off) |
+| `/quits` | — | Alternar mostrar mensajes QUIT (on/off) |
+
 ---
 
 ## Gestión de Ventanas
@@ -201,11 +211,64 @@ SpecTalk soporta hasta 10 ventanas simultáneas:
 - Usa `/0` a `/9` para cambiar de ventana
 - Usa `/w` o `/channels` para ver todas las ventanas abiertas
 - El indicador de actividad (●) muestra ventanas con mensajes sin leer
+- El indicador de mención (!) muestra ventanas donde te mencionaron (resaltado en color)
 
 ### Mensajes Privados
 - Los PMs entrantes crean automáticamente una ventana de consulta
 - Usa `/query nick` para abrir manualmente un chat privado
 - Usa `/close` para cerrar la ventana de consulta actual
+
+---
+
+## Archivo de Configuración
+
+SpecTalk puede cargar ajustes desde un archivo de configuración en tu tarjeta SD. El archivo debe llamarse `SPECTALK.CFG` y estar en el directorio raíz.
+
+### Formato del Archivo
+
+Archivo de texto plano con un ajuste por línea en formato `clave=valor`:
+
+```
+nick=MiNickname
+server=irc.libera.chat
+port=6667
+pass=micontraseñanickserv
+theme=1
+autoaway=15
+beep=1
+quits=1
+tz=+1
+```
+
+### Ajustes Disponibles
+
+| Ajuste | Descripción | Valores | Por defecto |
+|--------|-------------|---------|-------------|
+| `nick` | Nickname por defecto | Cualquier nick IRC válido | (ninguno) |
+| `server` | Servidor IRC | Hostname o IP | (ninguno) |
+| `port` | Puerto del servidor | 1-65535 | 6667 |
+| `pass` | Contraseña NickServ | Cualquier string | (ninguno) |
+| `theme` | Tema de color | 1, 2, o 3 | 1 |
+| `autoaway` | Minutos auto-away | 0-60 (0=off) | 0 |
+| `beep` | Sonido en mención | 0 o 1 | 1 |
+| `quits` | Mostrar mensajes quit | 0 o 1 | 1 |
+| `tz` | Desplazamiento horario | -12 a +12 | 0 |
+
+### Ver Configuración Actual
+
+Usa `!config` o `!cfg` para mostrar todos los valores de configuración actuales:
+
+```
+nick=MiNickname
+server=irc.libera.chat
+port=6667
+pass=(set)
+theme=1
+autoaway=15 min
+beep=on
+quits=on
+tz=+1
+```
 
 ---
 
@@ -260,7 +323,10 @@ El proyecto usa estrategia **Unity Build**: todos los fuentes C se compilan como
 | Indicador amarillo pero no conecta | Verifica las credenciales WiFi con NetManZX |
 | "Connection timeout" tras inactividad | Comportamiento normal - keep-alive detectó conexión muerta |
 | Los mensajes de un usuario no paran | Usa `/ignore nick` para bloquearlo |
-| No puedo identificarme con NickServ | Usa `/pass tucontraseña` antes de conectar |
+| No puedo identificarme con NickServ | Usa `/id contraseña` o configura `pass=` en el archivo de configuración |
+| Olvidé la configuración actual | Usa `!config` para ver todos los valores de configuración |
+| Demasiados mensajes de quit | Usa `/quits` para desactivarlos |
+| No hay sonido en menciones | Usa `/beep` para activar el sonido |
 
 ---
 

@@ -20,6 +20,9 @@ static char *pkt_par;
 static char *pkt_txt;
 static char *pkt_cmd;
 
+// OPT L7: Cache cmd_id para evitar re-parseo en handlers
+static uint16_t last_cmd_id;
+
 // Empty string sentinel to keep parser globals valid even on malformed lines.
 static char pkt_empty[] = "";
 
@@ -28,7 +31,8 @@ static char pkt_empty[] = "";
 // =============================================================================
 
 // Helper: Marcar actividad en canales no activos (Deduplicated logic)
-static void mark_channel_activity(uint8_t idx)
+static void mark_channel_activity(uint8_t idx) __z88dk_fastcall
+
 {
     if ((uint8_t)idx != current_channel_idx) {
         channels[idx].flags |= CH_FLAG_UNREAD;
@@ -37,10 +41,19 @@ static void mark_channel_activity(uint8_t idx)
     }
 }
 
+// Helper: Mostrar razón entre paréntesis si existe
+static void print_reason_if_present(void)
+{
+    if (pkt_txt && *pkt_txt) { main_puts(S_SP_PAREN); main_puts(pkt_txt); main_putc(')'); }
+}
+
+// Helper: Decrementar user_count de un canal si > 0
+#define channel_dec_users(i) do { if (channels[i].user_count > 0) channels[i].user_count--; } while(0)
+
 // Helper: Respuesta CTCP optimizada
 static void send_ctcp_reply(const char *target, const char *tag, const char *data)
 {
-    uart_send_string("NOTICE ");
+    uart_send_string(S_NOTICE);
     uart_send_string(target);
     uart_send_string(" :\x01");
     uart_send_string(tag);
@@ -61,8 +74,7 @@ static void h_nick(void)
     if (*new_nick == ':') new_nick++;
 
     if (st_stricmp(pkt_usr, irc_nick) == 0) {
-        strncpy(irc_nick, new_nick, sizeof(irc_nick) - 1);
-        irc_nick[sizeof(irc_nick) - 1] = 0;
+        st_copy_n(irc_nick, new_nick, sizeof(irc_nick));
         draw_status_bar();
         current_attr = ATTR_MSG_SYS;
         main_puts("You are now known as "); main_print(irc_nick);
@@ -73,13 +85,12 @@ static void h_nick(void)
     for (i = 1; i < MAX_CHANNELS; i++) {
         if ((channels[i].flags & (CH_FLAG_ACTIVE | CH_FLAG_QUERY)) == (CH_FLAG_ACTIVE | CH_FLAG_QUERY)) {
             if (st_stricmp(channels[i].name, pkt_usr) == 0) {
-                strncpy(channels[i].name, new_nick, sizeof(channels[i].name) - 1);
-                channels[i].name[sizeof(channels[i].name) - 1] = 0;
+                st_copy_n(channels[i].name, new_nick, sizeof(channels[0].name));
                 
                 if (current_channel_idx == i) {
                     current_attr = ATTR_MSG_SYS;
-                    main_puts("*** "); main_puts(pkt_usr); 
-                    main_puts(" is now known as "); main_print(new_nick);
+                    main_puts3("*** ", pkt_usr, " is now known as ");
+                    main_print(new_nick);
                 }
                 draw_status_bar();
             }
@@ -87,84 +98,145 @@ static void h_nick(void)
     }
 }
 
-static void h_ignore(void) { /* Do nothing */ }
-
 static void h_cap(void)
 {
     // pkt_par contains: "* LS ..." or "* ACK ..."
-    if (pkt_par && (strstr(pkt_par, " LS") || strncmp(pkt_par, "* LS", 4) == 0)) {
-        uart_send_line("CAP END");
+    // Check for "* L" pattern (covers "* LS" and "* LS ...")
+    if (pkt_par && pkt_par[0] == '*' && pkt_par[1] == ' ' && pkt_par[2] == 'L') {
+        uart_send_line(S_CAP_END);
     }
 }
 
 static void h_ping(void)
 {
-    uart_send_string("PONG :");
-    uart_send_line(pkt_txt);
+    const char *token = pkt_txt;
+    if (!token || !*token) token = irc_param(0);
+    if (!token) token = "";
+
+    uart_send_string(S_PONG);
+    uart_send_string(irc_server);
+    uart_send_string(" :");
+    uart_send_line(token);
 }
 
 static void h_mode(void)
 {
     const char *target = irc_param(0);
     if (!target || !*target) target = pkt_par;
-    
+
+    if (!target || !*target) return;
+
+    // --- MODE de usuario ---
     if (irc_nick[0] && st_stricmp(target, irc_nick) == 0) {
-        const char *modes = irc_param(1);
-        if (!modes || !*modes) modes = pkt_txt;
+        const char *modes = pkt_txt;
+
+        // FIX: algunos servidores envían MODE nick +i sin trailing ':' (modo en param 1)
+        if (!modes || !*modes) modes = irc_param(1);
+
         if (modes && *modes) {
             if (*modes == ':') modes++;
-            strncpy(user_mode, modes, sizeof(user_mode) - 1);
-            user_mode[sizeof(user_mode) - 1] = '\0';
+            st_copy_n(user_mode, modes, sizeof(user_mode));
             draw_status_bar();
         }
         return;
     }
-    
+
+    // --- MODE de canal ---
     if (target[0] == '#') {
         int8_t idx = find_channel(target);
         if (idx >= 0) {
             const char *modes = irc_param(1);
-            if (!modes || !*modes) modes = pkt_txt;
             if (modes && *modes) {
-                strncpy(channels[idx].mode, modes, sizeof(channels[idx].mode) - 1);
-                channels[idx].mode[sizeof(channels[idx].mode) - 1] = '\0';
+                st_copy_n(channels[idx].mode, modes, sizeof(channels[0].mode));
             }
         }
+
         current_attr = ATTR_MSG_SYS;
-        main_puts(pkt_usr); main_puts(" sets mode "); main_puts(pkt_txt);
-        main_puts(" on "); main_print(target);
+        main_puts2(pkt_usr, " sets mode ");
+        main_puts2(pkt_txt, " on ");
+        main_print(target);
         return;
     }
-    
+
     current_attr = ATTR_MSG_SYS;
-    main_puts("Mode "); main_print(pkt_par);
+    main_puts("Mode ");
+    main_print(pkt_par);
 }
+
+
 
 static void h_privmsg_notice(void)
 {
     char *target = pkt_par;
     if (!target || !*target || !pkt_txt || !*pkt_txt) return;
 
-    // Error detection in NOTICE
-    if (pkt_cmd[0] == 'N' && (target[0] == '*' || strchr(pkt_usr, '.'))) {
-        if (st_stristr(pkt_txt, "cannot") || st_stristr(pkt_txt, "rate") ||
-            st_stristr(pkt_txt, "denied") || st_stristr(pkt_txt, "try again")) {
+    uint8_t is_notice = (pkt_cmd[0] == 'N');
+    uint8_t is_server = is_notice && strchr(pkt_usr, '.') != NULL;
 
-            if (pagination_active || search_mode != SEARCH_NONE) cancel_search_state(0);
-            current_attr = ATTR_ERROR;
-            main_print(pkt_txt);
-            return;
+    // Durante búsqueda activa, NOTICE del servidor puede ser rate limit
+    if (is_server && pagination_active) {
+        current_attr = ATTR_ERROR;
+        main_print(pkt_txt);
+        return;
+    }
+
+    // Filtrar mensajes de conexión del servidor (Ident, Looking, Checking, ***)
+    if (is_server && (target[0] == '*' || !target[0])) {
+        char c = pkt_txt[0];
+        // Estos prefijos siempre indican mensajes de conexión del servidor
+        if (c == 'I' || c == 'L' || c == 'C' || c == '*') return;
+    }
+
+    if (is_ignored(pkt_usr) && !is_server) return;
+
+    // Filtrar NOTICE de servicios de red
+    if (is_notice && !is_server) {
+        char c = pkt_usr[0] | 0x20;  // lowercase first char
+        if (c == 'g' || c == 'n' || c == 'm' || c == 'i') {
+            if (st_stricmp(pkt_usr, S_GLOBAL) == 0 ||
+                st_stricmp(pkt_usr, S_NICKSERV) == 0 ||
+                st_stricmp(pkt_usr, "MemoServ") == 0 ||
+                st_stricmp(pkt_usr, "InfoServ") == 0) {  
+                current_attr = ATTR_MSG_TOPIC;
+                main_print(pkt_txt);
+                return;
+            }
         }
     }
 
-    if (is_ignored(pkt_usr) && !strchr(pkt_usr, '.')) return;
+    // Detectar NOTICE de ChanServ con topic
+    if (is_notice && st_stricmp(pkt_usr, S_CHANSERV) == 0) {
+        if (pkt_txt[0] == '[') {
+            char *close_bracket = strchr(pkt_txt, ']');
+            if (close_bracket && close_bracket[1] == ' ') {
+                main_print_time_prefix();
+                current_attr = ATTR_MSG_TOPIC;
+                main_puts(S_TOPIC_PFX);
+                main_print(close_bracket + 2);
+                return;
+            }
+        }
+        current_attr = ATTR_MSG_SERVER;
+        main_print(pkt_txt);
+        return;
+    }
 
     strip_irc_codes(pkt_txt);
 
     if (target[0] == '#') {
         int8_t idx = find_channel(target);
-        if (idx >= 0) mark_channel_activity((uint8_t)idx);
-        if (idx >= 0 && (uint8_t)idx != current_channel_idx) return;
+        if (idx >= 0) {
+            mark_channel_activity((uint8_t)idx);
+
+            // Mención en canal NO activo: marcar flag y salir
+            if ((uint8_t)idx != current_channel_idx && irc_nick[0] && st_stristr(pkt_txt, irc_nick)) {
+                channels[(uint8_t)idx].flags |= CH_FLAG_MENTION;
+                status_bar_dirty = 1;
+                mention_beep();                 // <-- AÑADIDO: beep de mención también en no-activo
+            }
+
+            if ((uint8_t)idx != current_channel_idx) return;
+        }
     }
 
     // --- CTCP HANDLING ---
@@ -172,95 +244,70 @@ static void h_privmsg_notice(void)
         char *ctcp_cmd = pkt_txt + 1;
 
         switch (ctcp_cmd[0]) {
-            case 'A': // ACTION
-                if (strncmp(ctcp_cmd, "ACTION ", 7) == 0) {
+            case 'A': // ACTION - "ACTION "
+                if (ctcp_cmd[1] == 'C' && ctcp_cmd[6] == ' ') {
                     char *act = ctcp_cmd + 7;
                     char *end = strchr(act, 1);
                     if (end) *end = 0;
 
                     if (target[0] == '#') {
                         current_attr = ATTR_MSG_CHAN;
-                        main_puts("* "); main_puts(pkt_usr); main_putc(' '); main_print(act);
+                        main_puts2(S_ASTERISK, pkt_usr);
+                        main_putc(' '); main_print(act);
                     } else {
                         int8_t query_idx = add_query(pkt_usr);
                         if (query_idx >= 0) {
                             status_bar_dirty = 1;
                             mark_channel_activity((uint8_t)query_idx);
                         }
-
-                        if (query_idx < 0 || (uint8_t)query_idx != current_channel_idx) {
-                            // "<< OTRO: " en amarillo (ATTR_MSG_SELF), texto en verde (ATTR_MSG_PRIV)
-                            current_attr = ATTR_MSG_SELF;
-                            main_puts("<< "); main_puts(pkt_usr); main_puts(": ");
-                        }
                         current_attr = ATTR_MSG_PRIV;
-                        main_puts("* "); main_puts(pkt_usr); main_putc(' '); main_print(act);
-                        notification_beep();
+                        main_puts2(S_ASTERISK, pkt_usr);
+                        main_putc(' '); main_print(act);
                     }
                     return;
                 }
                 break;
 
             case 'V': // VERSION
-                if (strncmp(ctcp_cmd, "VERSION", 7) == 0) {
-                    send_ctcp_reply(pkt_usr, "VERSION", "SpecTalk ZX v" VERSION " :ZX Spectrum");
-                    return;
-                }
+                if (ctcp_cmd[1] == 'E' && ctcp_cmd[2] == 'R') { send_ctcp_reply(pkt_usr, "VERSION", "SpecTalkZX"); return; }
                 break;
 
             case 'P': // PING
-                if (strncmp(ctcp_cmd, "PING ", 5) == 0) {
-                    char *ts = ctcp_cmd + 5;
-                    char *end = strchr(ts, 1);
-                    if (end) *end = 0;
-                    send_ctcp_reply(pkt_usr, "PING", ts);
+                if (ctcp_cmd[1] == 'I' && ctcp_cmd[2] == 'N') {
+                    const char *p = ctcp_cmd + 4;
+                    if (*p == ' ') p++;
+                    send_ctcp_reply(pkt_usr, "PING", p);
                     return;
                 }
                 break;
 
             case 'T': // TIME
-                if (strncmp(ctcp_cmd, "TIME", 4) == 0) {
-                    if (time_synced) {
-                        char time_buf[6];
-                        fast_u8_to_str(time_buf, time_hour);
-                        time_buf[2] = ':';
-                        fast_u8_to_str(time_buf + 3, time_minute);
-                        time_buf[5] = 0;
-
-                        send_ctcp_reply(pkt_usr, "TIME", time_buf);
-                    } else {
-                        send_ctcp_reply(pkt_usr, "TIME", "Unknown");
-                    }
-                    return;
-                }
+                if (ctcp_cmd[1] == 'I' && ctcp_cmd[2] == 'M') { send_ctcp_reply(pkt_usr, "TIME", "(no rtc)"); return; }
                 break;
         }
-        return;
     }
 
-    // --- NORMAL MESSAGES ---
-    if (pkt_cmd[0] == 'N' && (target[0] == '*' || strchr(pkt_usr, '.'))) {
-        if (st_stristr(pkt_txt, "Ident") || strstr(pkt_txt, "Looking up") ||
-            strstr(pkt_txt, "Checking") || strstr(pkt_txt, "*** ")) return;
+    // --- STANDARD MESSAGE RENDERING ---
+    if (pkt_cmd[0] == 'N') {
         current_attr = ATTR_MSG_SERVER;
-        main_puts("[NOTICE] "); main_print(pkt_txt);
+        main_print(pkt_txt);
         return;
     }
 
     if (target[0] == '#') {
-        // Canal: hora (ATTR_MSG_TIME), nick (ATTR_MSG_NICK), msg (ATTR_MSG_CHAN)
         current_attr = ATTR_MSG_CHAN;
         main_print_time_prefix();
 
-        // IMPORTANTÍSIMO (64 cols): NO cambiar attr hasta terminar "<nick> "
         current_attr = ATTR_MSG_NICK;
         main_puts("<");
         main_puts(pkt_usr);
-        main_puts("> ");
+        main_puts(S_PROMPT);
         current_attr = ATTR_MSG_CHAN;
-        main_print(pkt_txt);
 
-        if (irc_nick[0] && st_stristr(pkt_txt, irc_nick)) notification_beep();
+        main_print_wrapped_ram(pkt_txt);
+
+        // Beep para mención en canal activo
+        if (irc_nick[0] && st_stristr(pkt_txt, irc_nick)) mention_beep();
     } else {
         int8_t query_idx = find_query(pkt_usr);
         if (query_idx < 0) {
@@ -272,26 +319,37 @@ static void h_privmsg_notice(void)
         main_print_time_prefix();
 
         if (query_idx < 0 || (uint8_t)query_idx != current_channel_idx) {
-            // PRIV fuera de ventana: << OTRO (amarillo): MSG (verde)
             current_attr = ATTR_MSG_SELF;
-            main_puts("<< ");
+            main_puts(S_ARROW_IN);
             main_puts(pkt_usr);
-            main_puts(": ");
+            main_puts(S_COLON_SP);
             current_attr = ATTR_MSG_PRIV;
-            main_print(pkt_txt);
+
+            main_print_wrapped_ram(pkt_txt);
         } else {
-            // En la ventana del privado: mantener "<nick> msg" pero con nick dedicado
             current_attr = ATTR_MSG_NICK;
             main_puts("<");
             main_puts(pkt_usr);
-            main_puts("> ");
+            main_puts(S_PROMPT);
             current_attr = ATTR_MSG_PRIV;
-            main_print(pkt_txt);
+
+            main_print_wrapped_ram(pkt_txt);
         }
 
-        notification_beep();
+        notification_beep();  // privado: beep corto
+        
+        // Auto-reply if away with custom message (global cooldown)
+        if (irc_is_away && away_message[0] && !away_reply_cd) {
+            // Use NOTICE to avoid loops/flood with other clients/bots
+            uart_send_string(S_NOTICE);
+            uart_send_string(pkt_usr);
+            uart_send_string(S_SP_COLON);
+            uart_send_line(away_message);
+            away_reply_cd = 60;  // seconds
+        }
     }
 }
+
 
 static void h_join(void)
 {
@@ -299,7 +357,7 @@ static void h_join(void)
     if (*chan == ':') chan++;
     
     if (st_stricmp(pkt_usr, irc_nick) == 0) {
-        current_attr = ATTR_MSG_JOIN;
+        current_attr = ATTR_MSG_PRIV;
         main_puts("Now talking in "); main_print(chan);
 
         int8_t idx = find_channel(chan);
@@ -311,8 +369,7 @@ static void h_join(void)
         
         channels[idx].user_count = 0;
         counting_new_users = 1;
-        strncpy(names_target_channel, chan, sizeof(names_target_channel) - 1);
-        names_target_channel[sizeof(names_target_channel) - 1] = '\0';
+        st_copy_n(names_target_channel, chan, sizeof(names_target_channel));
         names_pending = 1;
         names_timeout_frames = 0;
         draw_status_bar();
@@ -322,56 +379,51 @@ static void h_join(void)
             channels[idx].user_count++;
             if ((uint8_t)idx == current_channel_idx) {
                 current_attr = ATTR_MSG_JOIN;
-                main_puts(">> "); main_puts(pkt_usr); main_puts(" joined "); main_print(chan);
+                main_puts2(S_ARROW_OUT, pkt_usr);
+                main_puts(" joined ");
+                main_print(chan);
                 draw_status_bar();
             }
         }
     }
 }
 
+static void handle_connection_drop(void)
+{
+    force_disconnect_wifi();  // ya resetea canales internamente
+    status_bar_dirty = 1;
+}
+
 static void h_part(void)
 {
-    // FIX: Usar irc_param(0) para obtener solo el canal, ignorando el motivo (:reason)
-    // Esto corrige el bug donde "PART #chan :bye" impedía encontrar el canal.
-    const char *p = irc_param(0);
-    char *chan = (char *)p;
-    
-    // Fallback por seguridad
+    char *chan = (char *)irc_param(0);
+
     if (!chan || !*chan) chan = pkt_par;
     if (chan && *chan == ':') chan++;
 
     int8_t idx = find_channel(chan);
     if (idx >= 0) {
         if (st_stricmp(pkt_usr, irc_nick) == 0) {
-            // Usuario local sale: cerrar ventana
-            // remove_channel se encarga de cambiar el índice y limpiar pantalla (con el fix anterior)
             remove_channel((uint8_t)idx);
-            
-            // Si remove_channel nos movió a otra ventana (ej. Status), damos feedback allí
+
             current_attr = ATTR_MSG_JOIN;
             main_print_time_prefix();
-            main_puts("<< You left "); 
+            main_puts(S_YOU_LEFT);
             main_print(chan);
             draw_status_bar();
         } else {
-            // Otro usuario sale
-            if (channels[idx].user_count > 0) channels[idx].user_count--;
-            
+            channel_dec_users(idx);
+
             if ((uint8_t)idx == current_channel_idx) {
                 current_attr = ATTR_MSG_JOIN;
                 main_print_time_prefix();
-                main_puts("<< "); 
-                main_puts(pkt_usr); 
+                main_puts(S_ARROW_IN);
+                main_puts(pkt_usr);
                 main_puts(" left");
-                
-                if (pkt_txt && *pkt_txt) {
-                    main_puts(" ("); 
-                    main_print(pkt_txt); 
-                    main_run_char(')', ATTR_MSG_JOIN);
-                } else {
-                    main_newline();
-                }
-                
+
+                print_reason_if_present();
+                main_newline();
+
                 draw_status_bar();
             } else {
                 mark_channel_activity((uint8_t)idx);
@@ -382,52 +434,39 @@ static void h_part(void)
 
 static void h_quit(void)
 {
-    current_attr = ATTR_MSG_JOIN;
-    main_puts("<< "); main_puts(pkt_usr); main_puts(" quit");
-    if (*pkt_txt) { main_puts(" ("); main_puts(pkt_txt); main_puts(")"); }
-    main_newline();
-    
+    if (show_quits) {
+        current_attr = ATTR_MSG_JOIN;
+        main_puts(S_ARROW_IN);
+        main_puts(pkt_usr);
+        main_puts(" quit");
+        print_reason_if_present();
+        main_newline();
+    }
+
     {
         int8_t qidx = find_query(pkt_usr);
         if (qidx > 0) {
             mark_channel_activity((uint8_t)qidx);
-            if ((uint8_t)qidx == current_channel_idx) ui_err("--- User closed connection ---");
+            if ((uint8_t)qidx == current_channel_idx)
+                ui_err("--- User quit ---");
         }
     }
 
-    // QUIT no incluye canal. Heurística segura:
-    // si SOLO hay 1 canal real (# o &) activo (no query), entonces el QUIT
-    // necesariamente afecta a ese canal en este cliente -> decremento ahí.
+    // Decrementar user_count si solo hay 1 canal
     {
-        uint8_t i;
-        uint8_t joined_cnt = 0;
-        uint8_t target_idx = 0;
-
-        for (i = 1; i < MAX_CHANNELS; i++) {
-            if ((channels[i].flags & CH_FLAG_ACTIVE) &&
-                !(channels[i].flags & CH_FLAG_QUERY) &&
-                (channels[i].name[0] == '#' || channels[i].name[0] == '&')) {
-
-                joined_cnt++;
-                target_idx = i;
-                if (joined_cnt > 1) break; // no hace falta seguir
+        uint8_t i, joined_cnt = 0, target_idx = 0;
+        for (i = 1; i < MAX_CHANNELS && joined_cnt < 2; i++) {
+            uint8_t f = channels[i].flags;
+            if ((f & CH_FLAG_ACTIVE) && !(f & CH_FLAG_QUERY)) {
+                char c = channels[i].name[0];
+                if (c == '#' || c == '&') { joined_cnt++; target_idx = i; }
             }
         }
-
-        if (joined_cnt == 1) {
-            if (channels[target_idx].user_count > 0) {
-                channels[target_idx].user_count--;
-                if (target_idx == current_channel_idx) draw_status_bar();
-            } else {
-                // evita underflow; aun así refresca si estás mirando ese canal
-                if (target_idx == current_channel_idx) draw_status_bar();
-            }
-        } else {
-            // joined_cnt == 0 o >1: no tocar contadores (sin lista de nicks no es determinista)
-            if (channels[current_channel_idx].flags & CH_FLAG_ACTIVE) draw_status_bar();
-        }
+        if (joined_cnt == 1) channel_dec_users(target_idx);
     }
+    draw_status_bar();
 }
+
 
 static void h_kick(void)
 {
@@ -442,28 +481,27 @@ static void h_kick(void)
 
     if (st_stricmp(target, irc_nick) == 0) {
         current_attr = ATTR_ERROR;
-        main_puts("Kicked from "); main_puts(channel); main_puts(" by "); main_puts(pkt_usr);
-        if (pkt_txt && *pkt_txt) { main_puts(" ("); main_puts(pkt_txt); main_putc(')'); }
+        main_puts2("Kicked from ", channel);
+        main_puts2(" by ", pkt_usr);
+        print_reason_if_present();
         main_newline();
         if (idx > 0) { remove_channel((uint8_t)idx); draw_status_bar(); }
     } else {
         if (idx >= 0) {
             if ((uint8_t)idx == current_channel_idx) {
                 current_attr = ATTR_MSG_JOIN;
-                main_puts("* "); main_puts(target); main_puts(" kicked by "); main_puts(pkt_usr);
-                if (pkt_txt && *pkt_txt) { main_puts(" ("); main_puts(pkt_txt); main_putc(')'); }
+                main_puts2(S_ASTERISK, target);
+                main_puts2(" kicked by ", pkt_usr);
+                print_reason_if_present();
                 main_newline();
             } else {
                 mark_channel_activity((uint8_t)idx);
             }
-            if (channels[idx].user_count > 0) {
-                channels[idx].user_count--;
-                if ((uint8_t)idx == current_channel_idx) draw_status_bar();
-            }
+            channel_dec_users(idx);
+            if ((uint8_t)idx == current_channel_idx) draw_status_bar();
         }
     }
 }
-
 
 static void h_kill(void)
 {
@@ -471,14 +509,14 @@ static void h_kill(void)
     
     if (target && st_stricmp(target, irc_nick) == 0) {
         current_attr = ATTR_ERROR;
-        main_puts("*** Killed by "); main_puts(pkt_usr);
-        if (pkt_txt && *pkt_txt) { main_puts(": "); main_print(pkt_txt); } else main_newline();
-        force_disconnect(); connection_state = STATE_WIFI_OK;
-        reset_all_channels(); draw_status_bar();
+        main_puts2("*** Killed by ", pkt_usr);
+        if (pkt_txt && *pkt_txt) { main_puts(S_COLON_SP); main_print(pkt_txt); } else main_newline();
+        handle_connection_drop();
     } else {
         current_attr = ATTR_MSG_JOIN;
-        main_puts("* "); if (target) main_puts(target); main_puts(" killed by "); main_puts(pkt_usr);
-        if (pkt_txt && *pkt_txt) { main_puts(" ("); main_puts(pkt_txt); main_putc(')'); }
+        main_puts(S_ASTERISK); if (target) main_puts(target);
+        main_puts2(" killed by ", pkt_usr);
+        print_reason_if_present();
         main_newline();
     }
 }
@@ -488,8 +526,7 @@ static void h_error(void)
     current_attr = ATTR_ERROR;
     main_puts("*** Server: ");
     if (pkt_txt && *pkt_txt) main_print(pkt_txt); else main_print("Connection terminated");
-    force_disconnect(); connection_state = STATE_WIFI_OK;
-    reset_all_channels(); draw_status_bar();
+    handle_connection_drop();
 }
 
 static void h_numeric_401(void)
@@ -512,21 +549,16 @@ static void h_numeric_401(void)
 
 static void h_numeric_451(void)
 {
-    if ((pagination_active || search_mode != SEARCH_NONE) && active_search_type != PEND_NONE) {
-        pending_search_type = active_search_type;
-        pending_search_requires_ready = 1;
-        memcpy(pending_search_arg, active_search_arg, sizeof(pending_search_arg));
-        pending_search_arg[31] = 0;
-        cancel_search_state(0);
-        current_attr = ATTR_MSG_SYS;
-        main_print("Waiting for registration...");
+    if (pagination_active || search_mode != SEARCH_NONE) {
+        cancel_search_state();
+        current_attr = ATTR_ERROR;
+        main_print("Search aborted (not registered)");
         return;
     }
     
     current_attr = ATTR_ERROR;
     main_print("*** Session expired");
-    force_disconnect(); connection_state = STATE_WIFI_OK;
-    reset_all_channels(); draw_status_bar();
+    handle_connection_drop();
     current_attr = ATTR_MSG_SYS; main_print("Use /server to reconnect");
 }
 
@@ -534,11 +566,12 @@ static void h_numeric_305_306(void)
 {
     // 305 = RPL_UNAWAY ("You are no longer marked as being away")
     // 306 = RPL_NOWAWAY ("You have been marked as being away")
-    uint16_t num = str_to_u16(pkt_cmd);
-    irc_is_away = (num == 306) ? 1 : 0;
+    // OPT L5: comparar tercer carácter ('5' vs '6') en lugar de str_to_u16
+    uint8_t is_306 = (pkt_cmd[2] == '6');
+    irc_is_away = is_306;
     
-    if (num == 305) {
-        // Ya no away - resetear sistema de auto-away
+    if (!is_306) {
+        // Ya no away (305) - resetear sistema de auto-away
         autoaway_active = 0;
         autoaway_counter = 0;
     }
@@ -556,8 +589,21 @@ static void h_numeric_332(void)
     if (pkt_txt && *pkt_txt) {
         current_attr = ATTR_MSG_TOPIC;
         main_print_time_prefix(); 
-        main_puts("Topic: "); main_print(pkt_txt);
+        main_puts(S_TOPIC_PFX); main_print(pkt_txt);
     }
+}
+
+// Helper: incrementa pagination_count con check de overflow
+// Retorna 0 si OK, 1 si overflow (y cancela búsqueda)
+static uint8_t pagination_inc(void) {
+    if (pagination_count < PAGINATION_MAX_COUNT) {
+        pagination_count++;
+        return 0;
+    }
+    cancel_search_state();
+    current_attr = ATTR_ERROR;
+    main_print("Result limit");
+    return 1;
 }
 
 static void h_numeric_353(void)
@@ -566,33 +612,42 @@ static void h_numeric_353(void)
     const char *target = names_target_channel[0] ? names_target_channel : irc_channel;
     if (!target[0]) return;
     if (st_stricmp(msg_chan, target) != 0) return;
-    
+
     names_timeout_frames = 0;
     names_pending = 1;
-    
-    char *p = pkt_txt;
-    uint16_t count = 0;
-    if (*p) count = 1;
-    while (*p) { if (*p == ' ') count++; p++; }
-    
-    if (counting_new_users) {
-        chan_user_count = count;
-        counting_new_users = 0;
-    } else {
-        chan_user_count += count;
+
+    // Recuento de usuarios (sin cambiar lógica)
+    {
+        char *p = pkt_txt;
+        uint16_t count = 0;
+
+        if (*p) count = 1;
+        while (*p) { if (*p == ' ') count++; p++; }
+
+        if (counting_new_users) {
+            chan_user_count = count;
+            counting_new_users = 0;
+        } else {
+            chan_user_count += count;
+        }
     }
-    
+
+    // Render /names
     if (show_names_list) {
-        current_attr = ATTR_MSG_NICK;  // Magenta para lista de nicks
-        main_print(pkt_txt);
-        pagination_count++;
+        current_attr = ATTR_MSG_NICK;
+        main_print_wrapped_ram(pkt_txt);
+        
+        if (pagination_inc()) return;
+        pagination_timeout = 0;
     }
 }
+
 
 static void h_numeric_366(void)
 {
     const char *msg_chan = irc_param(1);
     const char *target = names_target_channel[0] ? names_target_channel : irc_channel;
+    extern char *u16_to_dec3(char *dst, uint16_t v);
     
     if (target[0] && st_stricmp(msg_chan, target) == 0) {
         names_pending = 0; names_timeout_frames = 0;
@@ -604,11 +659,9 @@ static void h_numeric_366(void)
         current_attr = ATTR_MSG_SYS;
         if (pagination_count > 0) {
             char buf[8];
-            extern char *u16_to_dec3(char *dst, uint16_t v);
             u16_to_dec3(buf, chan_user_count);
-            main_puts("-- ");
-            main_puts(buf);
-            main_print(" users --");
+            main_puts("-- "); main_puts(buf);
+            main_print(search_data_lost ? " (incomplete) --" : " users --");
         }
         pagination_active = 0;
         pagination_count = 0;
@@ -620,59 +673,76 @@ static void h_numeric_366(void)
 
 static void h_numeric_321(void)
 {
-    if (search_mode != SEARCH_NONE || pending_search_type != PEND_NONE) {
-        // Solo activar si no estaba ya activa (evitar doble reset)
-        if (!pagination_active) {
-            start_pagination();
-        }
-        current_attr = ATTR_MSG_SYS;
-        main_print("Listing...");
-    }
+    if (search_flush_state == 1) return;  // Todavía drenando
+    search_header_rcvd = 1;              
+    // 321 es solo el header, no hacemos nada visible
+    // (ya mostramos "Searching..." al inicio)
 }
 
 static void h_end_of_list(void)
 {
+    if (search_flush_state == 1) return;  // Todavía drenando
+
+    // OPT L6: Verificar segundo carácter ('2' para 323, '1' para 315)
+    uint8_t c1 = pkt_cmd[1];
+    if (search_mode == SEARCH_CHAN && c1 != '2') return;  // 323
+    if (search_mode == SEARCH_USER && c1 != '1') return;  // 315
+    if (search_mode == SEARCH_NONE) return;
+
+    uint8_t data_lost = search_data_lost;
+    
     current_attr = ATTR_MSG_SYS;
-    if (pagination_active) {
-        if (pagination_count > 0) main_print("-- Done --");
-        else main_print("No results");
+    if (pagination_count > 0) {
+        main_print(data_lost ? "-- Done (incomplete) --" : "-- Done --");
+    } else if (search_header_rcvd == 2) {
+        current_attr = ATTR_ERROR;
+        main_print("Search denied");
+    } else if (search_header_rcvd == 1 || search_mode == SEARCH_USER) {
+        main_print("-- No matches --");
+    } else {
+        current_attr = ATTR_ERROR;
+        main_print("Search denied");
     }
-    cancel_search_state(0);
+    
+    cancel_search_state();
 }
 
 static void h_numeric_322_352(void)
 {
-    // Need explicit num check here or split func. 
-    // Optimization: check search_mode which implies num type
     if (!pagination_active) return;
     if (search_mode == SEARCH_NONE) return;
+    if (search_flush_state == 1) return;  // Todavía drenando
+
+    // Dato válido recibido → servidor aceptó el comando
+    search_header_rcvd = 2;               // MODIFICADO: 2 indica que recibimos elementos (322/352)
+    pagination_timeout = 0;
 
     if (search_mode == SEARCH_CHAN) { // 322
         const char *chan = irc_param(1);
         const char *users = irc_param(2);
-        
+
         if (!chan[0]) return;
-        if (search_pattern[0] && !strstr(chan, search_pattern)) return;
-        
+        if (search_pattern[0] && !st_stristr(chan, search_pattern)) return;
+
         search_index++;
         main_run_char(' ', ATTR_MSG_SYS);
-        main_run_u16(search_index, ATTR_MSG_SYS, 0);
-        main_run(". ", ATTR_MSG_SYS, 0);
-        main_run(chan, ATTR_MSG_NICK, 0);
-        
-        main_run(" (", ATTR_MSG_CHAN, 0);
-        main_run(users, ATTR_MSG_CHAN, 0);
-        main_run(")", ATTR_MSG_CHAN, 0);
-        
+        main_run_u16(search_index, ATTR_MSG_SYS);
+        main_run2(". ", ATTR_MSG_SYS);
+        main_run2(chan, ATTR_MSG_NICK);
+        main_run2(" (", ATTR_MSG_CHAN);
+        main_run2(users, ATTR_MSG_CHAN);
+        main_run2(")", ATTR_MSG_CHAN);
+
         if (pkt_txt && *pkt_txt) {
-             main_run(" ", ATTR_MSG_CHAN, 0);
+             main_run2(" ", ATTR_MSG_CHAN);
              uint8_t len = 0;
              const char *t = pkt_txt;
              while (*t && len < 20) { main_run_char(*t++, ATTR_MSG_CHAN); len++; }
-             if (*t) main_run("...", ATTR_MSG_CHAN, 0);
+             if (*t) main_run2("...", ATTR_MSG_CHAN);
         }
         main_newline();
-        pagination_count++;
+        
+        pagination_inc();
         return;
     }
 
@@ -680,37 +750,44 @@ static void h_numeric_322_352(void)
         const char *user = irc_param(2);
         const char *host = irc_param(3);
         const char *nick = irc_param(5);
-        
+
         if (!nick[0]) return;
-        
+
         if (search_pattern[0]) {
-            if (!strstr(nick, search_pattern) && !strstr(user, search_pattern)) return;
+            if (!st_stristr(nick, search_pattern) && !st_stristr(user, search_pattern)) return;
         }
 
         search_index++;
         main_run_char(' ', ATTR_MSG_SYS);
-        main_run_u16(search_index, ATTR_MSG_SYS, 0);
-        main_run(". ", ATTR_MSG_SYS, 0);
-        main_run(nick, ATTR_MSG_NICK, 0); 
-        
-        main_run(" [", ATTR_MSG_CHAN, 0);
-        main_run(user, ATTR_MSG_CHAN, 0);
-        main_run("@", ATTR_MSG_CHAN, 0);
-        main_run(host, ATTR_MSG_CHAN, 0);
-        main_run("]", ATTR_MSG_CHAN, 0);
-        
+        main_run_u16(search_index, ATTR_MSG_SYS);
+        main_run2(". ", ATTR_MSG_SYS);
+        main_run2(nick, ATTR_MSG_NICK);
+        main_run2(" [", ATTR_MSG_CHAN);
+        main_run2(user, ATTR_MSG_CHAN);
+        main_run2("@", ATTR_MSG_CHAN);
+        main_run2(host, ATTR_MSG_CHAN);
+        main_run2("]", ATTR_MSG_CHAN);
+
         main_newline();
-        pagination_count++;
+        
+        pagination_inc();
         return;
     }
 }
 
 static void h_numeric_1(void)
 {
+    // FIX: Actualizar irc_nick desde el parámetro del 001 (el nick confirmado por el servidor).
+    // Esto cubre el caso donde el nick original fue rechazado (433) y el usuario
+    // envió /nick newnick antes de completar el registro.
+    const char *confirmed_nick = irc_param(0);
+    if (confirmed_nick && *confirmed_nick) {
+        st_copy_n(irc_nick, confirmed_nick, sizeof(irc_nick));
+    }
+    
     connection_state = STATE_IRC_READY;
     cursor_visible = 1;
     draw_status_bar();
-    pending_search_try_start();
 }
 
 static void h_numeric_5(void)
@@ -740,7 +817,7 @@ static void h_join_error(void)
     if (bad_chan && *bad_chan) main_print(bad_chan);
     else main_print("channel");
     
-    main_puts(": ");
+    main_puts(S_COLON_SP);
     if (pkt_txt && *pkt_txt) main_print(pkt_txt); 
     else main_print("Access denied");
 
@@ -757,68 +834,55 @@ static void h_join_error(void)
     }
 }
 
-
 static void h_numeric_default(void)
 {
-    // 1. Re-parseamos el número para saber qué estamos manejando
-    uint16_t num = str_to_u16(pkt_cmd);
+    // OPT L7: usar last_cmd_id en lugar de re-parsear
+    uint16_t num = last_cmd_id;
 
     // Filtrar ruido de conexión y canal (silencioso)
     // 001-005: welcome/server info, 250-266: stats, 329: channel creation time,
     // 333: topic who/time, 396: host hidden
-    if ((num >= 1 && num <= 5) || (num >= 250 && num <= 266) || 
+    if ((num >= 1 && num <= 5) || (num >= 250 && num <= 266) ||
         num == 329 || num == 333 || num == 396) {
         return;
     }
-    // =========================================================================
 
     // 2. Gestión de Errores (400-599)
     if (num >= 400 && num <= 599) {
         // Si estábamos paginando o buscando, cancelamos para ver el error
-        if (pagination_active || search_mode != SEARCH_NONE) cancel_search_state(0);
-        
+        if (pagination_active || search_mode != SEARCH_NONE) cancel_search_state();
+
         current_attr = ATTR_ERROR;
-        main_puts("Err "); main_puts(pkt_cmd); main_puts(": ");
-        
-        // Imprimir parámetros de error (ej: el nick que ha fallado)
-        uint8_t i;
-        for (i = 1; i < irc_param_count; i++) {
-            const char *p = irc_param(i);
-            if (p && *p) { main_puts(p); main_putc(' '); }
-        }
-        
-        if (*pkt_txt) main_print(pkt_txt); else main_newline();
-        return;
+        main_puts("Err "); main_puts(pkt_cmd); main_puts(S_COLON_SP);
+
+        goto print_tail;
     }
 
     // 3. Mensajes Informativos Genéricos (Para /raw version, time, etc.)
-    
-    // Usar color de MOTD si corresponde, si no, color estándar de servidor
     if (num == 372 || num == 375 || num == 376) current_attr = ATTR_MSG_MOTD;
     else current_attr = ATTR_MSG_SERVER;
 
+print_tail:
     // Imprimir parámetros intermedios (saltando el 0 que es nuestro nick)
-    // Esto permite ver la respuesta de comandos como /raw time o /raw version
     if (irc_param_count > 1) {
         uint8_t i;
         for (i = 1; i < irc_param_count; i++) {
             const char *p = irc_param(i);
-            // PROTECCIÓN CRÍTICA: Verificar puntero antes de imprimir para evitar cuelgues
             if (p && *p) {
                 main_puts(p);
                 main_putc(' ');
             }
         }
     }
-    
+
     // Imprimir texto final si existe
     if (pkt_txt && *pkt_txt) {
         main_print(pkt_txt);
     } else {
-        // Solo saltamos línea si hemos impreso algo (params) pero no hay texto final
         main_newline();
     }
 }
+
 
 static void h_default_cmd(void)
 {
@@ -832,11 +896,14 @@ static void h_default_cmd(void)
         if (*p >= 'a' && *p <= 'z') return;
         p++;
     }
+
+    // FIX: Suprimir output de comandos no reconocidos durante búsqueda activa
+    if (pagination_active && search_mode != SEARCH_NONE) return;
     
     current_attr = ATTR_MSG_SYS;
-    main_puts(">< "); main_puts(pkt_cmd);
+    main_puts2(">< ", pkt_cmd);
     if (*pkt_par) { main_putc(' '); main_puts(pkt_par); }
-    if (*pkt_txt) { main_puts(" :"); main_puts(pkt_txt); }
+    if (*pkt_txt) { main_puts2(S_SP_COLON, pkt_txt); }
     main_newline();
 }
 
@@ -845,33 +912,29 @@ static void h_default_cmd(void)
 // =============================================================================
 
 typedef struct {
-    const char *cmd;
+    uint16_t id;
     void (*fn)(void);
 } CmdEntry;
 
-typedef struct {
-    uint16_t num;
-    void (*fn)(void);
-} NumEntry;
+static void h_ignore(void) { /* Do nothing */ }
+
+static void h_pong(void)
+{
+    // FIX ChatGPT audit: Borrar keepalive_ping_sent SOLO con PONG
+    keepalive_ping_sent = 0;
+    keepalive_timeout = 0;
+}
+
+// E2: Dispatcher por tercer carácter del comando
+// Hash 'KI' (0x4B49) cubre KICK y KILL, distinguimos por pkt_cmd[2]: 'C'=KICK, 'L'=KILL
+static void h_kick_kill(void)
+{
+    if (pkt_cmd[2] == 'C') h_kick();
+    else if (pkt_cmd[2] == 'L') h_kill();
+}
 
 static const CmdEntry CMD_TABLE[] = {
-    { "PRIVMSG", h_privmsg_notice },
-    { "NOTICE",  h_privmsg_notice },
-    { "PING",    h_ping },
-    { "JOIN",    h_join },
-    { "PART",    h_part },
-    { "NICK",    h_nick },
-    { "QUIT",    h_quit },
-    { "KICK",    h_kick },
-    { "MODE",    h_mode },
-    { "ERROR",   h_error },
-    { "KILL",    h_kill },
-    { "CAP",     h_cap },
-    { "PONG",    h_ignore },
-    { NULL, NULL }
-};
-
-static const NumEntry NUM_TABLE[] = {
+    // Comandos Numéricos (0x0001 - 0x03E7)
     { 322, h_numeric_322_352 },
     { 352, h_numeric_322_352 },
     { 323, h_end_of_list },
@@ -889,20 +952,33 @@ static const NumEntry NUM_TABLE[] = {
     { 332, h_numeric_332 },
     { 401, h_numeric_401 },
     { 451, h_numeric_451 },
-    // --- ERRORES DE JOIN ---
-    { 403, h_join_error }, // No such channel
-    { 404, h_join_error }, // Cannot send to channel
-    { 405, h_join_error }, // Too many channels
-    { 471, h_join_error }, // Channel is full
-    { 473, h_join_error }, // Invite only
-    { 474, h_join_error }, // Banned
+    { 403, h_join_error },
+    { 404, h_join_error },
+    { 405, h_join_error },
+    { 471, h_join_error },
+    { 473, h_join_error },
+    { 474, h_join_error },
+
+    // Comandos de Texto Hasheados (0x4100 - 0x5A00)
+    { 0x5052, h_privmsg_notice }, // PR (PRIVMSG)
+    { 0x4E4F, h_privmsg_notice }, // NO (NOTICE)
+    { 0x5049, h_ping },           // PI (PING)
+    { 0x504F, h_pong },           // PO (PONG)
+    { 0x5041, h_part },           // PA (PART)
+    { 0x4E49, h_nick },           // NI (NICK)
+    { 0x4A4F, h_join },           // JO (JOIN)
+    { 0x5155, h_quit },           // QU (QUIT)
+    { 0x4B49, h_kick_kill },      // KI (KICK/KILL)
+    { 0x4D4F, h_mode },           // MO (MODE)
+    { 0x4552, h_error },          // ER (ERROR)
+    { 0x4341, h_cap },            // CA (CAP)
 
     { 0,   NULL }
 };
 
-// ============================================================
+// =============================================================================
 // MAIN PARSING FUNCTIONS
-// ============================================================
+// =============================================================================
 
 void parse_irc_message(char *line) __z88dk_fastcall
 {
@@ -935,13 +1011,6 @@ void parse_irc_message(char *line) __z88dk_fastcall
     }
     pkt_cmd = cmd_start;
 
-    // Drain filter - ignora resultados de búsquedas/listings cancelados
-    if (search_draining && pkt_cmd[0] >= '0' && pkt_cmd[0] <= '9') {
-        uint16_t num = str_to_u16(pkt_cmd);
-        if (num == 321 || num == 322 || num == 352 || num == 353) return;  // LIST start/results, WHO, NAMES
-        if (num == 323 || num == 315 || num == 366) { search_draining = 0; return; }  // End markers
-    }
-
     pkt_par = skip_to(cmd_start, ' ');
     pkt_txt = pkt_par;
     while (*pkt_txt == ' ') pkt_txt++;
@@ -961,76 +1030,90 @@ void parse_irc_message(char *line) __z88dk_fastcall
     // Tokenize params (modifies pkt_par in place)
     tokenize_params(pkt_par, 0);
 
-    // --- DISPATCHER ---
-    // 1. Numerics
-    if (pkt_cmd[0] >= '0' && pkt_cmd[0] <= '9') {
-        uint16_t num = str_to_u16(pkt_cmd);
-        const NumEntry *n = NUM_TABLE;
-        while (n->num) {
-            if (n->num == num) { n->fn(); return; }
-            n++;
-        }
-        h_numeric_default();
-        return;
-    }
-
-    // 2. Commands (Linear Search)
-    const CmdEntry *c = CMD_TABLE;
-    while (c->cmd) {
-        if (strcmp(c->cmd, pkt_cmd) == 0) {
-            c->fn();
+    // --- UNIFIED DISPATCHER ---
+    {
+        uint16_t cmd_id;
+        if (pkt_cmd[0] >= '0' && pkt_cmd[0] <= '9') {
+            cmd_id = str_to_u16(pkt_cmd);
+        } else if (pkt_cmd[0] && pkt_cmd[1]) {
+            cmd_id = ((uint16_t)pkt_cmd[0] << 8) | pkt_cmd[1];
+        } else {
+            h_default_cmd();
             return;
         }
-        c++;
-    }
+        
+        last_cmd_id = cmd_id;  // OPT L7: guardar para handlers
 
-    h_default_cmd();
+        {
+            const CmdEntry *n = CMD_TABLE;
+            while (n->id) {
+                if (n->id == cmd_id) { n->fn(); return; }
+                n++;
+            }
+        }
+
+        if (cmd_id < 1000) h_numeric_default();
+        else h_default_cmd();
+    }
 }
+
 
 void process_irc_data(void)
 {
     uint16_t bytes_this_call = 0;
     uint8_t lines_this_call = 0;
     uint8_t max_lines;
-    uint16_t linelen;
+    static uint8_t idle_skip = 0;  // OPT: Throttle polling cuando idle
 
     if (connection_state == STATE_WIFI_OK && sntp_waiting) {
-    uart_drain_to_buffer();
-    while (try_read_line_nodrain()) {
-        if (rx_line[0] == '+') sntp_process_response(rx_line);
+        uart_drain_to_buffer();
+        while (try_read_line_nodrain()) {
+            if (rx_line[0] == '+') sntp_process_response(rx_line);
+        }
+        return;
     }
-    goto end_of_tick;
-}
 
     if (connection_state < STATE_TCP_CONNECTED) return;
+
+    // OPT: Skip drain cada N frames cuando buffer está vacío (ahorro ~30% CPU)
+    {
+        uint16_t backlog_pre = (uint16_t)(rb_head - rb_tail) & RING_BUFFER_MASK;
+        if (backlog_pre < 64 && rx_pos == 0) {  // Buffer casi vacío
+            if (++idle_skip < 2) return;  // Skip 2 de cada 3 frames
+            idle_skip = 0;
+        } else {
+            idle_skip = 0;  // Reset cuando hay datos
+        }
+    }
+
+    uart_drain_limit = DRAIN_NORMAL;
 
     {
         uint16_t backlog_pre = (uint16_t)(rb_head - rb_tail) & RING_BUFFER_MASK;
         if (backlog_pre > 1024)      uart_drain_limit = RX_TICK_DRAIN_MAX;
         else if (backlog_pre > 512)  uart_drain_limit = DRAIN_FAST;
         else if (backlog_pre > 256)  uart_drain_limit = 128;
-        else                         uart_drain_limit = DRAIN_NORMAL;
     }
 
     uart_drain_to_buffer();
 
+    // FIX: early-out barato cuando no hay nada que procesar
+    if (rx_pos == 0 && rb_head == rb_tail) return;
+
     {
         uint16_t backlog = (uint16_t)(rb_head - rb_tail) & RING_BUFFER_MASK;
-        if (backlog > 1024)     max_lines = 32;
-        else if (backlog > 512) max_lines = 24;
-        else if (backlog > 256) max_lines = 16;
-        else if (backlog > 128) max_lines = 10;
-        else                    max_lines = 6;
+        if (backlog > 1024)      max_lines = 32;
+        else if (backlog > 512)  max_lines = 24;
+        else if (backlog > 256)  max_lines = 16;
+        else if (backlog > 128)  max_lines = 10;
+        else                     max_lines = 6;
     }
 
     while (try_read_line_nodrain()) {
-        // Budget accounting: approximate per-line cost without byte-by-byte rb_pop() overhead.
-        linelen = 0;
-        while (rx_line[linelen]) linelen++;
-        bytes_this_call += (linelen + 1);
-        if (bytes_this_call >= RX_TICK_PARSE_BYTE_BUDGET) return;
 
-        if (strcmp(rx_line, S_CLOSED) == 0) {
+        if (pagination_active) pagination_timeout = 0;
+
+        if (rx_line[0] == 'C' && rx_line[1] == 'L' && rx_line[2] == 'O') {
             if (!closed_reported) {
                 closed_reported = 1;
                 ui_err("Connection closed by server");
@@ -1039,14 +1122,26 @@ void process_irc_data(void)
                 reset_all_channels();
                 draw_status_bar();
             }
-            continue;
+        } else {
+            // Reset silence counter on ANY server activity
+            server_silence_frames = 0;
+            // FIX ChatGPT audit: NO borrar keepalive_ping_sent aquí
+            // Solo debe borrarse al recibir PONG (se hace en handler de PONG)
+            parse_irc_message(rx_line);
         }
 
-        server_silence_frames = 0;
-        keepalive_ping_sent = 0;
-        parse_irc_message(rx_line);
         lines_this_call++;
+
+        {
+            uint16_t current_budget = RX_TICK_PARSE_BYTE_BUDGET;
+            if (pagination_active) {
+                current_budget = RX_TICK_PARSE_BYTE_BUDGET * 8;
+            }
+
+            bytes_this_call += (rx_last_len + 1);
+            if (bytes_this_call >= current_budget) return;
+        }
+
         if (lines_this_call >= max_lines) return;
     }
-    end_of_tick:
 }

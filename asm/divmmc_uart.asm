@@ -7,10 +7,8 @@ SECTION code_user
 
 PUBLIC _ay_uart_init
 PUBLIC _ay_uart_send
-PUBLIC _ay_uart_send_block
 PUBLIC _ay_uart_read
 PUBLIC _ay_uart_ready
-PUBLIC _ay_uart_ready_fast
 
 ; ZX-Uno compatible register interface
 UART_DATA_REG     EQU 0xC6
@@ -28,12 +26,6 @@ _is_recv:    DEFS 1
 
 SECTION code_user
 
-; -----------------------------------------------------------------------------
-; Internal helper: uartRead
-; OPTIMIZACIÓN: Flujo unificado y reducción de saltos.
-; OPTIMIZACIÓN IO: inc b para pasar de ZXUNO_ADDR (FC3B) a ZXUNO_REG (FD3B)
-; OPTIMIZACIÓN REG: Uso de E para preservación temporal (evita tocar HL)
-; -----------------------------------------------------------------------------
 ; -----------------------------------------------------------------------------
 ; Internal helper: uartRead
 ; OPTIMIZACIÓN: Flujo unificado y reducción de saltos.
@@ -191,39 +183,10 @@ uartSend_wait_tx:
     ret
 
 ; -----------------------------------------------------------------------------
-; _ay_uart_send_block
-; NOTA: Se mantienen push/pop hl obligatorios. _ay_uart_send usa L como entrada
-; y destruye BC. No podemos usar LD L, (HL) sin corromper el puntero base.
-; -----------------------------------------------------------------------------
-_ay_uart_send_block:
-    pop bc
-    pop hl
-    pop de
-    push bc
-
-    ld a, d
-    or e
-    ret z
-
-uartSendBlock_loop:
-    ld a, (hl)
-    push hl
-    ld l, a
-    call _ay_uart_send
-    pop hl
-    inc hl
-    dec de
-    ld a, d
-    or e
-    jr nz, uartSendBlock_loop
-    ret
-
-; -----------------------------------------------------------------------------
-; _ay_uart_ready / _ay_uart_ready_fast
+; _ay_uart_ready
 ; OPTIMIZACIÓN: Salto directo si hay byte cacheado y uso de inc b
 ; -----------------------------------------------------------------------------
 _ay_uart_ready:
-_ay_uart_ready_fast:
     ld a, (_poked_byte)
     or a
     jr nz, uartReady_yes
