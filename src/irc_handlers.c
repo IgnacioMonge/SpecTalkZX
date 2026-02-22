@@ -55,6 +55,18 @@ static void print_reason_and_newline(void)
     main_newline();
 }
 
+// Helper: comprobar si un nick está en la lista de amigos (friend1..friend3)
+static uint8_t is_tracked_friend(const char *nick) __z88dk_fastcall
+{
+    uint8_t i;
+    if (!nick || !*nick) return 0;
+
+    for (i = 0; i < 3; i++) {
+        if (friend_nicks[i][0] && st_stricmp(friend_nicks[i], nick) == 0) return 1;
+    }
+    return 0;
+}
+
 // Helper: Decrementar user_count de un canal si > 0
 #define channel_dec_users(i) do { if (channels[i].user_count > 0) channels[i].user_count--; } while(0)
 
@@ -418,6 +430,16 @@ static void h_join(void)
         int8_t idx = find_channel(chan);
         if (idx >= 0) {
             channels[idx].user_count++;
+
+            if (is_tracked_friend(pkt_usr)) {
+                mention_beep();
+                main_print_time_prefix();
+                current_attr = ATTR_MSG_PRIV;
+                main_puts2("Friend alert: ", pkt_usr);
+                main_puts(" joined ");
+                main_print(chan);
+            }
+
             if ((uint8_t)idx == current_channel_idx) {
                 main_print_time_prefix();
                 current_attr = ATTR_MSG_JOIN;
