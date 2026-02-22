@@ -756,6 +756,8 @@ static void h_numeric_366(void)
         }
         pagination_active = 0;
         pagination_count = 0;
+        cursor_visible = 1;
+        redraw_input_full();
     }
     
     show_names_list = 0; 
