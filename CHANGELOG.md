@@ -7,6 +7,98 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.0] - 2026-02-22 "Social Network"
+
+### Added
+
+#### Auto-Connect System
+- **New config option**: `autoconnect=1` connects automatically to configured server on startup
+- Combined with `nickpass=`, provides fully automated login experience
+- Eliminates manual `/server` command for regular users
+
+#### NickServ Auto-Identification
+- **New config option**: `nickpass=` for automatic NickServ identification after connect
+- Separate from server password (`pass=`) for clarity
+- Sends `IDENTIFY <password>` to NickServ immediately after registration completes
+
+#### Friends Detection System
+- **New config options**: `friend1=`, `friend2=`, `friend3=` to define up to 3 friend nicks
+- Automatic ISON polling every 30 seconds to detect online friends
+- Status bar indicator shows when friends are online
+- WHOIS information displayed when friend comes online
+
+#### Timestamps Toggle
+- **New command**: `/timestamps` (alias `/ts`) toggles timestamp display
+- **New config option**: `timestamps=1` to enable by default
+- Timestamps now shown consistently on all message types when enabled
+
+#### Ping Latency Indicator
+- Server response time measured and displayed after PING/PONG
+- Helps diagnose connection quality issues
+- Displayed in status messages when relevant
+
+#### Automatic Nick Recovery (433 Handling)
+- If nickname is in use during registration, automatically appends `_` and retries
+- Prevents connection failure due to nick collision
+- User notified of alternate nick being used
+
+#### UTF-8 Support
+- Incoming UTF-8 text automatically converted to displayable ASCII
+- Accented characters (áéíóúñüç) converted to base letters
+- Emoji and other multi-byte sequences replaced with `?`
+- Enables readable chat with international users
+
+### Fixed
+
+#### Reentrant Disconnection Bug
+- Fixed race condition where multiple disconnect triggers could corrupt state
+- Added `disconnecting_in_progress` guard flag
+- Prevents crashes during network instability
+
+#### Search Command Reliability
+- Fixed `rx_overflow` not being reset in `send_pending_search_command`
+- Prevents stale overflow state from corrupting search results
+
+#### WHO/Search Parsing
+- Implemented protocol-agnostic parsing for numeric 352 (WHO reply)
+- Works correctly with different IRC server implementations
+- Fixes `/who` and `/search` on non-standard servers
+
+#### Message Formatting
+- `wrap_indent=0` now correctly applied after QUIT/KICK/KILL messages
+- Prevents visual artifacts in subsequent messages
+
+### Optimized
+
+#### Deep Code Optimization (4 passes)
+- **Library function elimination**: Replaced `strstr`, `strncmp`, `strcmp` with specialized inline checks
+- **String deduplication**: Consolidated 20+ duplicate string literals into shared constants
+- **ASM hot paths**: Converted `print_char64`, `print_str64`, `irc_param` to optimized assembly
+- **SDCC codegen improvements**: Applied `__z88dk_fastcall` and `__z88dk_callee` conventions throughout
+- **Table compression**: Optimized command dispatch tables and help text pool
+- **Call fusion**: Combined consecutive `main_puts` calls with `main_puts2` helper
+
+#### Memory Footprint
+- Reduced command history buffer from 128 to 96 bytes per entry (128 bytes BSS saved)
+- Eliminated unused static buffers
+- Consolidated toggle command implementations
+
+### Changed
+
+#### Configuration File Format
+- `!config` display now shows all new options with formatted output
+- Config parser extended for new keywords
+- Maintains backward compatibility with v1.2 config files
+
+### Technical Notes
+- Multiple optimization passes applied (see optimization reports r1-r4)
+- Total estimated savings: ~500-800 bytes ROM across all optimizations
+- New ASM routines: `_utf8_to_ascii`, `_st_strchr`
+- New handlers: friends ISON/WHOIS processing
+- Config parser extended for: `autoconnect`, `nickpass`, `friend1-3`, `timestamps`
+
+---
+
 ## [1.2.2] - 2026-02-15 "Identity Crisis"
 
 ### Added

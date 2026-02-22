@@ -8,7 +8,7 @@
 
 ![Platform](https://img.shields.io/badge/Platform-ZX%20Spectrum-blue)
 ![License](https://img.shields.io/badge/License-GPLv2-green)
-![Version](https://img.shields.io/badge/Version-1.2.2-orange)
+![Version](https://img.shields.io/badge/Version-1.3.0-orange)
 
 ---
 
@@ -28,20 +28,24 @@ SpecTalk ZX is a fully-featured IRC client for the ZX Spectrum, bringing modern 
 - **Mention highlighting**: Windows with nick mentions displayed in highlight color
 - **Connection indicator**: Three-state LED (🔴 No WiFi → 🟡 WiFi OK → 🟢 Connected)
 - **Real-time clock** synchronized via SNTP
+- **Optional timestamps** on all messages
 
 ### IRC Protocol
 - **Full IRC compliance**: JOIN, PART, QUIT, NICK, PRIVMSG, NOTICE, TOPIC, MODE, KICK, WHO, WHOIS, LIST, NAMES
 - **CTCP support**: VERSION, PING, TIME, ACTION
-- **NickServ integration**: Quick identification with `/id` command or automatic with `/pass`
+- **NickServ integration**: Quick identification with `/id` command or automatic with `nickpass=`
 - **Away system**: Manual `/away` and automatic `/autoaway` with idle timer
 - **User ignore**: Block messages from specific users with `/ignore`
 - **Channel search**: Find channels or users by pattern
+- **UTF-8 support**: International characters converted to readable ASCII
 
-### Reliability
+### Connectivity
+- **Auto-connect**: Connect automatically to configured server on startup
+- **Auto-identify**: Automatic NickServ identification after connect
+- **Friends system**: Monitor up to 3 friends' online status with notifications
+- **Nick collision handling**: Automatic alternate nick if primary is in use
 - **Keep-alive system**: Automatic PING to detect silent disconnections
-- **Server sync**: Away status synchronized with server responses (305/306)
-- **Smart filtering**: Connection noise (MOTD, stats) filtered for cleaner output
-- **Generic numeric parser**: View output from any `/raw` command
+- **Ping latency**: Server response time measurement
 
 ### Performance
 - **Unity Build Architecture**: Entire client compiled as single unit for maximum optimization
@@ -140,7 +144,7 @@ Local commands that don't require server connection.
 |---------|-------|-------------|
 | `/server host[:port]` | `/connect` | Connect to IRC server (default port: 6667) |
 | `/nick name` | — | Set or change nickname |
-| `/pass password` | — | Set NickServ password for auto-identify |
+| `/pass password` | — | Set server password (rarely needed) |
 | `/id [password]` | — | Identify with NickServ (uses saved password if none given) |
 | `/quit [message]` | — | Disconnect from server with optional message |
 
@@ -197,6 +201,7 @@ Local commands that don't require server connection.
 |---------|-------|-------------|
 | `/beep` | — | Toggle sound on nick mention (on/off) |
 | `/quits` | — | Toggle display of QUIT messages (on/off) |
+| `/timestamps` | `/ts` | Toggle timestamp display on messages (on/off) |
 
 ---
 
@@ -232,12 +237,15 @@ Plain text file with one setting per line in `key=value` format:
 nick=MyNickname
 server=irc.libera.chat
 port=6667
-pass=mynickservpassword
+nickpass=mynickservpassword
+autoconnect=1
 theme=1
+timestamps=1
 autoaway=15
 beep=1
 quits=1
-tz=+1
+tz=1
+friend1=MyFriend
 ```
 
 ### Available Settings
@@ -247,28 +255,22 @@ tz=+1
 | `nick` | Default nickname | Any valid IRC nick | (none) |
 | `server` | IRC server hostname | Hostname or IP | (none) |
 | `port` | Server port | 1-65535 | 6667 |
-| `pass` | NickServ password | Any string | (none) |
+| `pass` | Server password | Any string | (none) |
+| `nickpass` | NickServ password | Any string | (none) |
+| `autoconnect` | Connect on startup | 0 or 1 | 0 |
 | `theme` | Color theme | 1, 2, or 3 | 1 |
+| `timestamps` | Show timestamps | 0 or 1 | 0 |
 | `autoaway` | Auto-away minutes | 0-60 (0=off) | 0 |
 | `beep` | Sound on mention | 0 or 1 | 1 |
 | `quits` | Show quit messages | 0 or 1 | 1 |
 | `tz` | Timezone offset | -12 to +12 | 0 |
+| `friend1` | Friend nick to monitor | Any nick | (none) |
+| `friend2` | Friend nick to monitor | Any nick | (none) |
+| `friend3` | Friend nick to monitor | Any nick | (none) |
 
 ### Viewing Current Configuration
 
-Use `!config` or `!cfg` to display all current configuration values:
-
-```
-nick=MyNickname
-server=irc.libera.chat
-port=6667
-pass=(set)
-theme=1
-autoaway=15 min
-beep=on
-quits=on
-tz=+1
-```
+Use `!config` or `!cfg` to display all current configuration values.
 
 ---
 
@@ -323,10 +325,12 @@ The project uses **Unity Build** strategy: all C sources are compiled as a singl
 | Indicator yellow but won't connect | Verify WiFi credentials with NetManZX |
 | "Connection timeout" after idle | Normal behavior - keep-alive detected dead connection |
 | Messages from user won't stop | Use `/ignore nick` to block them |
-| Can't identify with NickServ | Use `/id password` or set `pass=` in config file |
+| Can't identify with NickServ | Use `/id password` or set `nickpass=` in config file |
 | Forgot current settings | Use `!config` to view all configuration values |
 | Too many quit messages | Use `/quits` to toggle them off |
 | No sound on mentions | Use `/beep` to toggle sound on |
+| Nick in use on connect | SpecTalk auto-adds `_` - use `/nick` to change after |
+| Accented characters look wrong | UTF-8 is auto-converted to ASCII equivalents |
 
 ---
 

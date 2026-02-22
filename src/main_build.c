@@ -18,6 +18,17 @@
  * Portions of this code are derived from BitchZX, also licensed under GPLv2.
  */
 
+/*
+ * STRUCT-01: Single Compilation Unit (SCU) - ORDEN CRÍTICO
+ * 
+ * El orden de includes es importante porque:
+ * 1. spectalk.c DEBE ser el último porque define todas las variables globales
+ * 2. irc_handlers.c y user_cmds.c pueden ir en cualquier orden entre sí
+ * 3. Todas las funciones 'static' en un módulo son visibles en los otros
+ * 4. Conflictos de nombres entre módulos serían silenciosos
+ * 
+ * Este patrón permite que SDCC optimice cross-module (inlining, dead code elimination)
+ */
 
 #include "irc_handlers.c"
 #include "user_cmds.c"

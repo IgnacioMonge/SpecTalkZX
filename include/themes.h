@@ -47,80 +47,8 @@ uint8_t banner;
     uint8_t border;
 } Theme;
 
-// Tabla de themes
-static const Theme themes[] = {
-    // THEME 1: DEFAULT (Blue/Cyan)
-    {
-        "Default",
-        (PAPER_BLUE  | INK_WHITE | BRIGHT),    // banner
-        (PAPER_WHITE | INK_BLUE),              // status
-        (PAPER_BLACK | INK_WHITE),             // msg_chan (blanco sin brillo)
-        (PAPER_BLACK | INK_YELLOW | BRIGHT),   // msg_self
-        (PAPER_BLACK | INK_GREEN | BRIGHT),    // msg_priv
-        (PAPER_BLACK | INK_WHITE),             // main_bg
-        (PAPER_CYAN  | INK_BLUE),              // input
-        (PAPER_CYAN  | INK_BLACK),             // input_bg
-        (PAPER_CYAN  | INK_BLUE),              // prompt
-        (PAPER_BLACK | INK_WHITE),             // msg_server
-        (PAPER_BLACK | INK_MAGENTA),           // msg_join
-        (PAPER_BLACK | INK_MAGENTA | BRIGHT),  // msg_nick
-        (PAPER_BLACK | INK_CYAN | BRIGHT),     // msg_time
-        (PAPER_BLACK | INK_YELLOW | BRIGHT),   // msg_topic
-        (PAPER_BLACK | INK_CYAN),              // msg_motd
-        (PAPER_BLACK | INK_RED | BRIGHT),      // error
-        (PAPER_WHITE | INK_RED),               // ind_red
-        (PAPER_WHITE | INK_YELLOW),            // ind_yellow
-        (PAPER_WHITE | INK_GREEN),             // ind_green
-        INK_BLACK                              // border
-    },
-    // THEME 2: TERMINAL (Green Monochrome)
-    {
-        "The Terminal",
-        (PAPER_GREEN | INK_BLACK | BRIGHT),    // banner
-        (PAPER_GREEN | INK_BLACK),             // status
-        (PAPER_BLACK | INK_GREEN),             // msg_chan
-        (PAPER_BLACK | INK_GREEN | BRIGHT),    // msg_self
-        (PAPER_BLACK | INK_GREEN | BRIGHT),    // msg_priv
-        (PAPER_BLACK | INK_GREEN),             // main_bg
-        (PAPER_BLACK | INK_GREEN | BRIGHT),    // input
-        (PAPER_BLACK | INK_GREEN | BRIGHT),    // input_bg
-        (PAPER_BLACK | INK_GREEN | BRIGHT),    // prompt
-        (PAPER_BLACK | INK_GREEN),             // msg_server
-        (PAPER_BLACK | INK_GREEN),             // msg_join
-        (PAPER_BLACK | INK_GREEN | BRIGHT),    // msg_nick
-        (PAPER_BLACK | INK_GREEN),             // msg_time
-        (PAPER_BLACK | INK_GREEN | BRIGHT),    // msg_topic
-        (PAPER_BLACK | INK_GREEN),             // msg_motd (dimmer green)
-        (PAPER_BLACK | INK_GREEN | BRIGHT),      // error
-        (PAPER_GREEN | INK_RED),               // ind_red
-        (PAPER_GREEN | INK_YELLOW),            // ind_yellow
-        (PAPER_GREEN | INK_BLACK),    // ind_green (bright para contraste)
-        INK_BLACK                              // border
-    },
-    // THEME 3: COLORFUL (The Commander - Blue)
-    {
-        "The Commander",
-        (PAPER_RED   | INK_WHITE | BRIGHT),    // banner
-        (PAPER_CYAN  | INK_BLACK),             // status
-        (PAPER_BLUE  | INK_CYAN),              // msg_chan
-        (PAPER_BLUE  | INK_YELLOW),            // msg_self
-        (PAPER_BLUE  | INK_GREEN),             // msg_priv
-        (PAPER_BLUE  | INK_WHITE),             // main_bg
-        (PAPER_WHITE | INK_BLUE),              // input
-        (PAPER_WHITE | INK_BLUE),              // input_bg
-        (PAPER_WHITE | INK_BLUE),              // prompt
-        (PAPER_BLUE  | INK_WHITE),             // msg_server
-        (PAPER_BLUE  | INK_MAGENTA),           // msg_join
-        (PAPER_BLUE  | INK_YELLOW),            // msg_nick
-        (PAPER_BLUE  | INK_WHITE),             // msg_time
-        (PAPER_BLUE  | INK_YELLOW),            // msg_topic
-        (PAPER_BLUE  | INK_CYAN),              // msg_motd
-        (PAPER_BLUE  | INK_RED),               // error
-        (PAPER_CYAN  | INK_RED),               // ind_red
-        (PAPER_CYAN  | INK_YELLOW),            // ind_yellow
-        (PAPER_CYAN  | INK_GREEN),             // ind_green
-        INK_BLUE                               // border
-    }
-};
+// OPT-01: Tabla de themes definida en spectalk.c para evitar duplicación si se incluye desde múltiples .c
+#define THEME_COUNT 3
+extern const Theme themes[THEME_COUNT];
 
 #endif

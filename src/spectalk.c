@@ -22,6 +22,93 @@
 // font64_data.h ya no se necesita - fuente comprimida integrada en spectalk_asm.asm
 #include "../include/themes.h"
 
+// =============================================================================
+// COMPILE-TIME SAFETY: Verificar que constantes C coinciden con ASM
+// Si algún assert falla, actualizar AMBOS: spectalk.h Y spectalk_asm.asm
+// =============================================================================
+#if RING_BUFFER_SIZE != 2048
+#error "RING_BUFFER_SIZE must be 2048 (sync with spectalk_asm.asm:31,122-126)"
+#endif
+#if RX_LINE_SIZE != 512
+#error "RX_LINE_SIZE must be 512 (sync with spectalk_asm.asm:421)"
+#endif
+
+// OPT-01: Definición de themes[] movida aquí desde themes.h para evitar duplicación
+const Theme themes[THEME_COUNT] = {
+    // THEME 1: DEFAULT (Blue/Cyan)
+    {
+        "Default",
+        (PAPER_BLUE  | INK_WHITE | BRIGHT),    // banner
+        (PAPER_WHITE | INK_BLUE),              // status
+        (PAPER_BLACK | INK_WHITE),             // msg_chan (blanco sin brillo)
+        (PAPER_BLACK | INK_YELLOW | BRIGHT),   // msg_self
+        (PAPER_BLACK | INK_GREEN | BRIGHT),    // msg_priv
+        (PAPER_BLACK | INK_WHITE),             // main_bg
+        (PAPER_CYAN  | INK_BLUE),              // input
+        (PAPER_CYAN  | INK_BLACK),             // input_bg
+        (PAPER_CYAN  | INK_BLUE),              // prompt
+        (PAPER_BLACK | INK_WHITE),             // msg_server
+        (PAPER_BLACK | INK_MAGENTA),           // msg_join
+        (PAPER_BLACK | INK_MAGENTA | BRIGHT),  // msg_nick
+        (PAPER_BLACK | INK_CYAN | BRIGHT),     // msg_time
+        (PAPER_BLACK | INK_YELLOW | BRIGHT),   // msg_topic
+        (PAPER_BLACK | INK_CYAN),              // msg_motd
+        (PAPER_BLACK | INK_RED | BRIGHT),      // error
+        (PAPER_WHITE | INK_RED),               // ind_red
+        (PAPER_WHITE | INK_YELLOW),            // ind_yellow
+        (PAPER_WHITE | INK_GREEN),             // ind_green
+        INK_BLACK                              // border
+    },
+    // THEME 2: TERMINAL (Green Monochrome)
+    {
+        "The Terminal",
+        (PAPER_GREEN | INK_BLACK | BRIGHT),    // banner
+        (PAPER_GREEN | INK_BLACK),             // status
+        (PAPER_BLACK | INK_GREEN),             // msg_chan
+        (PAPER_BLACK | INK_GREEN | BRIGHT),    // msg_self
+        (PAPER_BLACK | INK_GREEN | BRIGHT),    // msg_priv
+        (PAPER_BLACK | INK_GREEN),             // main_bg
+        (PAPER_BLACK | INK_GREEN | BRIGHT),    // input
+        (PAPER_BLACK | INK_GREEN | BRIGHT),    // input_bg
+        (PAPER_BLACK | INK_GREEN | BRIGHT),    // prompt
+        (PAPER_BLACK | INK_GREEN),             // msg_server
+        (PAPER_BLACK | INK_GREEN),             // msg_join
+        (PAPER_BLACK | INK_GREEN | BRIGHT),    // msg_nick
+        (PAPER_BLACK | INK_GREEN),             // msg_time
+        (PAPER_BLACK | INK_GREEN | BRIGHT),    // msg_topic
+        (PAPER_BLACK | INK_GREEN),             // msg_motd
+        (PAPER_BLACK | INK_GREEN | BRIGHT),    // error
+        (PAPER_GREEN | INK_RED),               // ind_red
+        (PAPER_GREEN | INK_YELLOW),            // ind_yellow
+        (PAPER_GREEN | INK_BLACK),             // ind_green
+        INK_BLACK                              // border
+    },
+    // THEME 3: COLORFUL (The Commander - Blue)
+    {
+        "The Commander",
+        (PAPER_RED   | INK_WHITE | BRIGHT),    // banner
+        (PAPER_CYAN  | INK_BLACK),             // status
+        (PAPER_BLUE  | INK_CYAN),              // msg_chan
+        (PAPER_BLUE  | INK_YELLOW),            // msg_self
+        (PAPER_BLUE  | INK_GREEN),             // msg_priv
+        (PAPER_BLUE  | INK_WHITE),             // main_bg
+        (PAPER_WHITE | INK_BLUE),              // input
+        (PAPER_WHITE | INK_BLUE),              // input_bg
+        (PAPER_WHITE | INK_BLUE),              // prompt
+        (PAPER_BLUE  | INK_WHITE),             // msg_server
+        (PAPER_BLUE  | INK_MAGENTA),           // msg_join
+        (PAPER_BLUE  | INK_YELLOW),            // msg_nick
+        (PAPER_BLUE  | INK_WHITE),             // msg_time
+        (PAPER_BLUE  | INK_YELLOW),            // msg_topic
+        (PAPER_BLUE  | INK_CYAN),              // msg_motd
+        (PAPER_BLUE  | INK_RED),               // error
+        (PAPER_CYAN  | INK_RED),               // ind_red
+        (PAPER_CYAN  | INK_YELLOW),            // ind_yellow
+        (PAPER_CYAN  | INK_GREEN),             // ind_green
+        INK_BLUE                               // border
+    }
+};
+
 const char *theme_get_name(uint8_t theme_id)
 {
     if ((uint8_t)(theme_id - 1) > 2)
@@ -38,9 +125,7 @@ void text_shift_left(char *dest, uint16_t count) __z88dk_callee;
 // =============================================================================
 const char S_NOTCONN[] = "Not connected";
 const char S_OK[] = "OK";
-const char S_ERROR[] = "ERROR";
 const char S_FAIL[] = "FAIL";
-const char S_CLOSED[] = "CLOSED";
 const char S_SERVER[] = "Server";
 const char S_CHANSERV[] = "ChanServ";
 const char S_NOTSET[] = "(not set)";
@@ -86,6 +171,17 @@ const char S_ON[] = "on";
 const char S_OFF[] = "off";
 const char S_DEFAULT_PORT[] = "6667";
 const char S_CONNECTED[] = "connected";  // D5
+// OPT-AGG: Nuevas constantes compartidas (cross-module dedup)
+const char S_DOTS3[] = "...";
+const char S_NICK_INUSE[] = "Nick in use, trying: ";
+const char S_NICK_SP[] = "NICK ";
+const char S_AS_SP[] = " as ";
+const char S_MIN[] = " min";
+const char S_SET[] = "(set)";
+const char S_DOT_SP[] = ". ";           // D9: dedup from search results
+const char S_USAGE_MSG[] = "msg nick message"; // D9: dedup from cmd_msg
+const char S_COMMA_SP[] = ", ";              // D9: dedup (3 uses)
+
 // =============================================================================
 // THEME SYSTEM - Global attributes set by apply_theme()
 // =============================================================================
@@ -123,7 +219,7 @@ uint8_t show_names_list = 0;     // Flag: show 353 user list (for /names command
 // Activity indicator for inactive channels
 uint8_t other_channel_activity = 0;  // Set when msg arrives on non-active channel
 uint8_t irc_is_away = 0;
-char away_message[64] = "";  // OPT L9 revert: debe coincidir con la declaración en include/spectalk.h
+char away_message[32] = "";  // OPT-04: Reducido de 64 a 32 bytes
 uint8_t away_reply_cd = 0;   // Global cooldown (seconds) for away auto-replies
 
 // Auto-away system
@@ -139,6 +235,7 @@ char names_target_channel[NAMES_TARGET_CHANNEL_SIZE];
 // User preferences (toggle with commands)
 uint8_t beep_enabled = 1;   // 0 = silent mode
 uint8_t show_quits = 1;     // 0 = hide QUIT messages
+uint8_t show_timestamps = 1; // 1 = show [HH:MM] prefix on messages
 int8_t sntp_tz = 1;         // SNTP timezone offset (-12..+12), default CET
 
 // Keep-alive system: detect silent disconnections
@@ -148,11 +245,12 @@ int8_t sntp_tz = 1;         // SNTP timezone offset (-12..+12), default CET
 uint16_t server_silence_frames = 0;  // Frames since last server activity
 uint8_t  keepalive_ping_sent = 0;    // 1 = waiting for PONG
 uint16_t keepalive_timeout = 0;      // Timeout counter after PING sent
+uint8_t ping_latency = 0;            // 0=good, 1=medium (>500ms), 2=high (>1000ms)
 
 // Pagination for long LIST/WHO results
 uint8_t pagination_active = 0;
 uint16_t pagination_count = 0;
-static uint8_t pagination_lines = 0;  // Líneas impresas desde última pausa
+uint8_t pagination_lines = 0;  // Líneas impresas desde última pausa
 uint8_t pagination_timeout = 0;  // Frames sin datos válidos → safety timeout
 uint8_t search_data_lost = 0;    // Flag: se perdieron datos durante listado
 uint8_t buffer_pressure = 0;   // 1 = buffer >75% (indicator shows empty circle)
@@ -170,7 +268,6 @@ uint8_t search_mode = SEARCH_NONE;
 char    search_pattern[SEARCH_PATTERN_SIZE];  // También usado como argumento pendiente durante drenaje
 uint16_t search_index = 0;
 
-uint8_t ui_freeze_status = 0;
 void draw_status_bar(void)
 {
     status_bar_dirty = 1;
@@ -277,6 +374,10 @@ char irc_server[IRC_SERVER_SIZE] = "";
 char irc_port[IRC_PORT_SIZE] = "6667";
 char irc_nick[IRC_NICK_SIZE] = "";
 char irc_pass[IRC_PASS_SIZE] = "";
+char nickserv_pass[IRC_PASS_SIZE] = "";
+uint8_t autoconnect = 0;
+char friend_nicks[3][IRC_NICK_SIZE] = { {0}, {0}, {0} };
+uint8_t friends_ison_sent = 0;
 char user_mode[USER_MODE_SIZE] = "";
 char network_name[NETWORK_NAME_SIZE] = "";
 uint8_t connection_state = STATE_DISCONNECTED;
@@ -356,10 +457,11 @@ uint8_t remove_ignore(const char *nick) __z88dk_fastcall
 int8_t find_channel(const char *name) __z88dk_fastcall
 {
     uint8_t i;
-    // OPT: Iterar solo hasta slots activos (ahorro ~50% iteraciones promedio)
-    uint8_t limit = (channel_count < MAX_CHANNELS) ? channel_count : MAX_CHANNELS;
-    for (i = 0; i < limit; i++) {
-        if ((channels[i].flags & CH_FLAG_ACTIVE) && st_stricmp(channels[i].name, name) == 0) {
+    // OPT-08: channel_count nunca excede MAX_CHANNELS por diseño (guarded en add_slot_internal)
+    ChannelInfo *ch = channels;
+
+    for (i = 0; i < channel_count; i++, ch++) {
+        if ((ch->flags & CH_FLAG_ACTIVE) && st_stricmp(ch->name, name) == 0) {
             return (int8_t)i;
         }
     }
@@ -370,22 +472,23 @@ int8_t find_channel(const char *name) __z88dk_fastcall
 int8_t find_query(const char *nick) __z88dk_fastcall
 {
     uint8_t i;
-    
+
     if (!nick || !*nick) return -1;
-    
+
     // FILTRO DE SERVICIOS: Forzar Slot 0 (if-else evita llamadas innecesarias)
     char c = nick[0] | 0x20;  // lowercase
     if (c == 'c') { if (st_stricmp(nick, S_CHANSERV) == 0) return 0; }
     else if (c == 'n') { if (st_stricmp(nick, S_NICKSERV) == 0) return 0; }
     else if (c == 'g') { if (st_stricmp(nick, S_GLOBAL) == 0) return 0; }
-    
+
     if (irc_server[0] && st_stricmp(nick, irc_server) == 0) return 0;
 
-    // Iterar solo hasta slots activos
-    uint8_t limit = (channel_count < MAX_CHANNELS) ? channel_count : MAX_CHANNELS;
-    for (i = 1; i < limit; i++) {
-        if ((channels[i].flags & (CH_FLAG_ACTIVE | CH_FLAG_QUERY)) == (CH_FLAG_ACTIVE | CH_FLAG_QUERY) && 
-            st_stricmp(channels[i].name, nick) == 0) {
+    // OPT-08: channel_count nunca excede MAX_CHANNELS por diseño
+    ChannelInfo *ch = &channels[1];
+
+    for (i = 1; i < channel_count; i++, ch++) {
+        if ((ch->flags & (CH_FLAG_ACTIVE | CH_FLAG_QUERY)) == (CH_FLAG_ACTIVE | CH_FLAG_QUERY) &&
+            st_stricmp(ch->name, nick) == 0) {
             return (int8_t)i;
         }
     }
@@ -522,17 +625,19 @@ void reset_all_channels(void)
     uint8_t i;
     // OPT: Solo resetear slots que estaban activos
     uint8_t limit = (channel_count < MAX_CHANNELS) ? channel_count : MAX_CHANNELS;
-    for (i = 0; i < limit; i++) {
-        channels[i].flags = 0;
-        channels[i].name[0] = '\0';
-        channels[i].mode[0] = '\0';
-        channels[i].user_count = 0;
+    ChannelInfo *ch = channels;
+
+    for (i = 0; i < limit; i++, ch++) {
+        ch->flags = 0;
+        ch->name[0] = '\0';
+        ch->mode[0] = '\0';
+        ch->user_count = 0;
     }
-    
+
     // Slot 0: SIEMPRE reservado para Server / ChanServ
     channels[0].flags = CH_FLAG_ACTIVE | CH_FLAG_QUERY;  // Active + query (no user count)
     st_copy_n(channels[0].name, S_SERVER, sizeof(channels[0].name));
-    
+
     current_channel_idx = 0;
     channel_count = 1;
     other_channel_activity = 0;  // FIX: limpiar indicador de actividad
@@ -566,13 +671,13 @@ uint8_t cursor_visible = 1;  // cursor only visible when user can type
 
 // Connection state tracking (shared across modules)
 uint8_t closed_reported = 0;
+uint8_t disconnecting_in_progress = 0;  // FIX: Prevent reentrant disconnection
 
 // TIME TRACKING (Optimized: No 32-bit math)
 // Eliminamos uptime_frames y time_sync_frames para ahorrar librería de división
 uint8_t time_hour = 0;
 uint8_t time_minute = 0;
 uint8_t time_second = 0;        // Nuevo: Segundos explícitos
-uint8_t time_synced = 0;        // Flag: time has been synced
 uint8_t sntp_init_sent = 0;     // Flag: SNTP init commands sent (not static - needs reset on disconnect)
 uint8_t sntp_waiting = 0;       // Flag: waiting for SNTP response
 
@@ -727,7 +832,7 @@ extern void scroll_main_zone(void);
 // MAIN AREA OUTPUT
 
 // Helper interno para pausa de paginación (retorna 1 si cancelado)
-static uint8_t pagination_pause(void)
+uint8_t pagination_pause(void)
 {
     uint8_t key;
     uint16_t backlog;
@@ -750,7 +855,7 @@ static uint8_t pagination_pause(void)
             search_data_lost = 1;
             rb_tail = rb_head;   // descarte total O(1)
             rx_pos = 0;          // FIX: Descartar línea parcial en curso
-            rx_overflow = 0;
+            rx_overflow = 1;     // FIX: Descartar bytes hasta próximo \n
             buffer_pressure = 0;
         }
 
@@ -790,39 +895,8 @@ static uint8_t pagination_pause(void)
 }
 
 
-void main_newline(void)
-{
-    main_col = 0;
-    
-    if (pagination_active) {
-        pagination_lines++;
-        // Pausar cuando llenamos la pantalla (dejando 1 línea para el prompt)
-        if (pagination_lines >= MAIN_LINES - 1) {
-            if (pagination_pause()) return;  // Cancelado
-        } else {
-            // Avanzar línea normalmente
-            if (main_line < MAIN_END) {
-                main_line++;
-            }
-        }
-    } else {
-        // Sin paginación: scroll normal
-        if (main_line < MAIN_END) {
-            main_line++;
-        } else {
-            scroll_main_zone();
-        }
-    }
-    
-    // Aplicar indentación para líneas que continúan (wrap)
-    if (wrap_indent > 0) {
-        uint8_t i;
-        for (i = 0; i < wrap_indent; i++) {
-            print_char64(main_line, i, ' ', current_attr);
-        }
-        main_col = wrap_indent;
-    }
-}
+/* main_newline moved to ASM (see asm/spectalk_asm.asm) */
+extern void main_newline(void);
 
 // ============================================================
 // Versión optimizada de main_run: Calcula punteros de fila una vez por segmento
@@ -844,55 +918,15 @@ static void ensure_attr_alignment(uint8_t target_attr)
     }
 }
 
-// Versión simplificada - min_width siempre es 0 en todos los call sites
-void main_run2(const char *s, uint8_t attr) __z88dk_callee
-{
-    const char *p = s;
-    uint8_t col;
-    
-    ensure_attr_alignment(attr);
-    
-    g_ps64_y = main_line;
-    g_ps64_attr = attr;
-    col = main_col;
-    
-    while (*p) {
-        if (col >= SCREEN_COLS) {
-            main_col = col;
-            main_newline();
-            g_ps64_y = main_line;
-            col = main_col;
-        }
-        g_ps64_col = col;
-        print_str64_char((uint8_t)*p);
-        col++;
-        p++;
-    }
-    
-    main_col = col;
-}
-
-void main_run_char(char c, uint8_t attr) __z88dk_callee
-{
-    ensure_attr_alignment(attr);
-    
-    if (main_col >= SCREEN_COLS) {
-        main_newline();
-    }
-    g_ps64_y = main_line;
-    g_ps64_col = main_col;
-    g_ps64_attr = attr;
-    print_str64_char((uint8_t)c);
-    main_col++;
-}
 
 void main_run_u16(uint16_t val, uint8_t attr) __z88dk_callee
 {
-    char buf[8];
+    static char buf[8];  // OPTIMIZACIÓN: Alojado en BSS
     char *q = u16_to_dec(buf, val);
-    (void)q;  // end pointer not needed
+    (void)q;  
     
     ensure_attr_alignment(attr);
+    
     g_ps64_y = main_line;
     g_ps64_attr = attr;
     
@@ -1007,15 +1041,14 @@ static void send_pending_search_command(void)
     uint8_t is_chan = (search_pending_type == PEND_LIST || search_pending_type == PEND_SEARCH_CHAN);
     search_mode = is_chan ? SEARCH_CHAN : SEARCH_USER;
     
+    rx_overflow = 0;  // FIX: No perder respuesta del servidor
+    
     if (search_pending_type == PEND_SEARCH_CHAN) {
-        // LIST con wildcard
         uart_send_string("LIST *");
         uart_send_string(search_pattern);
         uart_send_string("*\r\n");
     } else {
-        // LIST, WHO, o SEARCH_USER: todos usan irc_send_cmd1
         irc_send_cmd1(is_chan ? "LIST" : "WHO", search_pattern);
-        // Limpiar patrón solo para LIST/WHO (no para SEARCH_USER que lo necesita para filtrar)
         if (search_pending_type == PEND_LIST || search_pending_type == PEND_WHO) 
             search_pattern[0] = 0;
     }
@@ -1053,47 +1086,21 @@ void start_search_command(uint8_t type, const char *arg)
 
 static void draw_clock(void)
 {
-    static char time_part[10];
+    static char time_part[8];
     char *p = time_part;
     
-    // Usar ATTR_STATUS para que coincida con el theme actual
-    uint8_t clock_attr = ATTR_STATUS; 
-    
     *p++ = '[';
-    // OPTIMIZADO: Eliminadas divisiones / y %
     fast_u8_to_str(p, time_hour); p += 2;
     *p++ = ':';
     fast_u8_to_str(p, time_minute); p += 2;
     *p++ = ']';
     *p = 0;
     
-    // Imprimir en columna 54 sin borrar la line entera
-    print_str64(INFO_LINE, 54, time_part, clock_attr);
+    print_str64(INFO_LINE, 54, time_part, ATTR_STATUS);
 }
 
-// Print timestamp prefix: [HH:MM]
-// Note: do not override PAPER/INK here; let the active theme/message
-// attribute decide the final colors.
-void main_print_time_prefix(void)
-{
-    // Buffer estático "HH:MM| \0"
-    static char tbuf[8]; 
-    uint8_t saved_attr = current_attr;
-
-    // Conversión directa sin divisiones
-    fast_u8_to_str(tbuf, time_hour);
-    tbuf[2] = ':';
-    fast_u8_to_str(tbuf + 3, time_minute);
-    tbuf[5] = '|';
-    tbuf[6] = ' ';
-    tbuf[7] = 0;
-
-    current_attr = ATTR_MSG_TIME;
-    main_puts(tbuf);
-
-    current_attr = saved_attr;
-    wrap_indent = 7;
-}
+// Print timestamp prefix: [HH:MM] - implemented in ASM (spectalk_asm.asm)
+extern void main_print_time_prefix(void);
 
 
 // sb_append está implementada en ASM (spectalk_asm.asm)
@@ -1102,7 +1109,7 @@ extern char *sb_append(char *dst, const char *src, const char *limit);
 // Extraer nombre de red del hostname: chat.freenode.net → freenode
 static char *extract_network_short(char *hostname)
 {
-    static char net_short[16];
+    static char net_short[12];
     char *first_dot = strchr(hostname, '.');
     if (!first_dot) return hostname;
     
@@ -1111,7 +1118,7 @@ static char *extract_network_short(char *hostname)
     if (!second_dot) return hostname;
     
     uint8_t len = (uint8_t)(second_dot - src);
-    if (len > 15) len = 15;
+    if (len > 11) len = 11;
     memcpy(net_short, src, len);
     net_short[len] = '\0';
     return net_short;
@@ -1172,16 +1179,74 @@ static const char* sb_pick_status(uint8_t prefer_server_full)
 }
 
 extern char *u16_to_dec3(char *dst, uint16_t v);
+// D10: Extracted channel display logic — reduces SDCC register pressure
+// Returns updated pointer p. Writes channel name, modes, and network
+// info into the status bar buffer, truncating as needed to fit.
+static char *sb_format_channel(char *p, char *central_limit, uint8_t cur_flags)
+{
+    uint8_t space;
+    char *chan, *modes, *net;
+    uint8_t chan_len, mode_len, net_len;
+
+    if (p >= central_limit) p = central_limit - 1;
+    space = (uint8_t)(central_limit - p);
+    if (space) space--;  // reservar 1 char para el ']'
+    if (!space) return p;
+
+    chan = (current_channel_idx == 0 && network_name[0]) ? network_name : irc_channel;
+    modes = (!(cur_flags & CH_FLAG_QUERY) && chan_mode[0]) ? chan_mode : NULL;
+    net = NULL;
+
+    chan_len = (uint8_t)st_strlen(chan);
+    mode_len = modes ? (uint8_t)st_strlen(modes) + 2 : 0;  // "(modes)"
+    net_len = 0;
+
+    if (current_channel_idx != 0) {
+        net = network_name[0] ? network_name : (irc_server[0] ? extract_network_short(irc_server) : NULL);
+        if (net) net_len = (uint8_t)st_strlen(net) + 1;  // "@net"
+    }
+
+    // Greedy fit: try chan+modes+net, drop decorations that don't fit
+    // Instead of 4-way branch, subtract greedily
+    if (chan_len + mode_len + net_len > space) {
+        // Can't fit all — drop modes first (net more useful)
+        if (chan_len + net_len > space) {
+            net = NULL; net_len = 0;
+            if (chan_len + mode_len > space) {
+                modes = NULL; mode_len = 0;
+            }
+        } else {
+            modes = NULL; mode_len = 0;
+        }
+    }
+
+    // Render channel name (truncated if needed)
+    {
+        char *chan_limit = p + (space - mode_len - net_len);
+        if (chan_limit >= central_limit) chan_limit = central_limit - 1;
+        p = sb_append(p, chan, chan_limit);
+    }
+
+    if (modes) {
+        *p++ = '(';
+        p = sb_append(p, modes, central_limit - (net_len ? net_len + 1 : 1));
+        *p++ = ')';
+    }
+    if (net) {
+        *p++ = '@';
+        p = sb_append(p, net, central_limit - 1);
+    }
+    return p;
+}
+
 void draw_status_bar_real(void)
 {
     char *p = sb_left_part;
     char *const limit_end = sb_left_part + 56;
 
     uint8_t cur_flags = channels[current_channel_idx].flags;
-    uint8_t is_server_tab = (current_channel_idx == 0 && st_stricmp(channels[0].name, S_SERVER) == 0);
     uint8_t is_query = (cur_flags & CH_FLAG_QUERY) && current_channel_idx != 0;
 
-    // Calcular si hay menciones pendientes en otros slots
     uint8_t has_mention = 0;
     {
         uint8_t i;
@@ -1195,7 +1260,6 @@ void draw_status_bar_real(void)
         }
     }
 
-    // [nick(mode)] 
     *p++ = '[';
     if (irc_nick[0]) {
         p = sb_append(p, irc_nick, sb_left_part + 11);
@@ -1207,94 +1271,51 @@ void draw_status_bar_real(void)
     }
     *p++ = ']'; *p++ = ' '; *p++ = '[';
 
-    // D4: Static buffer to reduce stack frame
     static char user_buf[8];
     uint8_t user_len = 0;
     user_buf[0] = 0;
 
     if (irc_channel[0] && !(cur_flags & CH_FLAG_QUERY) && chan_user_count > 0) {
         char *u_end = u16_to_dec3(user_buf, chan_user_count);
-        user_len = (uint8_t)(u_end - user_buf) + 3;  // +3 para " []"
+        user_len = (uint8_t)(u_end - user_buf) + 3;  // " " + "[]"
     }
 
-    char *central_limit = limit_end - user_len;
+    {
+        char *central_limit = limit_end - user_len;
 
-    // Indicador de actividad/mención
-    if (has_mention) *p++ = (time_second & 1) ? ' ' : '!';
-    else if (other_channel_activity) *p++ = '*';
+        if (has_mention) *p++ = (time_second & 1) ? ' ' : '!';
+        else if (other_channel_activity) *p++ = '*';
 
-    // Window counter N/M:
-    if (channel_count > 1) {
-        p = sb_put_u8_2d(p, current_channel_idx);
-        *p++ = '/';
-        p = sb_put_u8_2d(p, channel_count - 1);
-        *p++ = ':';
+        if (channel_count > 1) {
+            p = sb_put_u8_2d(p, current_channel_idx);
+            *p++ = '/';
+            p = sb_put_u8_2d(p, channel_count - 1);
+            *p++ = ':';
+        }
+
+        // D10: Inline is_server_tab check instead of storing in variable
+        if (current_channel_idx == 0 && st_stricmp(channels[0].name, S_SERVER) == 0) {
+            p = sb_append(p, (char*)sb_pick_status(1), central_limit - 1);
+        } else if (irc_channel[0]) {
+            if (is_query) *p++ = '@';
+            p = sb_format_channel(p, central_limit, cur_flags);
+        } else {
+            p = sb_append(p, (char*)sb_pick_status(0), central_limit - 1);
+        }
+
+        *p++ = ']';
     }
 
-    // Contenido central
-    if (is_server_tab) {
-        p = sb_append(p, (char*)sb_pick_status(1), central_limit - 1);
-    } else if (irc_channel[0]) {
-        if (is_query) *p++ = '@';
-
-        char *chan = (current_channel_idx == 0 && network_name[0]) ? network_name : irc_channel;
-        uint8_t space = (uint8_t)(central_limit - p - 1);
-        
-        // Simplificado: solo mostrar canal, modo si cabe, red si cabe
-        // Usar flags compactos: bit0=show_modes, bit1=show_net
-        uint8_t display_flags = 0;
-        char *modes = (!(cur_flags & CH_FLAG_QUERY) && chan_mode[0]) ? chan_mode : NULL;
-        char *net = NULL;
-        uint8_t chan_len = (uint8_t)st_strlen(chan);
-        uint8_t mode_len = modes ? (uint8_t)st_strlen(modes) + 2 : 0;
-        uint8_t net_len = 0;
-
-        if (current_channel_idx != 0) {
-            net = network_name[0] ? network_name : (irc_server[0] ? extract_network_short(irc_server) : NULL);
-            if (net) net_len = (uint8_t)st_strlen(net) + 1;
-        }
-
-        // Decidir qué mostrar (prioridad: canal > modos > red)
-        if (chan_len + mode_len + net_len <= space) {
-            display_flags = 3;  // ambos
-        } else if (chan_len + mode_len <= space) {
-            display_flags = 1;  // solo modos
-        } else if (chan_len + net_len <= space) {
-            display_flags = 2;  // solo red
-        }
-
-        uint8_t chan_space = space;
-        if (display_flags & 1) chan_space -= mode_len;
-        if (display_flags & 2) chan_space -= net_len;
-
-        char *chan_limit = p + chan_space;
-        if (chan_limit >= central_limit) chan_limit = central_limit - 1;
-        p = sb_append(p, chan, chan_limit);
-
-        if ((display_flags & 1) && modes) {
-            *p++ = '('; p = sb_append(p, modes, central_limit - ((display_flags & 2) ? net_len + 1 : 1)); *p++ = ')';
-        }
-        if ((display_flags & 2) && net) {
-            *p++ = '@'; p = sb_append(p, net, central_limit - 1);
-        }
-    } else {
-        p = sb_append(p, (char*)sb_pick_status(0), central_limit - 1);
-    }
-
-    *p++ = ']';
-
-    // User count al final
     if (user_buf[0]) {
-        *p++ = ' '; *p++ = '[';
+        *p++ = ' ';
+        *p++ = '[';
         p = sb_append(p, user_buf, limit_end - 1);
         *p++ = ']';
     }
 
-    // Padding con espacios
     while (p < limit_end) *p++ = ' ';
     *p = 0;
 
-    // Diff-patch: solo redibujar lo que cambió
     {
         uint8_t first = 255, last = 0;
 
@@ -1326,6 +1347,7 @@ void draw_status_bar_real(void)
     draw_clock();
     draw_connection_indicator();
 }
+
 
 // INPUT AREA
 
@@ -1365,9 +1387,9 @@ static void draw_cursor_underline(uint8_t y, uint8_t col)
     }
 }
 
-static void refresh_cursor_char(uint8_t idx, uint8_t show_cursor)
+void refresh_cursor_char(uint8_t idx, uint8_t show_cursor)
 {
-    uint16_t abs_pos = (uint16_t)idx + 2;
+    uint8_t abs_pos = idx + 2;
     uint8_t row = INPUT_START + (abs_pos >> 6);
     uint8_t col = abs_pos & 63;
 
@@ -1396,7 +1418,7 @@ static void input_draw_prompt(void)
     print_str64(INPUT_START, 0, S_PROMPT, ATTR_PROMPT);
 }
 
-static void input_put_char_at(uint16_t abs_pos, char c)
+static void input_put_char_at(uint8_t abs_pos, char c)
 {
     // OPTIMIZADO: Divisiones por 64 -> Shifts/Masks
     uint8_t row = INPUT_START + (abs_pos >> 6);
@@ -1409,7 +1431,7 @@ static void input_put_char_at(uint16_t abs_pos, char c)
 static void redraw_input_from(uint8_t start_pos)
 {
     uint8_t i;
-    uint16_t abs_pos;
+    uint8_t abs_pos;
     uint8_t row, col;
 
     // 1. Si redibujamos desde el inicio, pintar prompt
@@ -1419,7 +1441,7 @@ static void redraw_input_from(uint8_t start_pos)
 
     // 2. Dibujar el texto actual (usando caché normal)
     for (i = start_pos; i < line_len; i++) {
-        abs_pos = (uint16_t)i + 2;
+        abs_pos = i + 2;
         // Cálculo seguro de coordenadas
         row = INPUT_START + (abs_pos >> 6);
         col = abs_pos & 63;
@@ -1431,7 +1453,7 @@ static void redraw_input_from(uint8_t start_pos)
     // 3. Limpieza Segura: Borrar SOLO el carácter siguiente al final del texto.
     // IMPORTANTE: en 64 cols, 1 atributo cubre 2 chars (col>>1).
     // Si usamos ATTR_INPUT_BG aquí, puede cambiar el atributo del último char real (alternancia).
-    abs_pos = (uint16_t)line_len + 2;
+    abs_pos = line_len + 2;
     row = INPUT_START + (abs_pos >> 6);
     col = abs_pos & 63;
     
@@ -1501,7 +1523,7 @@ static void input_add_char(char c) __z88dk_fastcall
         // Redibujar desde el cambiof
         if (cursor_pos == line_len) {
             // Append rápido
-            input_put_char_at((uint16_t)(cursor_pos - 1) + 2, c);
+            input_put_char_at((uint8_t)(cursor_pos - 1) + 2, c);
             refresh_cursor_char(cursor_pos, 1);
         } else {
             redraw_input_from((uint8_t)(cursor_pos - 1));
@@ -1514,22 +1536,16 @@ static void input_backspace(void)
     if (cursor_pos > 0) {
         uint8_t old_len;
 
-        // 1) Borrar cursor visual en la posición actual (evita "rastros" de '_')
+        // OPTIMIZACIÓN: Eliminada la llamada redundante a refresh_cursor_char.
+        // Redraw_input_from ya asume la limpieza del final del string.
         refresh_cursor_char(cursor_pos, 0);
-
-        // 2) Guardar longitud previa y retroceder cursor lógico
         old_len = line_len;
         cursor_pos--;
 
-        // 3) Shift-left con ASM: mover también el terminador '\0'
-        //    Mueve bytes desde [cursor_pos+1 .. old_len] hacia [cursor_pos .. old_len-1]
-        //    (incluye el '\0' en old_len)
         text_shift_left(&line_buffer[cursor_pos], (uint16_t)(old_len - cursor_pos));
 
-        // 4) Actualizar longitud (el buffer ya quedó bien terminado por el shift)
         line_len = (uint8_t)(old_len - 1);
 
-        // 5) Redibujar desde el punto de cambio
         redraw_input_from(cursor_pos);
     }
 }
@@ -1559,7 +1575,7 @@ static void set_input_busy(uint8_t busy)
 {
     if (busy) {
         // Hide cursor by redrawing character without underline
-        uint16_t cur_abs = cursor_pos + 2;
+        uint8_t cur_abs = cursor_pos + 2;
         // OPTIMIZADO: Divisiones por 64 -> Shifts/Masks
         uint8_t row = INPUT_START + (cur_abs >> 6);
         uint8_t col = cur_abs & 63;
@@ -1700,58 +1716,42 @@ static void sntp_query_time(void)
 
 void sntp_process_response(const char *line) __z88dk_fastcall
 {
-    // Format: +CIPSNTPTIME:Fri Dec 27 21:45:30 2024
-    // or:     +CIPSNTPTIME:Thu Jan 01 00:00:00 1970 (not synced)
-
     uint8_t i;
     uint8_t len;
 
     if (!line || !*line) return;
 
-    // Compute line length (do NOT rely on rx_pos; try_read_line_nodrain() doesn't update it)
     len = 0;
     while (line[len]) len++;
 
-    // Need at least "+CIPSNTPTIME:" + something
     if (len < 20) return;
-
-    // Quick prefix check
     if (line[0] != '+' || line[1] != 'C') return;
 
-    // Check if it's 1970 (not synced) - year is at fixed position near end
-    // Format: +CIPSNTPTIME:Thu Jan 01 00:00:00 1970
     if (len >= 4 && line[len-4]=='1' && line[len-3]=='9' && 
         line[len-2]=='7' && line[len-1]=='0') {
         sntp_waiting = 0;
         return;
     }
 
-    // Find time pattern HH:MM:SS
-    // Prefix "+CIPSNTPTIME:" is 13 chars, so time won't start before that.
-    // Bound check uses len (not rx_pos).
     for (i = 13; i < (uint8_t)(len - 7); i++) {
         if (line[i] >= '0' && line[i] <= '2' &&
             line[i + 2] == ':' && line[i + 5] == ':') {
 
-            // Found HH:MM:SS - Update global clock directly
             {
                 const char *p = &line[i];
-
                 time_hour   = (uint8_t)((p[0] - '0') * 10 + (p[1] - '0'));
                 time_minute = (uint8_t)((p[3] - '0') * 10 + (p[4] - '0'));
                 time_second = (uint8_t)((p[6] - '0') * 10 + (p[7] - '0'));
             }
 
-            tick_counter = 0; // Reset sub-second counter for accuracy
-
-            time_synced = 1;
+            tick_counter = 0; 
+            // OPTIMIZACIÓN: Variable fantasma time_synced aniquilada
             sntp_waiting = 0;
             draw_status_bar();
             return;
         }
     }
 
-    // If we got a +CIPSNTPTIME line but couldn't parse it, stop waiting.
     sntp_waiting = 0;
 }
 
@@ -1774,8 +1774,8 @@ uint8_t wait_for_response(const char *expected, uint16_t max_frames)
             // Prefix checks para ERROR/FAIL/OK (siempre al inicio de línea)
             if (rx_line[0] == 'E' && rx_line[1] == 'R') return 0;  // ERROR
             if (rx_line[0] == 'F' && rx_line[1] == 'A') return 0;  // FAIL
-            // Respuesta esperada (mantener strstr para expected genérico)
-            if (expected && strstr(rx_line, expected) != NULL) return 1;
+            // OPT-02: Usar st_stristr (ASM) en lugar de strstr (stdlib)
+            if (expected && st_stristr(rx_line, expected) != NULL) return 1;
             // Si no hay expected específico, OK es suficiente
             if (!expected && rx_line[0] == 'O' && rx_line[1] == 'K') return 1;
             rx_pos = 0;
@@ -1825,7 +1825,7 @@ uint8_t esp_at_cmd(const char *cmd) __z88dk_fastcall
 // Envía comando y espera OK o timeout corto
 static void esp_hard_cmd(const char *cmd) {
     uart_send_string(cmd);
-    uart_send_string(S_CRLF);
+    uart_send_crlf();
     // Reutilizamos wait_for_response para ahorrar bytes
     wait_for_response(NULL, 30);
     rx_pos = 0;
@@ -1875,16 +1875,37 @@ uint8_t esp_init(void)
         
         if (try_read_line_nodrain()) {
             if (rx_line[0] == 'O' && rx_line[1] == 'K') {
-                connection_state = STATE_WIFI_OK;
-                closed_reported = 0;
-                return 1;
+                // ESP responds — check if WiFi has an IP
+                uart_send_line("AT+CIFSR");
+                rx_pos = 0;
+                {
+                    uint8_t has_ip = 0;
+                    uint8_t w;
+                    for (w = 0; w < 100; w++) {
+                        HALT(); uart_drain_to_buffer();
+                        if (try_read_line_nodrain()) {
+                            if (rx_line[0] == '+' && st_stristr(rx_line, "STAIP")) {
+                                if (!st_stristr(rx_line, "0.0.0.0")) has_ip = 1;
+                            }
+                            if (rx_line[0] == 'O' && rx_line[1] == 'K') break;
+                            rx_pos = 0;
+                        }
+                    }
+                    closed_reported = 0;
+                    if (has_ip) {
+                        connection_state = STATE_WIFI_OK;
+                    } else {
+                        connection_state = STATE_DISCONNECTED;
+                    }
+                }
+                return 1;  // ESP init OK (WiFi status in connection_state)
             }
             rx_pos = 0;
         }
     }
     
     connection_state = STATE_DISCONNECTED;
-    return 0;
+    return 0;  // ESP not responding
 }
 
 // Forward declaration
@@ -1909,82 +1930,58 @@ void force_disconnect(void)
 {
     uint8_t i;
     
-    // Solo intentar escape +++ si estamos en modo transparente (STATE_TCP_CONNECTED+)
-    // En otros estados, las esperas de 2.2s son innecesarias
+    if (disconnecting_in_progress) return;
+    disconnecting_in_progress = 1;
+    
     if (connection_state >= STATE_TCP_CONNECTED) {
-        // Drenar buffer antes de empezar
-        for (i = 0; i < 10; i++) {
-            HALT();
-            flush_all_rx_buffers(); 
-        }
+        for (i = 0; i < 65; i++) { HALT(); flush_all_rx_buffers(); }
         
-        // Secuencia de escape +++ (requiere ~1s silencio antes y después)
-        for (i = 0; i < 55; i++) {
-            HALT();
-            flush_all_rx_buffers(); 
-        }
+        ay_uart_send('+'); ay_uart_send('+'); ay_uart_send('+');
         
-        ay_uart_send('+');
-        ay_uart_send('+');
-        ay_uart_send('+');
-        
-        for (i = 0; i < 55; i++) {
-            HALT();
-            flush_all_rx_buffers();
-        }
+        for (i = 0; i < 55; i++) { HALT(); flush_all_rx_buffers(); }
     }
     
-    // Cerrar conexión TCP explícitamente
     uart_send_line(S_AT_CIPCLOSE);
-    // Esperamos respuesta brevemente, ignorando si da ERROR (ya cerrado)
     (void)wait_for_response(S_OK, 50);
     
-    // Desactivar Modo Transparente (Volver a modo normal)
     uart_send_line(S_AT_CIPMODE0);
     (void)wait_for_response(S_OK, 50);
 
-    // =========================================================================
-    // RESET COMPLETO DE ESTADO DE CONEXIÓN
-    // =========================================================================
-    
-    // Estado de conexión básico
     connection_state = STATE_WIFI_OK;
     closed_reported = 0;
     
-    // Keep-alive system
     server_silence_frames = 0;
     keepalive_ping_sent = 0;
     keepalive_timeout = 0;
+
+    friends_ison_sent = 0;
     
-    // Away status
     irc_is_away = 0;
     away_message[0] = '\0';
     away_reply_cd = 0;
     autoaway_counter = 0;
     autoaway_active = 0;
     
-    // SNTP/Time sync (permite reconfigurar en nueva conexión)
-    sntp_init_sent = 0;
-    time_synced = 0;
+    // sntp_init_sent NOT reset — AT+CIPSNTPCFG persists in ESP8266
     sntp_waiting = 0;
     
-    // Network info
     network_name[0] = '\0';
     user_mode[0] = '\0';
     
-    // Names tracking
     names_pending = 0;
     names_timeout_frames = 0;
     names_target_channel[0] = '\0';
     counting_new_users = 0;
     
-    // Search/pagination state
     cancel_search_state();
     
-    // Channels
+    rx_pos = 0;
+    rx_overflow = 0;
+    
     reset_all_channels();
+    
+    disconnecting_in_progress = 0;
 }
-
 // =============================================================================
 // OPTIMIZED SENDING HELPERS (STREAMING)
 // =============================================================================
@@ -2004,6 +2001,48 @@ void irc_send_cmd2(const char *cmd, const char *p1, const char *p2) __z88dk_call
     irc_send_cmd_internal(cmd, p1, p2);
 }
 
+// Enviar ISON con hasta 3 nicks de amigos (una sola vez por sesión IRC).
+void irc_check_friends_online(void)
+{
+    static char ison_buf[(IRC_NICK_SIZE * 3u) + 2u];
+    uint8_t i, any = 0;
+    char *d = ison_buf;
+
+    if (friends_ison_sent) return;
+    if (connection_state < STATE_TCP_CONNECTED) return;
+
+    *d = '\0';
+
+    for (i = 0; i < 3; i++) {
+        const char *s = friend_nicks[i];
+        if (!s[0]) continue;
+        if (any) *d++ = ' ';
+        st_copy_n(d, s, IRC_NICK_SIZE);
+        while (*d) d++;
+        any = 1;
+    }
+
+    if (!any || !ison_buf[0]) return;
+    friends_ison_sent = 1;
+    irc_send_cmd1("ISON", ison_buf);
+}
+
+// OPT-P2-B: Shared nick-in-use retry logic (dedup h_numeric_433 + cmd_connect)
+void nick_try_alternate(void)
+{
+    uint8_t len = 0;
+    while (irc_nick[len] && len < IRC_NICK_SIZE - 2) len++;
+    irc_nick[len] = '_';
+    irc_nick[len + 1] = '\0';
+
+    current_attr = ATTR_MSG_SYS;
+    main_puts(S_NICK_INUSE);
+    main_print(irc_nick);
+
+    uart_send_string(S_NICK_SP);
+    uart_send_line(irc_nick);
+}
+
 void irc_send_privmsg(const char *target, const char *msg) __z88dk_callee
 {
     // Auto-away: reset counter on activity, clear if auto-away active
@@ -2019,7 +2058,7 @@ void irc_send_privmsg(const char *target, const char *msg) __z88dk_callee
         uart_send_string(target);
         uart_send_string(S_SP_COLON);
         uart_send_string(msg);
-        uart_send_string(S_CRLF);
+        uart_send_crlf();
     }
 
     // 2. MOSTRAR EN screen
@@ -2030,8 +2069,7 @@ void irc_send_privmsg(const char *target, const char *msg) __z88dk_callee
         // En 64 cols: imprimir "<nick> " entero con ATTR_MSG_NICK
         current_attr = ATTR_MSG_NICK;
         main_putc('<');
-        main_puts(irc_nick);
-        main_puts(S_PROMPT);
+        main_puts2(irc_nick, S_PROMPT);
 
         current_attr = ATTR_MSG_CHAN;
         main_print_wrapped_ram((char*)msg);
@@ -2049,8 +2087,7 @@ void irc_send_privmsg(const char *target, const char *msg) __z88dk_callee
             // En la ventana del privado: mantener "<YO> msg"
             current_attr = ATTR_MSG_NICK;
             main_putc('<');
-            main_puts(irc_nick);
-            main_puts(S_PROMPT);
+            main_puts2(irc_nick, S_PROMPT);
 
             current_attr = ATTR_MSG_PRIV;
             main_print_wrapped_ram((char*)msg);
@@ -2058,9 +2095,8 @@ void irc_send_privmsg(const char *target, const char *msg) __z88dk_callee
             // Fuera de la ventana: >> NICKNAME (receptor) : MSG
             // Requisito: ">> NICKNAME (amarillo): MSG (verde)"
             current_attr = ATTR_MSG_PRIV;
-            main_puts(S_ARROW_OUT);
-            main_puts(target);
-            main_puts(": ");
+            main_puts2(S_ARROW_OUT, target);
+            main_puts(S_COLON_SP);
 
             current_attr = ATTR_MSG_SELF;
             main_print_wrapped_ram((char*)msg);
@@ -2133,20 +2169,16 @@ void init_screen(void)
 // OPTIMIZED UI HELPERS (Saves ROM space vs Macros)
 // =============================================================================
 
-void ui_msg(uint8_t attr, const char *s) __z88dk_callee
-{
-    current_attr = attr;
-    main_print(s);
-}
-
 void ui_err(const char *s) __z88dk_fastcall
 {
-    ui_msg(ATTR_ERROR, s);
+    current_attr = ATTR_ERROR;
+    main_print(s);
 }
 
 void ui_sys(const char *s) __z88dk_fastcall
 {
-    ui_msg(ATTR_MSG_SYS, s);
+    current_attr = ATTR_MSG_SYS;
+    main_print(s);
 }
 
 void ui_usage(const char *a) __z88dk_fastcall
@@ -2201,8 +2233,12 @@ static void cfg_apply(char *key, char *val) {
     // 2-char dispatch: fast and tiny
     uint8_t k0 = key[0], k1 = key[1];
     
-    if (k0 == 'n' && k1 == 'i') {           // nick
-        st_copy_n(irc_nick, val, IRC_NICK_SIZE);
+    if (k0 == 'n' && k1 == 'i') {           // nick / nickpass
+        if (key[4] == 'p') {                // nickpass
+            st_copy_n(nickserv_pass, val, IRC_PASS_SIZE);
+        } else {                            // nick
+            st_copy_n(irc_nick, val, IRC_NICK_SIZE);
+        }
     } else if (k0 == 's' && k1 == 'e') {    // server
         st_copy_n(irc_server, val, IRC_SERVER_SIZE);
     } else if (k0 == 'p' && k1 == 'o') {    // port
@@ -2212,13 +2248,24 @@ static void cfg_apply(char *key, char *val) {
     } else if (k0 == 't' && k1 == 'h') {    // theme
         uint8_t v = (uint8_t)str_to_u16(val);
         if (v >= 1 && v <= 3) current_theme = v;
-    } else if (k0 == 'a' && k1 == 'u') {    // autoaway
+    } else if (k0 == 'a' && k1 == 'u') {    // autoaway / autoconnect
         uint8_t v = (uint8_t)str_to_u16(val);
-        if (v <= 60) autoaway_minutes = v;
+        if (key[4] == 'c') {                // autoCon...
+            autoconnect = v & 1;
+        } else {                            // autoAwa...
+            if (v <= 60) autoaway_minutes = v;
+        }
+    } else if (k0 == 'f' && k1 == 'r') {    // friend1/2/3
+        uint8_t idx = (uint8_t)(key[6] - '1');
+        if (key[2] == 'i' && key[3] == 'e' && key[4] == 'n' && key[5] == 'd' && idx < 3 && key[7] == '\0') {
+            st_copy_n(friend_nicks[idx], val, IRC_NICK_SIZE);
+        }
     } else if (k0 == 'b' && k1 == 'e') {    // beep
         beep_enabled = (uint8_t)str_to_u16(val) & 1;
     } else if (k0 == 'q' && k1 == 'u') {    // quits
         show_quits = (uint8_t)str_to_u16(val) & 1;
+    } else if (k0 == 't' && k1 == 'i') {    // timestamps
+        show_timestamps = (uint8_t)str_to_u16(val) & 1;
     } else if (k0 == 't' && k1 == 'z') {    // tz
         int8_t tz;
         if (*val == '-') {
@@ -2258,10 +2305,10 @@ static void cfg_parse_buf(void) {
         // Found start of key
         key = p;
         
-        // Find '='
-        while (*p && *p != '=' && *p != '\n' && *p != '\r') p++;
-        if (*p != '=') {
-            // No '=' found, skip rest of line
+        // Find '=' or ':'
+        while (*p && *p != '=' && *p != ':' && *p != '\n' && *p != '\r') p++;
+        if (*p != '=' && *p != ':') {
+            // No separator found, skip rest of line
             while (*p && *p != '\n' && *p != '\r') p++;
             if (*p == '\r') p++;
             if (*p == '\n') p++;
@@ -2269,7 +2316,14 @@ static void cfg_parse_buf(void) {
         }
         
         *p = '\0';  // Terminate key
+        // Trim trailing whitespace in key
+        {
+            char *t = p;
+            while (t > key && (t[-1] == ' ' || t[-1] == '\t')) *--t = '\0';
+        }
         p++;
+        // Skip leading whitespace before value
+        while (*p == ' ' || *p == '\t') p++;
         val = p;
         
         // Find end of value
@@ -2278,6 +2332,11 @@ static void cfg_parse_buf(void) {
         if (*p == '\r') p++;
         if (*p == '\n') p++;
         *eol = '\0';  // Terminate value
+        // Trim trailing whitespace in value
+        {
+            char *t = eol;
+            while (t > val && (t[-1] == ' ' || t[-1] == '\t')) *--t = '\0';
+        }
         
         // Apply the key=value pair
         cfg_apply(key, val);
@@ -2308,8 +2367,7 @@ void main(void)
     init_screen();
     
     current_attr = ATTR_MSG_SYS;
-    main_puts(S_APPNAME);
-    main_puts(" - ");
+    main_puts2(S_APPNAME, " - ");
     main_print(S_APPDESC);
     main_print(S_COPYRIGHT);
     main_hline();
@@ -2324,8 +2382,9 @@ void main(void)
             main_putc(' '); current_attr = ATTR_ERROR; main_puts(S_FAIL); main_newline();
             if (retries) {
                 ui_sys("Press any key to retry...");
-                while (!in_inkey()) HALT();
-                while (in_inkey()) HALT();
+                // FIX: Drenar la UART mientras esperamos la tecla
+                while (!in_inkey()) { HALT(); uart_drain_to_buffer(); }
+                while (in_inkey()) { HALT(); uart_drain_to_buffer(); }
             }
         }
     }
@@ -2349,8 +2408,14 @@ void main(void)
     if (cfg_ok) {
         main_puts("Config loaded.");
         if (irc_server[0]) {
-            main_puts(" /server to connect");
-            if (irc_nick[0]) { main_puts(" as "); main_puts(irc_nick); }
+            if (autoconnect) {
+                main_puts(" Autoconnecting");
+                if (irc_nick[0]) { main_puts2(S_AS_SP, irc_nick); }
+                main_puts(S_DOTS3);
+            } else {
+                main_puts(" /server to connect");
+                if (irc_nick[0]) { main_puts2(S_AS_SP, irc_nick); }
+            }
         }
         main_newline();
     } else {
@@ -2368,6 +2433,10 @@ void main(void)
         uint8_t prev_shift_held = 0;
         uint8_t sntp_timer = 0;     // <-- ÚNICO CAMBIO: antes era uint16_t
         uint8_t sntp_queried = 0;
+        uint8_t autoconnect_delay = autoconnect ? 200 : 0;  // ~4 sec delay
+
+        // FIX: Ocultar cursor durante autoconnect countdown
+        if (autoconnect_delay) { cursor_visible = 0; redraw_input_full(); }
 
         // FIX: muestrear SHIFT 1 vez por frame y reutilizarlo
         uint8_t shift_held = 0;
@@ -2437,6 +2506,19 @@ void main(void)
                 }
             }
             
+            // 1.1. AUTOCONNECT: countdown then connect
+            if (autoconnect_delay) {
+                if (--autoconnect_delay == 0) {
+                    if (irc_server[0] && connection_state == STATE_WIFI_OK) {
+                        parse_user_input("/server");
+                    } else {
+                        // Conditions not met — restore cursor
+                        cursor_visible = 1;
+                        redraw_input_full();
+                    }
+                }
+            }
+            
             // 1.5. KEEP-ALIVE: Detect silent disconnections
             if (connection_state == STATE_IRC_READY) {
                 server_silence_frames++;
@@ -2447,8 +2529,7 @@ void main(void)
                         // No response to PING - connection is dead
                         ui_err("Connection timeout (no response)");
                         force_disconnect();
-                        connection_state = STATE_WIFI_OK;
-                        reset_all_channels();
+                        // connection_state y reset_all_channels ya se hacen en force_disconnect()
                         draw_status_bar();
                         keepalive_ping_sent = 0;
                         keepalive_timeout = 0;
@@ -2465,7 +2546,7 @@ void main(void)
                 server_silence_frames = 0;
                 keepalive_ping_sent = 0;
             }
-            
+
             // 1.6. SEARCH FLUSH & TIMEOUT
             if (pagination_active && search_pending_type != PEND_NONE) {
                 // Fase de drenaje activo
@@ -2508,7 +2589,7 @@ void main(void)
             }
             
             // 2. FLUSH STATUS BAR
-            if (status_bar_dirty && !ui_freeze_status) {
+            if (status_bar_dirty) {
                 status_bar_dirty = 0;
                 draw_status_bar_real();
             }
@@ -2532,7 +2613,7 @@ void main(void)
                 c = shift_keys[c - '5'];
             }
 
-            if (c != 0 && !pagination_active && search_mode == SEARCH_NONE) {
+            if (c != 0 && !pagination_active && search_mode == SEARCH_NONE && !autoconnect_delay) {
                 if (c >= 32 && c <= 126) {
                     uint8_t c_lower = c | 32;
 

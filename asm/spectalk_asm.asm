@@ -62,6 +62,7 @@ PUBLIC _reapply_screen_attributes
 PUBLIC _cls_fast
 PUBLIC _uart_drain_to_buffer
 PUBLIC _scroll_main_zone
+PUBLIC _main_newline
 PUBLIC _tokenize_params
 PUBLIC _sb_append
 
@@ -93,8 +94,12 @@ EXTERN _ay_uart_ready   ; Retorna L=1 si hay datos
 EXTERN _ay_uart_read    ; Retorna byte en L
 EXTERN _irc_is_away
 EXTERN _buffer_pressure
+EXTERN _ping_latency
 EXTERN _pagination_active
-EXTERN _main_newline
+EXTERN _pagination_lines
+EXTERN _pagination_pause
+; _main_newline is implemented below in this file
+; EXTERN _main_newline
 EXTERN _main_col
 EXTERN _main_line
 EXTERN _wrap_indent
@@ -152,8 +157,8 @@ _beep_core:
 
 beep_loop:
     ld a, l
-    and c
-    or 0x08            ; MIC on
+    and 0x10
+    or 0x08
     ld b, a
 
     ld a, (_BORDER_COLOR)
@@ -172,28 +177,24 @@ beep_loop:
 
 
 ; -----------------------------------------------------------------------------
-; void notification_beep(void)  -- privado
+; void notification_beep(void)  -- privado (doble beep corto)
 ; -----------------------------------------------------------------------------
 PUBLIC _notification_beep
 _notification_beep:
-    ld a, (_beep_enabled)
-    or a
-    ret z                   ; Si beep_enabled == 0, salir
-    ld hl, 2000
-    ld c, 0x10
-    jp _beep_core
+    ; Igualar sonido de privado al de mención y evitar código duplicado.
+    jp _mention_beep
 
 
 ; -----------------------------------------------------------------------------
-; void mention_beep(void)  -- mención (igual de audible)
+; void mention_beep(void)  -- mención en canal (beep simple más grave)
 ; -----------------------------------------------------------------------------
 PUBLIC _mention_beep
 _mention_beep:
     ld a, (_beep_enabled)
     or a
     ret z                   ; Si beep_enabled == 0, salir
-    ld hl, 2200        ; ligeramente más largo
-    ld c, 0x10         ; MISMO tono → no flojo
+    ld hl, 2500             ; Más largo
+    ld c, 0x18              ; Tono más grave
     jp _beep_core
 
 ; -----------------------------------------------------------------------------
@@ -1176,6 +1177,8 @@ ria_line2_print:
 ind_pattern_solid:    defb 0x00, 0x3C, 0x7E, 0x7E, 0x7E, 0x7E, 0x3C, 0x00
 ind_pattern_empty:    defb 0x00, 0x3C, 0x42, 0x42, 0x42, 0x42, 0x3C, 0x00
 ind_pattern_away:     defb 0x00, 0x3C, 0x4E, 0x4E, 0x4E, 0x4E, 0x3C, 0x00
+ind_pattern_medium:   defb 0x00, 0x00, 0x18, 0x3C, 0x3C, 0x18, 0x00, 0x00  ; ~6px circle
+ind_pattern_small:    defb 0x00, 0x00, 0x00, 0x18, 0x18, 0x00, 0x00, 0x00  ; ~4px dot
 
 _draw_indicator:
     push iy
@@ -1214,8 +1217,20 @@ _draw_indicator:
 di_check_pressure:
     ld a, (_buffer_pressure)
     or a
-    jr z, di_draw_pattern
+    jr z, di_check_latency
     ld de, ind_pattern_empty
+    jr di_draw_pattern
+
+di_check_latency:
+    ld a, (_ping_latency)
+    or a
+    jr z, di_draw_pattern       ; 0 = good, use solid
+    cp 2
+    jr nc, di_lat_high
+    ld de, ind_pattern_medium   ; 1 = medium latency
+    jr di_draw_pattern
+di_lat_high:
+    ld de, ind_pattern_small    ; 2+ = high latency
 
 di_draw_pattern:
     ; DE = pattern, HL = screen address
@@ -2020,6 +2035,98 @@ smz_scanline_loop:
     ret
 
 
+; =============================================================================
+; void main_newline(void)
+; Identical behavior to the C version in src/spectalk.c
+; Notes:
+;  - pagination_pause() is C (sdcc_iy): preserve IY around the call.
+;  - _print_str64_char clobbers BC/DE/HL/AF: preserve BC (loop counter) and HL.
+;  - micro-opt: keep HL -> _g_ps64_col and store (hl)=c each iteration.
+; =============================================================================
+_main_newline:
+    push ix
+    push iy
+
+    ; main_col = 0
+    xor a
+    ld (_main_col), a
+
+    ; if (pagination_active)
+    ld a, (_pagination_active)
+    or a
+    jr z, mn_no_pagination
+
+    ; pagination_lines++
+    ld hl, _pagination_lines
+    inc (hl)
+
+    ; if (pagination_lines >= MAIN_LINES-1)  (18-1 = 17)
+    ld a, (hl)
+    cp 17
+    jr c, mn_inc_line
+
+    ; if (pagination_pause()) return;
+    push iy
+    call _pagination_pause
+    pop iy
+    ld a, l
+    or a
+    jr nz, mn_ret
+    jr mn_indent
+
+mn_no_pagination:
+    ld a, (_main_line)
+    cp 19               ; MAIN_END = 19
+    jr c, mn_inc_line_do
+    call _scroll_main_zone
+    jr mn_indent
+
+mn_inc_line:
+    ld a, (_main_line)
+    cp 19
+    jr nc, mn_indent
+mn_inc_line_do:
+    inc a
+    ld (_main_line), a
+
+mn_indent:
+    ; if (wrap_indent > 0) print spaces and set main_col = wrap_indent
+    ld a, (_wrap_indent)
+    or a
+    jr z, mn_ret
+
+    ld b, a            ; B = count
+    ld c, 0            ; C = col
+    ld hl, _g_ps64_col ; HL -> g_ps64_col
+
+    ; g_ps64_y = main_line
+    ld a, (_main_line)
+    ld (_g_ps64_y), a
+
+    ; g_ps64_attr = current_attr
+    ld a, (_current_attr)
+    ld (_g_ps64_attr), a
+
+mn_indent_loop:
+    ld (hl), c          ; g_ps64_col = c
+    ld l, ' '
+    push hl             ; preserve HL (clobbered by _print_str64_char)
+    push bc             ; preserve BC (clobbered by _print_str64_char)
+    call _print_str64_char
+    pop bc
+    pop hl
+    inc c
+    djnz mn_indent_loop
+
+    ld a, (_wrap_indent)
+    ld (_main_col), a
+
+mn_ret:
+    pop iy
+    pop ix
+    ret
+
+
 
 
 ; =============================================================================
@@ -2188,6 +2295,102 @@ sba_done:
 EXTERN _ignore_count
 EXTERN _ignore_list
 
+EXTERN _show_timestamps
+EXTERN _wrap_indent
+EXTERN _current_attr
+EXTERN _time_hour
+EXTERN _time_minute
+EXTERN _ATTR_MSG_TIME
+
+; -----------------------------------------------------------------------------
+; void main_print_time_prefix(void)
+; Prints "HH:MM| " using ATTR_MSG_TIME, then restores current_attr.
+; If show_timestamps==0: wrap_indent=0 and return.
+; Sets wrap_indent=7 when printed.
+; -----------------------------------------------------------------------------
+PUBLIC _main_print_time_prefix
+_main_print_time_prefix:
+    push ix
+    push iy
+
+    ; if (!show_timestamps) { wrap_indent = 0; return; }
+    ld a, (_show_timestamps)
+    or a
+    jr nz, mptp_do
+    xor a
+    ld (_wrap_indent), a
+    jr mptp_ret
+
+mptp_do:
+    ; saved_attr = current_attr
+    ld a, (_current_attr)
+    push af
+
+    ; current_attr = ATTR_MSG_TIME
+    ld a, (_ATTR_MSG_TIME)
+    ld (_current_attr), a
+
+    ; print HH
+    ld a, (_time_hour)
+    call mptp_put2
+
+    ; ':'
+    ld l, ':'
+    call _main_putc
+
+    ; print MM
+    ld a, (_time_minute)
+    call mptp_put2
+
+    ; "| "
+    ld l, '|'
+    call _main_putc
+    ld l, ' '
+    call _main_putc
+
+    ; restore current_attr
+    pop af
+    ld (_current_attr), a
+
+    ; wrap_indent = 7
+    ld a, 7
+    ld (_wrap_indent), a
+
+mptp_ret:
+    pop iy
+    pop ix
+    ret
+
+; --- local: print 2-digit decimal from A (00..99), leading zero ---
+; clobbers AF, BC
+mptp_put2:
+    ld b, 0
+mptp_div10:
+    cp 10
+    jr c, mptp_div_done
+    sub 10
+    inc b
+    jr mptp_div10
+mptp_div_done:
+    ld c, a            ; ones
+
+    ; tens
+    ld a, b
+    add a, '0'
+    ld l, a
+    push bc
+    call _main_putc
+    pop bc
+
+    ; ones
+    ld a, c
+    add a, '0'
+    ld l, a
+    push bc
+    call _main_putc
+    pop bc
+    ret
+
 ; -----------------------------------------------------------------------------
 ; void main_putc(char c) __z88dk_fastcall
 ; Imprime un caracter gestionando saltos de línea y coordenadas.
@@ -2240,6 +2443,9 @@ mputc_no_wrap:
 PUBLIC _main_print_wrapped_ram
 _main_print_wrapped_ram:
     push ix
+    
+    ; Convertir UTF-8 a ASCII in-place antes de procesar
+    call _utf8_to_ascii     ; HL se preserva (fastcall, mismo puntero)
 
 mpwr_loop:
     ld a, (hl)
@@ -2559,19 +2765,21 @@ ign_match:
 ; Entrada: HL = addr (origen), DE = count
 ; Nota: Callee convention, no pushear nada extra si es posible o limpiar stack.
 ; Para simplificar en C wrapper: usaremos fastcall pasando puntero y count global o struct?
-; Mejor usamos __z88dk_callee estándar: Stack: [RetAddr] [Count] [Addr]
+; Mejor usamos __z88dk_callee estándar: Stack: [RetAddr] [Addr] [Count]
 PUBLIC _text_shift_right
 _text_shift_right:
     pop bc          ; Ret address
     pop hl          ; Addr (Inicio del hueco)
     pop de          ; Count (Bytes a mover)
     push bc         ; Restore Ret
+
+    push iy         ; sdcc_iy ABI: preserve frame pointer
     
     ld b, d
     ld c, e         ; BC = Count
     ld a, b
     or c
-    ret z
+    jr z, tsr_done
     
     add hl, bc      ; HL = Base + Count
     dec hl          ; HL = Último byte origen
@@ -2581,11 +2789,13 @@ _text_shift_right:
     inc de          ; DE = Destino (HL + 1)
     
     lddr
+tsr_done:
+    pop iy
     ret
 
 ; void text_shift_left(char *addr, uint16_t count) __z88dk_callee
 ; Desplaza memoria hacia ABAJO (borra hueco). Usa LDIR.
-; Stack: [RetAddr] [Count] [Addr]
+; Stack: [RetAddr] [Addr] [Count]
 ; Copia desde addr+1 hacia addr.
 PUBLIC _text_shift_left
 _text_shift_left:
@@ -2593,18 +2803,22 @@ _text_shift_left:
     pop de          ; Addr (Destino)
     pop hl          ; Count
     push bc         ; Restore Ret
+
+    push iy         ; sdcc_iy ABI: preserve frame pointer
     
     ld b, h
     ld c, l         ; BC = Count
     ld a, b
     or c
-    ret z
+    jr z, tsl_done
     
     ld h, d
     ld l, e         ; HL = Destino
     inc hl          ; HL = Origen (Destino + 1)
     
     ldir
+tsl_done:
+    pop iy
     ret
 
 ; =============================================================================
@@ -2658,9 +2872,12 @@ _main_puts2:
     pop hl          ; a
     pop de          ; b
     push bc
+
+    push iy         ; sdcc_iy ABI: preserve frame pointer
     push de
     call _main_puts
     pop hl
+    pop iy
     jp _main_puts   ; tail call
 
 ; void main_puts3(const char *a, const char *b, const char *c) __z88dk_callee
@@ -2672,12 +2889,15 @@ _main_puts3:
     pop de          ; b
     pop bc          ; c
     push af         ; restore ret
+
+    push iy         ; sdcc_iy ABI: preserve frame pointer
     push bc         ; save c
     push de         ; save b
     call _main_puts ; print a
     pop hl
     call _main_puts ; print b
     pop hl
+    pop iy
     jp _main_puts   ; print c (tail call)
 
 ; =============================================================================
@@ -2703,8 +2923,8 @@ _irc_send_cmd_internal:
     pop bc                  ; ret
     pop hl                  ; cmd
     pop de                  ; p1
-    pop iy                  ; p2
-    push iy
+    pop ix                  ; p2 (do NOT clobber IY: sdcc_iy frame pointer)
+    push ix
     push de
     push hl
     push bc
@@ -2729,7 +2949,7 @@ _irc_send_cmd_internal:
     
 isci_check_p2:
     ; Check p2
-    push iy
+    push ix
     pop hl
     ld a, h
     or l
@@ -2840,3 +3060,143 @@ _esx_fclose:
     pop ix
     pop iy
     ret
+
+
+; =============================================================================
+; UTF-8 to ASCII - Versión corregida
+; Cubre Latin-1 Supplement (C2 80-BF, C3 80-BF) = codepoints 0080-00FF
+; =============================================================================
+PUBLIC _utf8_to_ascii
+
+_utf8_to_ascii:
+    push hl                 ; Guardar inicio para retornar
+    ld d, h
+    ld e, l                 ; DE = escritura, HL = lectura
+
+u8a_loop:
+    ld a, (hl)
+    or a
+    jp z, u8a_done
+    
+    cp 0x80
+    jp c, u8a_copy          ; 00-7F: ASCII, copiar directo
+    
+    cp 0xC2
+    jp c, u8a_skip1         ; 80-C1: inválido o continuation suelto
+    
+    cp 0xC4
+    jp c, u8a_latin1        ; C2-C3: Latin-1 Supplement (lo que queremos)
+    
+    cp 0xE0
+    jp c, u8a_skip2         ; C4-DF: Latin Extended, skip 2 bytes total
+    
+    cp 0xF0
+    jp c, u8a_skip3         ; E0-EF: 3 bytes, skip
+    
+    ; F0+: 4 bytes
+    inc hl
+    ld a, (hl) : or a : jp z, u8a_done
+    inc hl
+    ld a, (hl) : or a : jp z, u8a_done
+    inc hl
+    ld a, (hl) : or a : jp z, u8a_done
+    inc hl
+    ld a, '?'
+    jp u8a_store
+
+u8a_skip3:
+    inc hl
+    ld a, (hl) : or a : jp z, u8a_done
+u8a_skip2:
+    inc hl
+    ld a, (hl) : or a : jp z, u8a_done
+u8a_skip1:
+    inc hl
+    ld a, '?'
+    jp u8a_store
+
+u8a_copy:
+    ld (de), a
+    inc hl
+    inc de
+    jp u8a_loop
+
+u8a_latin1:
+    ; A = C2 o C3
+    ld b, a                 ; B = primer byte
+    inc hl
+    ld a, (hl)
+    or a
+    jp z, u8a_done
+    ld c, a                 ; C = segundo byte (80-BF)
+    inc hl
+    
+    ; Verificar que C es continuation (80-BF)
+    ld a, c
+    and 0xC0
+    cp 0x80
+    jp nz, u8a_invalid
+    
+    ; B=C2: codepoint = 80 + (C & 3F) = 80-BF
+    ; B=C3: codepoint = C0 + (C & 3F) = C0-FF
+    ld a, b
+    cp 0xC3
+    jp z, u8a_c3
+    
+    ; C2: codepoints 80-BF (símbolos, ¡¿ etc)
+    ld a, c
+    cp 0xA1                 ; ¡
+    ld a, '!'
+    jp z, u8a_store
+    ld a, c
+    cp 0xBF                 ; ¿
+    ld a, '?'
+    jp z, u8a_store
+    ld a, c
+    cp 0xAB                 ; «
+    ld a, '<'
+    jp z, u8a_store
+    ld a, c
+    cp 0xBB                 ; »
+    ld a, '>'
+    jp z, u8a_store
+    ld a, ' '               ; resto -> espacio
+    jp u8a_store
+
+u8a_c3:
+    ; C3: codepoints C0-FF (vocales acentuadas, ñ, ç, etc)
+    ; Índice en tabla = C & 3F (0-3F corresponde a C0-FF)
+    ld a, c
+    and 0x3F
+    ld c, a
+    ld b, 0
+    ld hl, u8a_tbl_c0
+    add hl, bc
+    ld a, (hl)
+    jp u8a_store
+
+u8a_invalid:
+    ld a, '?'
+    
+u8a_store:
+    ld (de), a
+    inc de
+    jp u8a_loop
+
+u8a_done:
+    xor a
+    ld (de), a
+    pop hl
+    ret
+
+; Tabla para C3 80-BF -> codepoints C0-FF (64 bytes)
+; ÀÁÂÃÄÅÆÇ ÈÉÊËÌÍÎÏ ÐÑÒÓÔÕÖ× ØÙÚÛÜÝÞ߀ àáâãäåæç èéêëìíîï ðñòóôõö÷ øùúûüýþÿ
+u8a_tbl_c0:
+    defb 'A','A','A','A','A','A','A','C'  ; C0-C7: ÀÁÂÃÄÅÆÇ
+    defb 'E','E','E','E','I','I','I','I'  ; C8-CF: ÈÉÊËÌÍÎÏ
+    defb 'D','N','O','O','O','O','O','x'  ; D0-D7: ÐÑÒÓÔÕÖ×
+    defb 'O','U','U','U','U','Y','T','s'  ; D8-DF: ØÙÚÛÜÝÞß
+    defb 'a','a','a','a','a','a','a','c'  ; E0-E7: àáâãäåæç
+    defb 'e','e','e','e','i','i','i','i'  ; E8-EF: èéêëìíîï
+    defb 'o','n','o','o','o','o','o','/'  ; F0-F7: ðñòóôõö÷
+    defb 'o','u','u','u','u','y','t','y'  ; F8-FF: øùúûüýþÿ

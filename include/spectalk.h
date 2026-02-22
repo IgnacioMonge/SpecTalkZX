@@ -40,7 +40,7 @@ const char *theme_get_name(uint8_t theme_id);
 // =============================================================================
 // VERSION
 // =============================================================================
-#define VERSION "1.2.2"
+#define VERSION "1.3.0"
 
 // =============================================================================
 // SCREEN LAYOUT CONSTANTS
@@ -108,7 +108,7 @@ const char *theme_get_name(uint8_t theme_id);
 #define NAV_HIST_SIZE 6
 #define MAX_IGNORES 8
 
-// Channel flags already defined above (lines 80-83)
+// Channel flags defined above (lines 77-80)
 
 typedef struct {
     char name[22];           // Channel name "#retro" or query nick or "Server"
@@ -222,7 +222,7 @@ extern char irc_server[IRC_SERVER_SIZE];
 extern char irc_port[IRC_PORT_SIZE];
 extern char irc_nick[IRC_NICK_SIZE];
 extern uint8_t irc_is_away;
-extern char away_message[64];
+extern char away_message[32];
 extern uint8_t away_reply_cd;
 extern uint8_t autoaway_minutes;
 extern uint16_t autoaway_counter;
@@ -231,18 +231,20 @@ extern uint8_t beep_enabled;
 extern uint8_t show_quits;
 extern int8_t sntp_tz;
 extern char irc_pass[IRC_PASS_SIZE];
+extern char nickserv_pass[IRC_PASS_SIZE];
 extern char user_mode[USER_MODE_SIZE];
 extern char network_name[NETWORK_NAME_SIZE];
 extern uint8_t connection_state;
 
-// Shanetwork UI/time state (defined in spectalk.c)
+// UI/time state (defined in spectalk.c)
 extern uint8_t cursor_visible;
-extern uint8_t time_synced;
 extern uint8_t time_hour;
 extern uint8_t time_minute;
 extern uint8_t time_second;
 extern uint8_t sntp_waiting;
+extern uint8_t sntp_init_sent;
 extern uint8_t closed_reported;
+extern uint8_t disconnecting_in_progress;  // FIX: Prevent reentrant disconnection
 
 // Main text cursor position (shared with command handlers)
 extern uint8_t main_line;
@@ -301,7 +303,6 @@ extern uint8_t current_attr;
 // UI state
 extern uint8_t status_bar_dirty;
 extern uint8_t force_status_redraw;
-extern uint8_t ui_freeze_status;
 extern uint8_t other_channel_activity;
 
 // Names tracking
@@ -375,9 +376,7 @@ extern uint8_t input_cache_attr[][32];
 // =============================================================================
 extern const char S_NOTCONN[];
 extern const char S_OK[];
-extern const char S_ERROR[];
 extern const char S_FAIL[];
-extern const char S_CLOSED[];
 extern const char S_SERVER[];
 extern const char S_CHANSERV[];
 extern const char S_NOTSET[];
@@ -418,11 +417,20 @@ extern const char S_CONN_REFUSED[];
 extern const char S_INIT_DOTS[];
 extern const char S_ACTION[];
 extern const char S_PONG[];
+// OPT-AGG: Nuevas constantes compartidas
+extern const char S_DOTS3[];
+extern const char S_NICK_INUSE[];
+extern const char S_NICK_SP[];
+extern const char S_AS_SP[];
+extern const char S_MIN[];
+extern const char S_SET[];
+extern const char S_DOT_SP[];       // D9: ". " dedup
+extern const char S_USAGE_MSG[];    // D9: "msg nick message" dedup
+extern const char S_COMMA_SP[];     // D9: ", " dedup (3 uses)
 
 // =============================================================================
 // UI MACROS
 // =============================================================================
-void ui_msg(uint8_t attr, const char *s) __z88dk_callee;
 void ui_err(const char *s) __z88dk_fastcall;
 void ui_sys(const char *s) __z88dk_fastcall;
 void ui_usage(const char *a) __z88dk_fastcall;
@@ -444,14 +452,13 @@ void main_print(const char *s) __z88dk_fastcall;
 void main_print_wrapped_ram(char *s) __z88dk_fastcall;
 void main_puts(const char *s) __z88dk_fastcall;
 void main_puts2(const char *a, const char *b) __z88dk_callee;
-void main_puts3(const char *a, const char *b, const char *c) __z88dk_callee;
+// OPT-P2-A: main_puts3 eliminated (single call site inlined)
 void main_putc(char c) __z88dk_fastcall;
 void main_newline(void);
 void main_hline(void);
+void utf8_to_ascii(char *s) __z88dk_fastcall;  // UTF-8 → ASCII conversion
 void print_char64(uint8_t y, uint8_t col, uint8_t c, uint8_t attr) __z88dk_callee;
 void print_str64(uint8_t y, uint8_t col, const char *s, uint8_t attr) __z88dk_callee;
-void main_run2(const char *s, uint8_t attr) __z88dk_callee;
-void main_run_char(char c, uint8_t attr) __z88dk_callee;
 void draw_status_bar(void);
 void redraw_input_full(void);
 void reapply_screen_attributes(void);
@@ -506,6 +513,12 @@ uint8_t esp_at_cmd(const char *cmd) __z88dk_fastcall;
 void irc_send_cmd1(const char *cmd, const char *p1) __z88dk_callee;
 void irc_send_cmd2(const char *cmd, const char *p1, const char *p2) __z88dk_callee;
 void irc_send_privmsg(const char *target, const char *msg) __z88dk_callee;
+void irc_check_friends_online(void);
+// OPT-P2-B: Shared nick-in-use retry logic (used by h_numeric_433 and cmd_connect)
+void nick_try_alternate(void);
+
+extern char friend_nicks[3][IRC_NICK_SIZE];
+extern uint8_t friends_ison_sent;
 
 // =============================================================================
 // FUNCTION DECLARATIONS - IRC HANDLERS (irc_handlers.c)

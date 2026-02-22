@@ -8,7 +8,7 @@
 
 ![Plataforma](https://img.shields.io/badge/Plataforma-ZX%20Spectrum-blue)
 ![Licencia](https://img.shields.io/badge/Licencia-GPLv2-green)
-![Versión](https://img.shields.io/badge/Versión-1.2.2-orange)
+![Versión](https://img.shields.io/badge/Versión-1.3.0-orange)
 
 ---
 
@@ -28,20 +28,24 @@ SpecTalk ZX es un cliente IRC completo para ZX Spectrum que trae la funcionalida
 - **Resaltado de menciones**: Ventanas con menciones de tu nick mostradas en color destacado
 - **Indicador de conexión**: LED de tres estados (🔴 Sin WiFi → 🟡 WiFi OK → 🟢 Conectado)
 - **Reloj en tiempo real** sincronizado vía SNTP
+- **Timestamps opcionales** en todos los mensajes
 
 ### Protocolo IRC
 - **Compatibilidad IRC completa**: JOIN, PART, QUIT, NICK, PRIVMSG, NOTICE, TOPIC, MODE, KICK, WHO, WHOIS, LIST, NAMES
 - **Soporte CTCP**: VERSION, PING, TIME, ACTION
-- **Integración con NickServ**: Identificación rápida con `/id` o automática con `/pass`
+- **Integración con NickServ**: Identificación rápida con `/id` o automática con `nickpass=`
 - **Sistema Away**: `/away` manual y `/autoaway` automático con temporizador de inactividad
 - **Ignorar usuarios**: Bloquea mensajes de usuarios específicos con `/ignore`
 - **Búsqueda de canales**: Encuentra canales o usuarios por patrón
+- **Soporte UTF-8**: Caracteres internacionales convertidos a ASCII legible
 
-### Fiabilidad
+### Conectividad
+- **Auto-conexión**: Conecta automáticamente al servidor configurado al iniciar
+- **Auto-identificación**: Identificación automática con NickServ tras conectar
+- **Sistema de amigos**: Monitoriza hasta 3 amigos con notificaciones de estado online
+- **Manejo de colisión de nick**: Nick alternativo automático si el primario está en uso
 - **Sistema Keep-alive**: PING automático para detectar desconexiones silenciosas
-- **Sincronización con servidor**: Estado Away sincronizado con respuestas del servidor (305/306)
-- **Filtrado inteligente**: Ruido de conexión (MOTD, stats) filtrado para salida más limpia
-- **Parser numérico genérico**: Ver salida de cualquier comando `/raw`
+- **Latencia de ping**: Medición del tiempo de respuesta del servidor
 
 ### Rendimiento
 - **Arquitectura Unity Build**: Cliente completo compilado como unidad única para máxima optimización
@@ -140,7 +144,7 @@ Comandos locales que no requieren conexión al servidor.
 |---------|-------|-------------|
 | `/server host[:puerto]` | `/connect` | Conectar a servidor IRC (puerto por defecto: 6667) |
 | `/nick nombre` | — | Establecer o cambiar nickname |
-| `/pass contraseña` | — | Establecer contraseña NickServ para auto-identificación |
+| `/pass contraseña` | — | Establecer contraseña del servidor (raramente necesaria) |
 | `/id [contraseña]` | — | Identificarse con NickServ (usa contraseña guardada si no se indica) |
 | `/quit [mensaje]` | — | Desconectar del servidor con mensaje opcional |
 
@@ -197,6 +201,7 @@ Comandos locales que no requieren conexión al servidor.
 |---------|-------|-------------|
 | `/beep` | — | Alternar sonido en mención de nick (on/off) |
 | `/quits` | — | Alternar mostrar mensajes QUIT (on/off) |
+| `/timestamps` | `/ts` | Alternar mostrar timestamps en mensajes (on/off) |
 
 ---
 
@@ -232,12 +237,15 @@ Archivo de texto plano con un ajuste por línea en formato `clave=valor`:
 nick=MiNickname
 server=irc.libera.chat
 port=6667
-pass=micontraseñanickserv
+nickpass=micontraseñanickserv
+autoconnect=1
 theme=1
+timestamps=1
 autoaway=15
 beep=1
 quits=1
-tz=+1
+tz=1
+friend1=MiAmigo
 ```
 
 ### Ajustes Disponibles
@@ -247,28 +255,22 @@ tz=+1
 | `nick` | Nickname por defecto | Cualquier nick IRC válido | (ninguno) |
 | `server` | Servidor IRC | Hostname o IP | (ninguno) |
 | `port` | Puerto del servidor | 1-65535 | 6667 |
-| `pass` | Contraseña NickServ | Cualquier string | (ninguno) |
+| `pass` | Contraseña del servidor | Cualquier string | (ninguno) |
+| `nickpass` | Contraseña NickServ | Cualquier string | (ninguno) |
+| `autoconnect` | Conectar al iniciar | 0 o 1 | 0 |
 | `theme` | Tema de color | 1, 2, o 3 | 1 |
+| `timestamps` | Mostrar timestamps | 0 o 1 | 0 |
 | `autoaway` | Minutos auto-away | 0-60 (0=off) | 0 |
 | `beep` | Sonido en mención | 0 o 1 | 1 |
 | `quits` | Mostrar mensajes quit | 0 o 1 | 1 |
 | `tz` | Desplazamiento horario | -12 a +12 | 0 |
+| `friend1` | Nick de amigo a monitorizar | Cualquier nick | (ninguno) |
+| `friend2` | Nick de amigo a monitorizar | Cualquier nick | (ninguno) |
+| `friend3` | Nick de amigo a monitorizar | Cualquier nick | (ninguno) |
 
 ### Ver Configuración Actual
 
-Usa `!config` o `!cfg` para mostrar todos los valores de configuración actuales:
-
-```
-nick=MiNickname
-server=irc.libera.chat
-port=6667
-pass=(set)
-theme=1
-autoaway=15 min
-beep=on
-quits=on
-tz=+1
-```
+Usa `!config` o `!cfg` para mostrar todos los valores de configuración actuales.
 
 ---
 
@@ -323,10 +325,12 @@ El proyecto usa estrategia **Unity Build**: todos los fuentes C se compilan como
 | Indicador amarillo pero no conecta | Verifica las credenciales WiFi con NetManZX |
 | "Connection timeout" tras inactividad | Comportamiento normal - keep-alive detectó conexión muerta |
 | Los mensajes de un usuario no paran | Usa `/ignore nick` para bloquearlo |
-| No puedo identificarme con NickServ | Usa `/id contraseña` o configura `pass=` en el archivo de configuración |
+| No puedo identificarme con NickServ | Usa `/id contraseña` o configura `nickpass=` en el archivo de configuración |
 | Olvidé la configuración actual | Usa `!config` para ver todos los valores de configuración |
 | Demasiados mensajes de quit | Usa `/quits` para desactivarlos |
 | No hay sonido en menciones | Usa `/beep` para activar el sonido |
+| Nick en uso al conectar | SpecTalk añade `_` automáticamente - usa `/nick` para cambiar después |
+| Los caracteres acentuados se ven mal | UTF-8 se convierte automáticamente a equivalentes ASCII |
 
 ---
 
