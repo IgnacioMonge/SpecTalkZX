@@ -133,6 +133,7 @@ static void h_ping(void)
 static void h_mode(void)
 {
     const char *target = irc_param(0);
+    const char *mode_text = pkt_txt;
     if (!target || !*target) target = pkt_par;
 
     if (!target || !*target) return;
@@ -159,12 +160,15 @@ static void h_mode(void)
             const char *modes = irc_param(1);
             if (modes && *modes) {
                 st_copy_n(channels[idx].mode, modes, sizeof(channels[0].mode));
+                mode_text = modes;
             }
         }
 
+        if (!mode_text || !*mode_text) mode_text = "(unknown)";
+
         current_attr = ATTR_MSG_SYS;
         main_puts2(pkt_usr, " sets mode ");
-        main_puts2(pkt_txt, " on ");
+        main_puts2(mode_text, " on ");
         main_print(target);
         return;
     }
