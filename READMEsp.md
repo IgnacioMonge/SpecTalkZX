@@ -201,7 +201,7 @@ Comandos locales que no requieren conexión al servidor.
 |---------|-------|-------------|
 | `/beep` | — | Alternar sonido en mención de nick (on/off) |
 | `/quits` | — | Alternar mostrar mensajes QUIT (on/off) |
-| `/timestamps` | `/ts` | Alternar mostrar timestamps en mensajes (on/off) |
+| `/timestamps` | `/ts` | Ciclar modo de timestamps (off/on/smart) |
 | `/autoconnect` | `/ac` | Alternar auto-conexión al iniciar (on/off) |
 | `/tz [±N]` | — | Ver o establecer zona horaria (UTC -12 a +12) |
 | `/friend [nick]` | — | Listar amigos, o alternar añadir/quitar un amigo (máx 3) |
@@ -263,7 +263,7 @@ friend1=MiAmigo
 | `nickpass` | Contraseña NickServ | Cualquier string | (ninguno) |
 | `autoconnect` | Conectar al iniciar | 0 o 1 | 0 |
 | `theme` | Tema de color | 1, 2, o 3 | 1 |
-| `timestamps` | Mostrar timestamps | 0 o 1 | 0 |
+| `timestamps` | Mostrar timestamps | 0, 1, o 2 (smart) | 1 |
 | `autoaway` | Minutos auto-away | 0-60 (0=off) | 0 |
 | `beep` | Sonido en mención | 0 o 1 | 1 |
 | `quits` | Mostrar mensajes quit | 0 o 1 | 1 |

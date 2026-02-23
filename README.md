@@ -201,7 +201,7 @@ Local commands that don't require server connection.
 |---------|-------|-------------|
 | `/beep` | — | Toggle sound on nick mention (on/off) |
 | `/quits` | — | Toggle display of QUIT messages (on/off) |
-| `/timestamps` | `/ts` | Toggle timestamp display on messages (on/off) |
+| `/timestamps` | `/ts` | Cycle timestamp mode (off/on/smart) |
 | `/autoconnect` | `/ac` | Toggle auto-connect on startup (on/off) |
 | `/tz [±N]` | — | View or set timezone offset (UTC -12 to +12) |
 | `/friend [nick]` | — | List friends, or toggle add/remove a friend (max 3) |
@@ -263,7 +263,7 @@ friend1=MyFriend
 | `nickpass` | NickServ password | Any string | (none) |
 | `autoconnect` | Connect on startup | 0 or 1 | 0 |
 | `theme` | Color theme | 1, 2, or 3 | 1 |
-| `timestamps` | Show timestamps | 0 or 1 | 0 |
+| `timestamps` | Show timestamps | 0, 1, or 2 (smart) | 1 |
 | `autoaway` | Auto-away minutes | 0-60 (0=off) | 0 |
 | `beep` | Sound on mention | 0 or 1 | 1 |
 | `quits` | Show quit messages | 0 or 1 | 1 |
