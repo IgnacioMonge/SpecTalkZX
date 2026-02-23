@@ -40,7 +40,7 @@ const char *theme_get_name(uint8_t theme_id);
 // =============================================================================
 // VERSION
 // =============================================================================
-#define VERSION "1.3.0"
+#define VERSION "1.3.1"
 
 // =============================================================================
 // SCREEN LAYOUT CONSTANTS
@@ -173,7 +173,7 @@ typedef struct {
 // EXTERNAL ASM FUNCTIONS (spectalk_asm.asm)
 // =============================================================================
 extern void set_border(uint8_t color) __z88dk_fastcall;
-extern void notification_beep(void);
+
 extern void mention_beep(void);
 extern void check_caps_toggle(void);
 extern uint8_t key_shift_held(void);
@@ -197,7 +197,7 @@ extern void st_copy_n(char *dst, const char *src, uint8_t max_len);
 extern void uart_send_string(const char *s) __z88dk_fastcall;
 extern void strip_irc_codes(char *s);
 extern int16_t rb_pop(void);
-extern uint8_t rb_push(uint8_t b) __z88dk_fastcall;
+
 extern uint8_t try_read_line_nodrain(void);
 
 // =============================================================================
@@ -232,6 +232,8 @@ extern uint8_t show_quits;
 extern int8_t sntp_tz;
 extern char irc_pass[IRC_PASS_SIZE];
 extern char nickserv_pass[IRC_PASS_SIZE];
+extern uint8_t autoconnect;
+extern uint8_t show_timestamps;
 extern char user_mode[USER_MODE_SIZE];
 extern char network_name[NETWORK_NAME_SIZE];
 extern uint8_t connection_state;
@@ -296,6 +298,13 @@ extern uint8_t BORDER_COLOR;
 extern uint8_t current_theme;
 
 #define ATTR_MSG_SYS ATTR_MSG_SERVER
+// Attribute setter helpers (ASM, save 3 bytes per call vs inline)
+void set_attr_sys(void);
+void set_attr_err(void);
+void set_attr_priv(void);
+void set_attr_chan(void);
+void set_attr_nick(void);
+void set_attr_join(void);
 
 // Current attribute for main_print
 extern uint8_t current_attr;
@@ -310,6 +319,7 @@ extern uint8_t names_pending;
 extern uint16_t names_timeout_frames;
 extern char names_target_channel[NAMES_TARGET_CHANNEL_SIZE];
 extern uint8_t counting_new_users;
+extern uint16_t names_count_acc;
 extern uint8_t show_names_list;
 
 
@@ -355,7 +365,7 @@ extern uint8_t rx_overflow;  // Flag: overflow detected (0 or 1)
 
 // UART drain
 extern uint8_t uart_drain_limit;
-extern uint8_t uart_aggressive_drain;
+
 
 // Print context (used by ASM)
 extern uint8_t g_ps64_y;
@@ -427,6 +437,12 @@ extern const char S_SET[];
 extern const char S_DOT_SP[];       // D9: ". " dedup
 extern const char S_USAGE_MSG[];    // D9: "msg nick message" dedup
 extern const char S_COMMA_SP[];     // D9: ", " dedup (3 uses)
+extern const char S_AT_SNTPTIME[];  // D10: "AT+CIPSNTPTIME?"
+extern const char S_IDENTIFY_CMD[]; // D10: " :IDENTIFY "
+extern const char S_JOINED_SP[];    // D10: " joined "
+extern const char S_AWAY_CMD[];     // D10: "AWAY"
+extern const char S_NICK_CMD[];     // D10: "NICK"
+extern const char S_SMART[];        // D10: "smart"
 
 // =============================================================================
 // UI MACROS
@@ -438,7 +454,7 @@ void ui_usage(const char *a) __z88dk_fastcall;
 #define ERR_NOTCONN() ui_err(S_NOTCONN)
 #define ERR_MSG(s)    ui_err(s)
 #define SYS_MSG(s)    ui_sys(s)
-#define SYS_PUTS(s)   do { current_attr = ATTR_MSG_SYS; main_puts(s); } while(0)
+#define SYS_PUTS(s)   do { set_attr_sys(); main_puts(s); } while(0)
 
 // Compatibility macros
 #define irc_channel (channels[current_channel_idx].name)
@@ -460,6 +476,7 @@ void utf8_to_ascii(char *s) __z88dk_fastcall;  // UTF-8 → ASCII conversion
 void print_char64(uint8_t y, uint8_t col, uint8_t c, uint8_t attr) __z88dk_callee;
 void print_str64(uint8_t y, uint8_t col, const char *s, uint8_t attr) __z88dk_callee;
 void draw_status_bar(void);
+void clear_main(void);
 void redraw_input_full(void);
 void reapply_screen_attributes(void);
 void cls_fast(void);
@@ -543,5 +560,16 @@ void draw_banner(void);
 
 // Configuration file (esxDOS)
 uint8_t config_load(void);
+
+// esxDOS file I/O
+extern uint8_t esx_handle;
+extern uint16_t esx_buf;
+extern uint16_t esx_count;
+extern uint16_t esx_result;
+void esx_fopen(const char *path) __z88dk_fastcall;
+void esx_fcreate(const char *path) __z88dk_fastcall;
+void esx_fread(void);
+void esx_fwrite(void);
+void esx_fclose(void);
 
 #endif // SPECTALK_H

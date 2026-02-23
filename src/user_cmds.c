@@ -27,6 +27,8 @@ extern const char S_OFF[];
 extern const char S_DEFAULT_PORT[];
 extern uint8_t autoconnect;
 extern uint8_t show_timestamps;
+extern uint8_t last_ts_hour;
+extern uint8_t last_ts_minute;
 
 // =============================================================================
 // INTERNAL HELPERS 
@@ -53,7 +55,7 @@ static uint8_t check_status(uint8_t level) __z88dk_fastcall
 
     // Nivel 3: Contexto de Canal (Necesario para KICK, ME, etc.)
     if (current_channel_idx == 0 || !(channels[current_channel_idx].flags & CH_FLAG_ACTIVE)) {
-        current_attr = ATTR_ERROR;
+        set_attr_err();
         main_print(S_NOWIN); // "No window..."
         return 0;
     }
@@ -142,7 +144,7 @@ static void cmd_connect(const char *args) __z88dk_fastcall
 
     if (connection_state >= STATE_TCP_CONNECTED) {
         ui_err("Already connected.");
-        current_attr = ATTR_MSG_SYS;
+        set_attr_sys();
         main_print("Disconnect? (y/n)");
         while (1) {
             uint8_t k = in_inkey();
@@ -188,10 +190,15 @@ static void cmd_connect(const char *args) __z88dk_fastcall
     st_copy_n(irc_port, port, sizeof(irc_port));
 
 do_connect:
+
+    if (!irc_nick[0]) {
+        ui_sys("Set /nick first");
+        return;
+    }
     
     if (irc_port[0] == '6' && irc_port[1] == '6' && irc_port[2] == '9' && irc_port[3] == '7') use_ssl = 1;
     
-    current_attr = ATTR_MSG_PRIV;
+    set_attr_priv();
     main_puts2("Connecting to ", irc_server); main_putc(':'); main_puts2(irc_port, "... ");
     
     force_disconnect();
@@ -213,7 +220,7 @@ do_connect:
     
     if (result == 0) { main_newline(); goto connect_fail; }
     
-    current_attr = ATTR_MSG_PRIV; main_print(S_OK); 
+    set_attr_priv(); main_print(S_OK); 
     
     wait_drain(20);
     rb_tail = rb_head; rx_pos = 0;
@@ -222,7 +229,7 @@ do_connect:
     // sntp_init() was called at startup — config persists in ESP8266
     if (sntp_init_sent) {
         uint8_t sntp_wait;
-        uart_send_line("AT+CIPSNTPTIME?");
+        uart_send_line(S_AT_SNTPTIME);
         // Wait for response and parse it
         for (sntp_wait = 0; sntp_wait < 100; sntp_wait++) {
             HALT(); uart_drain_to_buffer();
@@ -256,10 +263,10 @@ do_connect:
         const char *abort_msg = 0;
         uint8_t abort_disc = 1;
         
-        current_attr = ATTR_MSG_PRIV; main_puts("Registering... ");
+        set_attr_priv(); main_puts("Registering... ");
         
         if (irc_pass[0]) irc_send_cmd1("PASS", irc_pass);
-        irc_send_cmd1("NICK", irc_nick);
+        irc_send_cmd1(S_NICK_CMD, irc_nick);
         uart_send_string("USER "); uart_send_string(irc_nick); 
         uart_send_string(" 0 * :"); uart_send_line(irc_nick);
         
@@ -290,7 +297,7 @@ do_connect:
                     code = str_to_u16(sp + 1);
                     switch (code) {
                         case 1: // RPL_WELCOME
-                            current_attr = ATTR_MSG_PRIV; main_print("Connected!");
+                            set_attr_priv(); main_print("Connected!");
                             connection_state = STATE_IRC_READY; loop_done = 1; rx_pos = 0; continue;
                         case 433: // Nick in use - try alternate
                             // OPT-P2-B: use shared helper
@@ -364,7 +371,8 @@ join_fail:
 
         rb_head = rb_tail = 0; rx_pos = 0; rx_overflow = 0;
     } else {
-        ui_sys("Set /nick first");
+        // unreachable: nick check moved to before connect
+        force_disconnect_wifi();
     }
     goto connect_cleanup;
 
@@ -381,7 +389,7 @@ static void cmd_nick(const char *args) __z88dk_fastcall
     uint8_t n;
 
     if (!args || !*args) {
-        current_attr = ATTR_MSG_SYS;
+        set_attr_sys();
         main_puts("Current nick: ");
         if (irc_nick[0]) main_print(irc_nick); else main_print(S_NOTSET);
         return;
@@ -398,12 +406,12 @@ static void cmd_nick(const char *args) __z88dk_fastcall
 
     if (connection_state >= STATE_TCP_CONNECTED) {
         // Conectado: Solo enviar comando, el handler actualizará la UI/Variable si es exitoso
-        irc_send_cmd1("NICK", p);
+        irc_send_cmd1(S_NICK_CMD, p);
     } else {
         // Desconectado: Actualizar inmediatamente
         st_copy_n(irc_nick, p, sizeof(irc_nick));
 
-        current_attr = ATTR_MSG_SYS;
+        set_attr_sys();
         main_puts("Nick set to: ");
         main_print(irc_nick);
         draw_status_bar();
@@ -413,7 +421,7 @@ static void cmd_nick(const char *args) __z88dk_fastcall
 static void cmd_pass(const char *args) __z88dk_fastcall
 {
     if (!args || !*args) {
-        current_attr = ATTR_MSG_SYS;
+        set_attr_sys();
         main_puts("Server password: ");
         main_print(irc_pass[0] ? S_SET : S_NOTSET);
         return;
@@ -461,12 +469,12 @@ static void cmd_join(const char *args) __z88dk_fastcall
     idx = find_channel(lookup);
     if (idx >= 0) {
         if ((uint8_t)idx == current_channel_idx) {
-            current_attr = ATTR_MSG_SYS;
+            set_attr_sys();
             main_puts2(S_ALREADY_IN, channels[idx].name);
             main_newline();
         } else {
             switch_to_channel((uint8_t)idx);
-            current_attr = ATTR_MSG_SYS;
+            set_attr_sys();
             main_puts2(S_SWITCHTO, channels[idx].name);
             main_newline();
         }
@@ -476,7 +484,7 @@ static void cmd_join(const char *args) __z88dk_fastcall
     if (find_empty_channel_slot() == -1) { ui_err(S_MAXWIN); main_print("Use /close or /part first."); return; }
 
     irc_send_cmd1("JOIN", lookup);
-    current_attr = ATTR_MSG_SYS;
+    set_attr_sys();
     main_puts2("Joining ", lookup);
     main_print(S_DOTS3);
 }
@@ -507,7 +515,7 @@ static void cmd_part(const char *args) __z88dk_fastcall
     }
 
     if (idx <= 0 || idx >= MAX_CHANNELS || !(channels[idx].flags & CH_FLAG_ACTIVE)) {
-        current_attr = ATTR_ERROR;
+        set_attr_err();
         main_print(idx == 0 ? "Cannot part Status" : "Not in that channel");
         return;
     }
@@ -522,7 +530,7 @@ static void cmd_part(const char *args) __z88dk_fastcall
         irc_send_cmd2("PART", cname_ptr, reason);
     }
 
-    current_attr = ATTR_MSG_SYS;
+    set_attr_sys();
     main_print_time_prefix();
     main_puts(S_YOU_LEFT);
     main_print(cname_ptr);
@@ -577,7 +585,7 @@ static void cmd_query(const char *args) __z88dk_fastcall
         if (idx >= 0) {
             if ((uint8_t)idx != current_channel_idx) {
                 switch_to_channel((uint8_t)idx);
-                current_attr = ATTR_MSG_SYS;
+                set_attr_sys();
                 main_puts("Query opened with ");
                 main_print(channels[idx].name);
             }
@@ -596,7 +604,7 @@ void cmd_quit(const char *args) __z88dk_fastcall
     // Nivel 1: Solo requiere TCP
     if (!check_status(LVL_TCP)) return;
 
-    current_attr = ATTR_MSG_SYS;
+    set_attr_sys();
 
     // FIX: Ocultar cursor inmediatamente al iniciar desconexión
     cursor_visible = 0;
@@ -651,7 +659,7 @@ static void cmd_away(const char *args) __z88dk_fastcall
     if (!check_status(LVL_IRC)) return;
 
     // Enviar AWAY (sin texto si args vacío/NULL; con :texto si args tiene contenido)
-    irc_send_cmd2("AWAY", NULL, args);
+    irc_send_cmd2(S_AWAY_CMD, NULL, args);
 
     // Guardar mensaje de away para auto-reply
     if (args && *args) {
@@ -684,6 +692,15 @@ static void cmd_id(const char *args) __z88dk_fastcall
     // Usar password del argumento, o el de config si no hay
     if (args && *args) {
         pass = args;
+        // Save for future /save
+        {
+            uint8_t i = 0;
+            while (args[i] && i < IRC_PASS_SIZE - 1) {
+                nickserv_pass[i] = args[i];
+                i++;
+            }
+            nickserv_pass[i] = '\0';
+        }
     } else if (nickserv_pass[0]) {
         pass = nickserv_pass;
     } else {
@@ -694,10 +711,10 @@ static void cmd_id(const char *args) __z88dk_fastcall
     // Enviar: PRIVMSG NickServ :IDENTIFY <password>
     uart_send_string(S_PRIVMSG);
     uart_send_string(S_NICKSERV);
-    uart_send_string(" :IDENTIFY ");
+    uart_send_string(S_IDENTIFY_CMD);
     uart_send_line(pass);
     
-    current_attr = ATTR_MSG_SYS;
+    set_attr_sys();
     main_print("Identifying with NickServ...");
 }
 
@@ -728,7 +745,7 @@ static void cmd_whois(const char *args) __z88dk_fastcall
     irc_send_cmd1("WHOIS", p);
     
     // FIX UX: Feedback optimista
-    current_attr = ATTR_MSG_SYS;
+    set_attr_sys();
     
     // FUSIÓN SEGURA
     main_puts2("Querying ", p);
@@ -742,7 +759,7 @@ static void cmd_list(const char *args) __z88dk_fastcall
     if (!check_status(LVL_IRC)) return;
     if (!args || !*args) { ui_usage("list #channel"); main_print("(Full list disabled)"); return; }
 
-    current_attr = ATTR_MSG_SYS;
+    set_attr_sys();
     main_puts("LIST: ");
     main_print(args);
 
@@ -756,7 +773,7 @@ static void cmd_who(const char *args) __z88dk_fastcall
     const char *target = (args && *args) ? args : irc_channel;
     if (!target[0]) { ui_usage("who #channel or nick"); return; }
 
-    current_attr = ATTR_MSG_SYS;
+    set_attr_sys();
     main_puts("WHO: ");
     main_print(target);
 
@@ -778,7 +795,7 @@ static void cmd_names(const char *args) __z88dk_fastcall
     start_pagination();
     
     irc_send_cmd1("NAMES", target);
-    current_attr = ATTR_MSG_SYS;
+    set_attr_sys();
     main_print("Listing users...");
 }
 
@@ -839,7 +856,7 @@ static void cmd_search(const char *args) __z88dk_fastcall
     while (*end && *end != ' ' && len < 30) { end++; len++; }
     if (*end) *end = '\0';
 
-    current_attr = ATTR_MSG_SYS;
+    set_attr_sys();
     if (is_chan) {
         main_puts2("Searching: *", src); main_print("*");
         start_search_command(PEND_SEARCH_CHAN, src);
@@ -856,7 +873,7 @@ static void cmd_ignore(const char *args) __z88dk_fastcall
     char *sp;
 
     if (!args || !*args) {
-        current_attr = ATTR_MSG_SYS;
+        set_attr_sys();
         if (ignore_count == 0) {
             main_print("Ignore list is empty");
         } else {
@@ -884,9 +901,9 @@ static void cmd_ignore(const char *args) __z88dk_fastcall
         if (sp) *sp = 0;
 
         if (remove_ignore(p)) {
-            current_attr = ATTR_MSG_SYS; main_puts("Unignored: "); main_print(p);
+            set_attr_sys(); main_puts("Unignored: "); main_print(p);
         } else {
-            current_attr = ATTR_ERROR; main_puts("Not in ignore list: "); main_print(p);
+            set_attr_err(); main_puts("Not in ignore list: "); main_print(p);
         }
         return;
     }
@@ -896,9 +913,9 @@ static void cmd_ignore(const char *args) __z88dk_fastcall
     if (sp) *sp = 0;
 
     if (add_ignore(p)) {
-        current_attr = ATTR_MSG_SYS; main_puts("Now ignoring: "); main_print(p);
+        set_attr_sys(); main_puts("Now ignoring: "); main_print(p);
     } else if (is_ignored(p)) {
-        current_attr = ATTR_ERROR; main_puts("Already ignoring: "); main_print(p);
+        set_attr_err(); main_puts("Already ignoring: "); main_print(p);
     } else {
         ui_err("Ignore list full");
     }
@@ -937,7 +954,7 @@ static void cmd_kick(const char *args) __z88dk_fastcall
     }
     uart_send_crlf();
 
-    current_attr = ATTR_MSG_SYS;
+    set_attr_sys();
 
     main_puts2("Kicking ", nick);
     if (reason && *reason) {
@@ -952,8 +969,8 @@ static void cmd_kick(const char *args) __z88dk_fastcall
 // Helper: imprimir etiqueta y valor
 static void status_line(const char *label, const char *value)
 {
-    current_attr = ATTR_MSG_NICK; main_puts(label);
-    current_attr = ATTR_MSG_CHAN; main_print(value ? value : S_NOTSET);
+    set_attr_nick(); main_puts(label);
+    set_attr_chan(); main_print(value ? value : S_NOTSET);
 }
 
 static void sys_status(const char *args) __z88dk_fastcall
@@ -965,21 +982,21 @@ static void sys_status(const char *args) __z88dk_fastcall
 
     status_line("Nick: ", irc_nick[0] ? irc_nick : NULL);
 
-    current_attr = ATTR_MSG_NICK; 
+    set_attr_nick(); 
     
     // FUSIÓN SEGURA
     main_puts2(S_SERVER, S_COLON_SP);
     
-    current_attr = ATTR_MSG_CHAN;
+    set_attr_chan();
     if (irc_server[0]) { main_puts(irc_server); main_putc(':'); main_print(irc_port); }
     else main_print(S_NOTSET);
 
-    current_attr = ATTR_MSG_NICK; main_puts("State: ");
-    current_attr = ATTR_MSG_CHAN;
+    set_attr_nick(); main_puts("State: ");
+    set_attr_chan();
     main_print(connection_state < 4 ? states[connection_state] : "?");
 
-    current_attr = ATTR_MSG_NICK; main_puts("Chans: ");
-    current_attr = ATTR_MSG_CHAN;
+    set_attr_nick(); main_puts("Chans: ");
+    set_attr_chan();
 
     for (i = 0; i < MAX_CHANNELS; i++, ch++) {
         if ((ch->flags & CH_FLAG_ACTIVE) && !(ch->flags & CH_FLAG_QUERY)) {
@@ -997,7 +1014,7 @@ static void sys_status(const char *args) __z88dk_fastcall
 static void sys_about(const char *args) __z88dk_fastcall
 {
     (void)args;
-    current_attr = ATTR_MSG_SYS;
+    set_attr_sys();
     main_print(S_APPNAME);
     main_print(S_APPDESC);
     main_print(S_COPYRIGHT);
@@ -1010,11 +1027,12 @@ static void sys_config(const char *args) __z88dk_fastcall
     char buf[4];
     (void)args;
     
-    current_attr = ATTR_MSG_PRIV;
+    set_attr_priv();
     main_puts("nick="); main_print(irc_nick[0] ? (const char*)irc_nick : S_NOTSET);
     main_puts("server="); main_print(irc_server[0] ? (const char*)irc_server : S_NOTSET);
     main_puts("port="); main_print(irc_port);
     main_puts("pass="); main_print(irc_pass[0] ? S_SET : S_NOTSET);
+    main_puts("nickpass="); main_print(nickserv_pass[0] ? S_SET : S_NOTSET);
     main_puts("autoconnect="); main_print(autoconnect ? S_ON : S_OFF);
     main_puts("theme="); fast_u8_to_str(buf, current_theme); main_putc(buf[1]); main_newline();
     main_puts("autoaway="); 
@@ -1022,7 +1040,8 @@ static void sys_config(const char *args) __z88dk_fastcall
     else main_print(S_OFF);
     main_puts("beep="); main_print(beep_enabled ? S_ON : S_OFF);
     main_puts("quits="); main_print(show_quits ? S_ON : S_OFF);
-    main_puts("timestamps="); main_print(show_timestamps ? S_ON : S_OFF);
+    main_puts("timestamps="); main_print(show_timestamps == 0 ? S_OFF :
+                                        show_timestamps == 1 ? S_ON : S_SMART);
 
     main_puts("friends=");
     {
@@ -1050,7 +1069,7 @@ static void sys_init(const char *args) __z88dk_fastcall
     (void)args;
     uint8_t result;
     
-    current_attr = ATTR_MSG_PRIV;
+    set_attr_priv();
     main_puts("Re-initializing ESP... ");
     
     flush_all_rx_buffers(); 
@@ -1072,7 +1091,7 @@ static void sys_init(const char *args) __z88dk_fastcall
     if (result == 0) {
         ui_err("FAILED: no ESP response");
     } else if (connection_state == STATE_WIFI_OK) {
-        current_attr = ATTR_MSG_PRIV;
+        set_attr_priv();
         main_print("WiFi connected");
     } else {
         ui_err("no WiFi");
@@ -1098,7 +1117,7 @@ static void cmd_theme(const char *args) __z88dk_fastcall
     t = (uint8_t)(args[0] - '0');
 
     if (t == current_theme) {
-        current_attr = ATTR_MSG_SYS;
+        set_attr_sys();
         main_puts("Already using ");
         main_print(theme_get_name(t));
         return;
@@ -1107,7 +1126,7 @@ static void cmd_theme(const char *args) __z88dk_fastcall
     current_theme = t;
     apply_theme();
 
-    current_attr = ATTR_MSG_SYS;
+    set_attr_sys();
     main_puts("Theme set to ");
     main_print(theme_get_name(t));
 }
@@ -1119,7 +1138,7 @@ static void cmd_autoaway(const char *args) __z88dk_fastcall
 
     if (!args || !*args) {
         // Mostrar estado
-        current_attr = ATTR_MSG_SYS;
+        set_attr_sys();
         main_puts("Auto-away: ");
         if (autoaway_minutes) {
             puts_u8_nolz(autoaway_minutes);
@@ -1150,7 +1169,7 @@ static void cmd_autoaway(const char *args) __z88dk_fastcall
 
     autoaway_minutes = mins;
     autoaway_counter = 0;
-    current_attr = ATTR_MSG_SYS;
+    set_attr_sys();
     main_puts("Auto-away set to ");
     puts_u8_nolz(mins);
     main_print(S_MIN);
@@ -1159,7 +1178,7 @@ static void cmd_autoaway(const char *args) __z88dk_fastcall
 // OPT H4: Helper para comandos toggle
 static void toggle_flag(uint8_t *flag, const char *label) {
     *flag = !*flag;
-    current_attr = ATTR_MSG_SYS;
+    set_attr_sys();
     main_puts(label);
     main_print(*flag ? S_ON : S_OFF);
 }
@@ -1179,15 +1198,175 @@ static void cmd_quits(const char *args) __z88dk_fastcall
 static void cmd_timestamps(const char *args) __z88dk_fastcall
 {
     (void)args;
-    toggle_flag(&show_timestamps, "Timestamps: ");
+    // Cycle: 0 (off) → 1 (always) → 2 (on-change) → 0
+    if (++show_timestamps > 2) show_timestamps = 0;
+    if (show_timestamps == 2) {
+        last_ts_hour = 0xFF;
+        last_ts_minute = 0xFF;
+    }
+    set_attr_sys();
+    main_puts("Timestamps: ");
+    main_print(show_timestamps == 0 ? "OFF" :
+               show_timestamps == 1 ? "ON" : S_SMART);
+}
+
+static void cmd_autoconnect(const char *args) __z88dk_fastcall
+{
+    (void)args;
+    autoconnect ^= 1;
+    set_attr_sys();
+    main_puts("Autoconnect: ");
+    main_print(autoconnect ? "ON" : "OFF");
+}
+
+static void cmd_tz(const char *args) __z88dk_fastcall
+{
+    if (!args || !*args) {
+        char buf[3];
+        set_attr_sys();
+        main_puts("TZ: UTC");
+        main_putc(sntp_tz >= 0 ? '+' : '-');
+        fast_u8_to_str(buf, (uint8_t)(sntp_tz < 0 ? -sntp_tz : sntp_tz));
+        main_putc(buf[1]);
+        main_newline();
+        return;
+    }
+    {
+        int8_t tz;
+        const char *p = args;
+        uint8_t neg = 0;
+        if (*p == '-') { neg = 1; p++; }
+        else if (*p == '+') p++;
+        tz = (int8_t)str_to_u16(p);
+        if (neg) tz = -tz;
+        if (tz < -12 || tz > 12) { ui_err("Range: -12 to +12"); return; }
+        sntp_tz = tz;
+        cmd_tz(NULL);
+    }
+}
+
+static void cmd_friend(const char *args) __z88dk_fastcall
+{
+    uint8_t i;
+    if (!args || !*args) {
+        set_attr_sys();
+        main_puts("Friends:");
+        for (i = 0; i < 3; i++)
+            if (friend_nicks[i][0]) { main_putc(' '); main_puts(friend_nicks[i]); }
+        main_newline();
+        return;
+    }
+    // Toggle: remove if exists, add if not
+    for (i = 0; i < 3; i++) {
+        if (friend_nicks[i][0] && st_stricmp(friend_nicks[i], args) == 0) {
+            friend_nicks[i][0] = '\0';
+            SYS_PUTS("- "); main_print(args);
+            return;
+        }
+    }
+    for (i = 0; i < 3; i++) {
+        if (!friend_nicks[i][0]) {
+            st_copy_n(friend_nicks[i], args, IRC_NICK_SIZE);
+            SYS_PUTS("+ "); main_print(args);
+            return;
+        }
+    }
+    ui_err("Max 3 friends");
+}
+
+// Append string to buffer, return new position
+static char *cfg_put(char *p, const char *s) {
+    while (*s) *p++ = *s++;
+    return p;
+}
+
+// Write key=value\r\n to buffer. Returns new position.
+// If val is NULL, skips. If (uint16_t)val <= 9, writes single digit.
+static char *cfg_kv(char *p, const char *key, const char *val) {
+    p = cfg_put(p, key);
+    if ((uint16_t)val <= 9) {
+        *p++ = '0' + (uint8_t)(uint16_t)val;
+    } else {
+        p = cfg_put(p, val);
+    }
+    *p++ = '\r'; *p++ = '\n';
+    return p;
+}
+
+static void cmd_save(const char *args) __z88dk_fastcall
+{
+    char *p = (char *)ring_buffer;
+    char tmp[4];
+
+    (void)args;
+
+    p = cfg_put(p, "; SpecTalkZX config\r\n");
+
+    if (irc_server[0])    p = cfg_kv(p, "server=", irc_server);
+    if (irc_port[0])      p = cfg_kv(p, "port=", irc_port);
+    if (irc_nick[0])      p = cfg_kv(p, "nick=", irc_nick);
+    if (irc_pass[0])      p = cfg_kv(p, "pass=", irc_pass);
+    if (nickserv_pass[0]) p = cfg_kv(p, "nickpass=", nickserv_pass);
+
+    // Numeric settings (cast to pointer trick: 1-9 = single digit)
+    p = cfg_kv(p, "theme=", (const char *)(uint16_t)current_theme);
+    p = cfg_kv(p, "beep=", (const char *)(uint16_t)beep_enabled);
+    p = cfg_kv(p, "quits=", (const char *)(uint16_t)show_quits);
+    p = cfg_kv(p, "timestamps=", (const char *)(uint16_t)show_timestamps);
+    p = cfg_kv(p, "autoconnect=", (const char *)(uint16_t)autoconnect);
+
+    // Autoaway (only if set)
+    if (autoaway_minutes) {
+        fast_u8_to_str(tmp, autoaway_minutes); tmp[2] = '\0';
+        p = cfg_kv(p, "autoaway=", tmp);
+    }
+
+    // Timezone (signed)
+    p = cfg_put(p, "tz=");
+    if (sntp_tz < 0) {
+        *p++ = '-';
+        fast_u8_to_str(tmp, (uint8_t)(-sntp_tz));
+    } else {
+        fast_u8_to_str(tmp, (uint8_t)sntp_tz);
+    }
+    tmp[2] = '\0';
+    p = cfg_put(p, tmp); *p++ = '\r'; *p++ = '\n';
+
+    // Friends
+    {
+        uint8_t i;
+        for (i = 0; i < 3; i++) {
+            if (friend_nicks[i][0]) {
+                p = cfg_put(p, "friend");
+                *p++ = '1' + i; *p++ = '=';
+                p = cfg_put(p, friend_nicks[i]);
+                *p++ = '\r'; *p++ = '\n';
+            }
+        }
+    }
+
+    esx_fcreate("/SYS/CONFIG/SPECTALK.CFG");
+    if (!esx_handle) esx_fcreate("/SYS/SPECTALK.CFG");
+    if (!esx_handle) { ui_err("Cannot write config"); return; }
+
+    esx_buf = (uint16_t)(char *)ring_buffer;
+    esx_count = (uint16_t)(p - (char *)ring_buffer);
+    esx_fwrite();
+    esx_fclose();
+
+    SYS_PUTS("Saved (");
+    {
+        char nbuf[6];
+        u16_to_dec(nbuf, esx_count);
+        main_puts(nbuf);
+    }
+    main_print(" bytes)");
 }
 
 static void cmd_clear(const char *args) __z88dk_fastcall
 {
     (void)args;
-    clear_zone(MAIN_START, MAIN_LINES, ATTR_MAIN_BG);
-    main_line = MAIN_START;
-    main_col = 0;
+    clear_main();
 }
 
 
@@ -1209,7 +1388,7 @@ static void cmd_close_wrapper(const char *a) __z88dk_fastcall {
         return;
     }
     if (channels[current_channel_idx].flags & CH_FLAG_QUERY) {
-        current_attr = ATTR_MSG_SYS;
+        set_attr_sys();
         main_puts("Closed query with ");
         main_print(channels[current_channel_idx].name);
         // remove_channel() YA llama a draw_status_bar()
@@ -1227,7 +1406,7 @@ static void cmd_windows_wrapper(const char *a) __z88dk_fastcall
     uint8_t f;
     ChannelInfo *ch = channels;
 
-    current_attr = ATTR_MSG_SYS;
+    set_attr_sys();
     main_puts("Open windows:");
 
     for (i = 0; i < MAX_CHANNELS; i++, ch++) {
@@ -1244,7 +1423,7 @@ static void cmd_windows_wrapper(const char *a) __z88dk_fastcall
                 main_puts(S_SERVER);
             } else {
                 if (f & CH_FLAG_MENTION) {
-                    current_attr = ATTR_MSG_PRIV;
+                    set_attr_priv();
                     main_putc('!');
                 }
                 if (f & CH_FLAG_QUERY)   main_putc('@');
@@ -1252,7 +1431,7 @@ static void cmd_windows_wrapper(const char *a) __z88dk_fastcall
                 
                 main_puts(ch->name);
                 
-                if (f & CH_FLAG_MENTION) current_attr = ATTR_MSG_SYS;
+                if (f & CH_FLAG_MENTION) set_attr_sys();
             }
             n++;
         }
@@ -1281,7 +1460,7 @@ static void sys_help(const char *args) __z88dk_fastcall;
 
 #define CMD_IDX_NONE  ((uint8_t)0xFF)
 #define SYS_CMDS_COUNT 6
-#define CMD_HELP_BASE  ((uint8_t)49)
+#define CMD_HELP_BASE  ((uint8_t)55)
 
 // One pool: command names/aliases first, then help strings in command order.
 static const char cmd_pool[] =
@@ -1289,12 +1468,14 @@ static const char cmd_pool[] =
     "t\0nick\0pass\0id\0join\0j\0part\0p\0msg\0m\0query\0q\0close\0quit\0me"
     "\0away\0autoaway\0aa\0raw\0whois\0wi\0who\0list\0ls\0names\0topic\0sea"
     "rch\0ignore\0kick\0k\0channels\0w\0beep\0quits\0timestamps\0ts\0clear\0cls\0"
+    "save\0sv\0autoconnect\0ac\0tz\0friend\0"
     "Help\0Status info\0Reset WiFi\0Show config\0Theme 1|2|3\0About\0"
     "Connect host\0Set nick\0Set pass\0Identify\0Join #chan\0Leave chan\0Se"
     "nd msg\0Open query\0Close win\0Quit IRC\0Action /me\0Set away\0Auto-aw"
     "ay min\0Raw IRC cmd\0Whois nick\0Who #chan\0List chans\0Names #chan\0T"
     "opic\0Search\0Ignore nick\0Kick nick\0Windows\0Toggle beep\0Toggle qui"
-    "ts\0Toggle timestamps\0Clear screen\0"
+    "ts\0Toggle timestamps\0Clear screen\0Save config\0Toggle autoconn\0"
+    "Set timezone\0Add/rm friend\0"
 ;
 
 static const PackedCmd USER_COMMANDS[] = {
@@ -1331,6 +1512,10 @@ static const PackedCmd USER_COMMANDS[] = {
     {  44, 255, cmd_quits },
     {  45,  46, cmd_timestamps },
     {  47,  48, cmd_clear },
+    {  49,  50, cmd_save },
+    {  51,  52, cmd_autoconnect },
+    {  53, 255, cmd_tz },
+    {  54, 255, cmd_friend },
 };
 
 #define USER_COMMANDS_COUNT ((uint8_t)(sizeof(USER_COMMANDS) / sizeof(USER_COMMANDS[0])))
@@ -1359,7 +1544,7 @@ static void sys_help(const char *args) __z88dk_fastcall
         end = start + 12u;
         if (end > USER_COMMANDS_COUNT) end = USER_COMMANDS_COUNT;
 
-        clear_zone(MAIN_START, MAIN_LINES, ATTR_MAIN_BG);
+        clear_main();
         print_str64(MAIN_START, 10, "=== HELP ===", ATTR_MSG_TOPIC);
 
         row = 2;
@@ -1392,9 +1577,7 @@ static void sys_help(const char *args) __z88dk_fastcall
         if (page >= total_pages) { page = 0; start = 0; }
     }
 
-    clear_zone(MAIN_START, MAIN_LINES, ATTR_MAIN_BG);
-    main_line = MAIN_START;
-    main_col = 0;
+    clear_main();
 }
 
 void parse_user_input(char *line) __z88dk_fastcall
@@ -1415,7 +1598,7 @@ void parse_user_input(char *line) __z88dk_fastcall
         cmd_str++;
     } else {
         if (connection_state < STATE_TCP_CONNECTED) {
-            current_attr = ATTR_ERROR;
+            set_attr_err();
             ERR_NOTCONN();
             return;
         }
@@ -1450,7 +1633,7 @@ void parse_user_input(char *line) __z88dk_fastcall
 
         // For regular messages, need to be in a channel/query window
         if (current_channel_idx == 0 || !irc_channel[0]) {
-            current_attr = ATTR_ERROR;
+            set_attr_err();
             main_print(S_NOWIN);
             return;
         }
@@ -1474,17 +1657,17 @@ void parse_user_input(char *line) __z88dk_fastcall
             const char *chn_name = (idx == 0) ? S_SERVER : channels[idx].name;
 
             if (idx == current_channel_idx) {
-                current_attr = ATTR_MSG_SYS;
+                set_attr_sys();
                 main_puts(S_ALREADY_IN);
                 main_print(chn_name);
             } else {
                 switch_to_channel(idx);
-                current_attr = ATTR_MSG_SYS;
+                set_attr_sys();
                 main_puts(S_SWITCHTO);
                 main_print(chn_name);
             }
         } else {
-            current_attr = ATTR_ERROR;
+            set_attr_err();
             main_puts("No window ");
             main_putc(cmd_str[0]);
             main_newline();
@@ -1505,7 +1688,7 @@ void parse_user_input(char *line) __z88dk_fastcall
         }
     }
 
-    current_attr = ATTR_ERROR;
+    set_attr_err();
     main_puts("Unknown command: ");
     main_putc(is_sys ? '!' : '/');
     main_print(cmd_str);

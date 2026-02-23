@@ -39,14 +39,14 @@ STACK_SIZE  = 512
 
 EXTRA_CFLAGS ?= 
 BUILD_PROFILE ?= NORMAL
-CFLAGS = -vn -SO3 -startup=0 -compiler=sdcc -clib=sdcc_iy \
+CFLAGS = -vn -SO3 -startup=31 -compiler=sdcc -clib=sdcc_iy \
          -zorg=$(ZORG) --opt-code-size --fomit-frame-pointer \
          -DST_UART_AY=$(AY_UART)  -Cc--Werror \
          -pragma-define:CLIB_MALLOC_HEAP_SIZE=0 \
          -pragma-define:CLIB_STDIO_HEAP_SIZE=0 \
          -pragma-define:CRT_STACK_SIZE=$(STACK_SIZE) \
          -pragma-define:CRT_ENABLE_STDIO=0 \
-         -Wl,--gc-section -Wall 
+         -Wl,--gc-sections -Wall 
 # ------------------------------------------------------------
 # Helpers
 # ------------------------------------------------------------

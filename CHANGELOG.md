@@ -7,6 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.1] - 2026-02-23 "Persistence"
+
+### Added
+
+#### Configuration Save Command (`/save`)
+- **New command**: `/save` (alias `/sv`) writes all current settings to SD card
+- Saves to `/SYS/CONFIG/SPECTALK.CFG` (fallback `/SYS/SPECTALK.CFG`)
+- Persists all settings: server, port, nick, passwords, theme, toggles, timezone, friends
+- Reports bytes written on success
+- **New ASM routines**: `esx_fcreate` (file create/truncate), `esx_fwrite` (file write)
+
+#### Autoconnect Toggle (`/autoconnect`)
+- **New command**: `/autoconnect` (alias `/ac`) toggles autoconnect on/off at runtime
+- Previously only configurable via config file
+
+#### Timezone Command (`/tz`)
+- **New command**: `/tz [±N]` to view or set UTC timezone offset (-12 to +12)
+- Without arguments: displays current timezone
+- Previously only configurable via config file
+
+#### Friends Management (`/friend`)
+- **New command**: `/friend [nick]` to manage the friends list at runtime
+- Without arguments: lists current friends
+- With nick: toggles add/remove (max 3 friends)
+- Previously only configurable via config file
+
+#### NickServ Password Persistence
+- `/id <password>` now saves the password to memory for later `/save`
+- Inline C copy replaces `st_copy_n` ASM call, fixing truncation bug from stdcall convention
+- `!config` now displays `nickpass=` status (set/not set)
+
+### Fixed
+
+#### Nick Validation Before Connect
+- **Problem**: `/connect` without a nick set would establish TCP connection, then fail during IRC registration
+- Connection entered half-connected state requiring restart
+- **Solution**: Check `irc_nick[0]` before TCP connection attempt; shows "Set /nick first" if empty
+
+### Optimized
+
+#### `cmd_save` Size Reduction (835 → 508 bytes, -39%)
+- Centralized `cfg_kv()` helper: writes key=value+CRLF in one function call
+- Digit-as-pointer trick for single-digit numeric values (0-9)
+- Eliminated `u16_to_str` function — reuses existing `fast_u8_to_str` and `u16_to_dec`
+- Shortened feedback strings ("Saved (N bytes)" instead of "Config saved (N bytes)")
+- Reduced `cmd_friend` and `cmd_tz` feedback messages
+
+### Technical Notes
+- New ASM public symbols: `_esx_fcreate`, `_esx_fwrite`, `_call_trampoline`
+- New extern declarations in `spectalk.h`: `autoconnect`, `show_timestamps`, esxDOS functions
+- esxDOS declarations consolidated in `spectalk.h` (removed duplicates from `spectalk.c`)
+- `CMD_HELP_BASE` updated from 49 to 55 (6 new pool entries: save, sv, autoconnect, ac, tz, friend)
+- `USER_COMMANDS` expanded from 33 to 37 entries
+- Fixed `fast_u8_to_str` missing null terminator when used with `cfg_put`/`cfg_kv`
+- Binary size: 37,959 bytes (+1,645 from v1.3.0 base, with 3,676 bytes stack headroom)
+
+---
+
 ## [1.3.0] - 2026-02-22 "Social Network"
 
 ### Added

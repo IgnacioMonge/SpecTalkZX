@@ -8,7 +8,7 @@
 
 ![Platform](https://img.shields.io/badge/Platform-ZX%20Spectrum-blue)
 ![License](https://img.shields.io/badge/License-GPLv2-green)
-![Version](https://img.shields.io/badge/Version-1.3.0-orange)
+![Version](https://img.shields.io/badge/Version-1.3.1-orange)
 
 ---
 
@@ -202,6 +202,10 @@ Local commands that don't require server connection.
 | `/beep` | — | Toggle sound on nick mention (on/off) |
 | `/quits` | — | Toggle display of QUIT messages (on/off) |
 | `/timestamps` | `/ts` | Toggle timestamp display on messages (on/off) |
+| `/autoconnect` | `/ac` | Toggle auto-connect on startup (on/off) |
+| `/tz [±N]` | — | View or set timezone offset (UTC -12 to +12) |
+| `/friend [nick]` | — | List friends, or toggle add/remove a friend (max 3) |
+| `/save` | `/sv` | Save current configuration to SD card |
 
 ---
 
@@ -227,7 +231,7 @@ SpecTalk supports up to 10 simultaneous windows:
 
 ## Configuration File
 
-SpecTalk can load settings from a configuration file on your SD card. The file should be named `SPECTALK.CFG` and placed in the `SYS/CONFIG/` directory.
+SpecTalk can load settings from a configuration file on your SD card. The file should be named `SPECTALK.CFG` and placed in the `SYS/CONFIG/` directory. Use `/save` to write your current settings to this file.
 
 ### File Format
 
@@ -270,7 +274,7 @@ friend1=MyFriend
 
 ### Viewing Current Configuration
 
-Use `!config` or `!cfg` to display all current configuration values.
+Use `!config` or `!cfg` to display all current configuration values. Use `/save` to persist changes to the SD card.
 
 ---
 

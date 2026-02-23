@@ -97,7 +97,7 @@ static void h_nick(void)
         st_copy_n(irc_nick, new_nick, sizeof(irc_nick));
         draw_status_bar();
         main_print_time_prefix();
-        current_attr = ATTR_MSG_SYS;
+        set_attr_sys();
         main_puts("You are now known as "); main_print(irc_nick);
         return;
     }
@@ -110,7 +110,7 @@ static void h_nick(void)
                 
                 if (current_channel_idx == i) {
                     main_print_time_prefix();
-                    current_attr = ATTR_MSG_SYS;
+                    set_attr_sys();
                     main_puts2("*** ", pkt_usr);
                     main_puts(" is now known as ");
                     main_print(new_nick);
@@ -178,14 +178,14 @@ static void h_mode(void)
 
         if (!mode_text || !*mode_text) mode_text = "(unknown)";
 
-        current_attr = ATTR_MSG_SYS;
+        set_attr_sys();
         main_puts2(pkt_usr, " sets mode ");
         main_puts2(mode_text, " on ");
         main_print(target);
         return;
     }
 
-    current_attr = ATTR_MSG_SYS;
+    set_attr_sys();
     main_puts("Mode ");
     main_print(pkt_par);
 }
@@ -204,16 +204,16 @@ static void h_privmsg_notice(void)
         st_stristr(pkt_txt, "registered") && st_stristr(pkt_txt, "identify")) {
         uart_send_string(S_PRIVMSG);
         uart_send_string(S_NICKSERV);
-        uart_send_string(" :IDENTIFY ");
+        uart_send_string(S_IDENTIFY_CMD);
         uart_send_line(nickserv_pass);
-        current_attr = ATTR_MSG_SYS;
+        set_attr_sys();
         main_print("Auto-identifying...");
         return;
     }
 
     // Durante búsqueda activa, NOTICE del servidor puede ser rate limit
     if (is_server && pagination_active) {
-        current_attr = ATTR_ERROR;
+        set_attr_err();
         main_print(pkt_txt);
         return;
     }
@@ -295,7 +295,7 @@ static void h_privmsg_notice(void)
                     if (end) *end = 0;
 
                     if (target[0] == '#') {
-                        current_attr = ATTR_MSG_CHAN;
+                        set_attr_chan();
                         main_puts2(S_ASTERISK, pkt_usr);
                         main_putc(' '); main_print(act);
                     } else {
@@ -304,7 +304,7 @@ static void h_privmsg_notice(void)
                             status_bar_dirty = 1;
                             mark_channel_activity((uint8_t)query_idx);
                         }
-                        current_attr = ATTR_MSG_PRIV;
+                        set_attr_priv();
                         main_puts2(S_ASTERISK, pkt_usr);
                         main_putc(' '); main_print(act);
                     }
@@ -339,16 +339,16 @@ static void h_privmsg_notice(void)
     }
 
     if (target[0] == '#') {
-        current_attr = ATTR_MSG_CHAN;
+        set_attr_chan();
         main_print_time_prefix();
 
-        current_attr = ATTR_MSG_NICK;
+        set_attr_nick();
         
         // FUSIÓN SEGURA
         main_puts2("<", pkt_usr);
         main_puts(S_PROMPT);
         
-        current_attr = ATTR_MSG_CHAN;
+        set_attr_chan();
 
         main_print_wrapped_ram(pkt_txt);
 
@@ -371,17 +371,17 @@ static void h_privmsg_notice(void)
             main_puts2(S_ARROW_IN, pkt_usr);
             main_puts(S_COLON_SP);
             
-            current_attr = ATTR_MSG_PRIV;
+            set_attr_priv();
 
             main_print_wrapped_ram(pkt_txt);
         } else {
-            current_attr = ATTR_MSG_NICK;
+            set_attr_nick();
             
             // FUSIÓN SEGURA
             main_puts2("<", pkt_usr);
             main_puts(S_PROMPT);
             
-            current_attr = ATTR_MSG_PRIV;
+            set_attr_priv();
 
             main_print_wrapped_ram(pkt_txt);
         }
@@ -403,14 +403,17 @@ static void h_privmsg_notice(void)
 
 static void h_join(void)
 {
-    char *chan = (*pkt_txt) ? pkt_txt : pkt_par;
+    // Channel is first param; fallback to pkt_txt only if pkt_par is empty
+    // (some servers send ":nick JOIN :#chan" where chan goes to trailing)
+    // IRCv3 extended-join: ":nick JOIN #chan account :realname" — pkt_txt is realname
+    char *chan = (pkt_par[0] == '#' || pkt_par[0] == '&') ? pkt_par : pkt_txt;
     if (*chan == ':') chan++;
     
     if (st_stricmp(pkt_usr, irc_nick) == 0) {
         // NO timestamp for "Now talking in ..."
         wrap_indent = 0;
 
-        current_attr = ATTR_MSG_PRIV;
+        set_attr_priv();
         main_puts("Now talking in "); main_print(chan);
 
         int8_t idx = find_channel(chan);
@@ -434,17 +437,17 @@ static void h_join(void)
             if (is_tracked_friend(pkt_usr)) {
                 mention_beep();
                 main_print_time_prefix();
-                current_attr = ATTR_MSG_PRIV;
+                set_attr_priv();
                 main_puts2("Friend alert: ", pkt_usr);
-                main_puts(" joined ");
+                main_puts(S_JOINED_SP);
                 main_print(chan);
             }
 
             if ((uint8_t)idx == current_channel_idx) {
                 main_print_time_prefix();
-                current_attr = ATTR_MSG_JOIN;
+                set_attr_join();
                 main_puts2(S_ARROW_OUT, pkt_usr);
-                main_puts(" joined ");
+                main_puts(S_JOINED_SP);
                 main_print(chan);
                 draw_status_bar();
             }
@@ -471,7 +474,7 @@ static void h_part(void)
     if (idx >= 0) {
         if (st_stricmp(pkt_usr, irc_nick) == 0) {
             remove_channel((uint8_t)idx);
-            current_attr = ATTR_MSG_JOIN;
+            set_attr_join();
             main_print_time_prefix();
             main_puts(S_YOU_LEFT);
             main_print(chan);
@@ -479,7 +482,7 @@ static void h_part(void)
             channel_dec_users(idx);
 
             if ((uint8_t)idx == current_channel_idx) {
-                current_attr = ATTR_MSG_JOIN;
+                set_attr_join();
                 main_print_time_prefix();
                 
                 // FIX BUG-07: Era main_puts2(S_ARROW_IN, S_ARROW_IN) -> "<< << "
@@ -499,7 +502,7 @@ static void h_quit(void)
 {
     if (show_quits) {
         main_print_time_prefix();
-        current_attr = ATTR_MSG_JOIN;
+        set_attr_join();
         
         // FIX BUG-07: Era main_puts2(S_ARROW_IN, S_ARROW_IN) -> "<< << "
         main_puts(S_ARROW_IN);
@@ -545,7 +548,7 @@ static void h_kick(void)
 
     if (st_stricmp(target, irc_nick) == 0) {
         main_print_time_prefix();
-        current_attr = ATTR_ERROR;
+        set_attr_err();
         main_puts2("Kicked from ", channel);
         main_puts2(" by ", pkt_usr);
         print_reason_and_newline();
@@ -555,7 +558,7 @@ static void h_kick(void)
         if (idx >= 0) {
             if ((uint8_t)idx == current_channel_idx) {
                 main_print_time_prefix();
-                current_attr = ATTR_MSG_JOIN;
+                set_attr_join();
                 main_puts2(S_ASTERISK, target);
                 main_puts2(" kicked by ", pkt_usr);
                 print_reason_and_newline();
@@ -577,7 +580,7 @@ static void h_kill(void)
     main_print_time_prefix();
     
     if (target && st_stricmp(target, irc_nick) == 0) {
-        current_attr = ATTR_ERROR;
+        set_attr_err();
         main_puts2("*** Killed by ", pkt_usr);
         if (pkt_txt && *pkt_txt) {
             main_puts(S_COLON_SP);
@@ -588,7 +591,7 @@ static void h_kill(void)
         }
         handle_connection_drop();
     } else {
-        current_attr = ATTR_MSG_JOIN;
+        set_attr_join();
         main_puts(S_ASTERISK); if (target) main_puts(target);
         main_puts2(" killed by ", pkt_usr);
     }
@@ -598,7 +601,7 @@ static void h_kill(void)
 
 static void h_error(void)
 {
-    current_attr = ATTR_ERROR;
+    set_attr_err();
     main_puts("*** Server: ");
     if (pkt_txt && *pkt_txt) main_print(pkt_txt); else main_print("Connection terminated");
     handle_connection_drop();
@@ -608,7 +611,7 @@ static void h_numeric_401(void)
 {
     const char *bad_nick = irc_param(1);
     
-    current_attr = ATTR_ERROR;
+    set_attr_err();
     main_puts2("Error: ", bad_nick);
     main_putc(' ');
     main_print(pkt_txt);
@@ -627,7 +630,7 @@ static void h_numeric_433(void)
 {
     // Only auto-retry if not yet registered
     if (connection_state >= STATE_IRC_READY) {
-        current_attr = ATTR_ERROR;
+        set_attr_err();
         main_print("Nick already in use");
         return;
     }
@@ -642,15 +645,15 @@ static void h_numeric_451(void)
 {
     if (pagination_active || search_mode != SEARCH_NONE) {
         cancel_search_state();
-        current_attr = ATTR_ERROR;
+        set_attr_err();
         main_print("Search aborted (not registered)");
         return;
     }
     
-    current_attr = ATTR_ERROR;
+    set_attr_err();
     main_print("*** Session expired");
     handle_connection_drop();
-    current_attr = ATTR_MSG_SYS; main_print("Use /server to reconnect");
+    set_attr_sys(); main_print("Use /server to reconnect");
 }
 
 static void h_numeric_305_306(void)
@@ -670,7 +673,7 @@ static void h_numeric_305_306(void)
     draw_status_bar();
     
     if (pkt_txt && *pkt_txt) {
-        current_attr = ATTR_MSG_SYS;
+        set_attr_sys();
         main_print(pkt_txt);
     }
 }
@@ -692,7 +695,7 @@ static uint8_t pagination_inc(void) {
         return 0;
     }
     cancel_search_state();
-    current_attr = ATTR_ERROR;
+    set_attr_err();
     main_print("Result limit");
     return 1;
 }
@@ -707,7 +710,7 @@ static void h_numeric_353(void)
     names_timeout_frames = 0;
     names_pending = 1;
 
-    // Recuento de usuarios (sin cambiar lógica)
+    // Accumulate user count in temp variable (only committed on 366)
     {
         char *p = pkt_txt;
         uint16_t count = 0;
@@ -716,16 +719,16 @@ static void h_numeric_353(void)
         while (*p) { if (*p == ' ') count++; p++; }
 
         if (counting_new_users) {
-            chan_user_count = count;
+            names_count_acc = count;
             counting_new_users = 0;
         } else {
-            chan_user_count += count;
+            names_count_acc += count;
         }
     }
 
     // Render /names
     if (show_names_list) {
-        current_attr = ATTR_MSG_NICK;
+        set_attr_nick();
         main_print_wrapped_ram(pkt_txt);
         
         if (pagination_inc()) return;
@@ -745,17 +748,26 @@ static void h_numeric_366(void)
         names_target_channel[0] = '\0';
     }
     
+    // Commit user count to status bar ONLY from JOIN-initiated NAMES
+    // (show_names_list=0 means this was triggered by JOIN, not /names)
+    // /names is unreliable due to buffer limits on large channels
+    if (!show_names_list && names_count_acc > 0) {
+        chan_user_count = names_count_acc;
+    }
+    
     // Finalizar paginación de /names
     if (show_names_list && pagination_active) {
-        current_attr = ATTR_MSG_SYS;
+        set_attr_sys();
         if (pagination_count > 0) {
             char buf[8];
-            u16_to_dec3(buf, chan_user_count);
+            u16_to_dec3(buf, names_count_acc);
             main_puts2("-- ", buf);
-            main_print(search_data_lost ? " (incomplete) --" : " users --");
+            main_print(search_data_lost ? " (incomplete) --" : " listed --");
         }
         pagination_active = 0;
         pagination_count = 0;
+        cursor_visible = 1;
+        redraw_input_full();
     }
     
     show_names_list = 0; 
@@ -782,13 +794,13 @@ static void h_end_of_list(void)
 
     uint8_t data_lost = search_data_lost;
     
-    current_attr = ATTR_MSG_SYS;
+    set_attr_sys();
     if (pagination_count > 0) {
         main_print(data_lost ? "-- Done (incomplete) --" : "-- Done --");
     } else if (search_header_rcvd == 1 || search_mode == SEARCH_USER) {
         main_print("-- No matches --");
     } else {
-        current_attr = ATTR_ERROR;
+        set_attr_err();
         main_print("Search denied");
     }
     
@@ -798,12 +810,12 @@ static void h_end_of_list(void)
 // D9: Shared preamble for search result index rendering
 static void search_render_index(void) {
     search_index++;
-    current_attr = ATTR_MSG_SYS;
+    set_attr_sys();
     main_putc(' ');
     main_run_u16(search_index, ATTR_MSG_SYS);
-    current_attr = ATTR_MSG_SYS;
+    set_attr_sys();
     main_puts(S_DOT_SP);
-    current_attr = ATTR_MSG_NICK;
+    set_attr_nick();
 }
 
 static void h_numeric_322_352(void)
@@ -833,12 +845,12 @@ static void h_numeric_322_352(void)
         len = st_strlen(chan);
         if (len & 1) { main_putc(' '); }
 
-        current_attr = ATTR_MSG_CHAN;
+        set_attr_chan();
         main_puts2(" (", users);
         main_putc(')');
 
         if (pkt_txt && *pkt_txt) {
-            current_attr = ATTR_MSG_CHAN;
+            set_attr_chan();
             main_putc(' ');
             len = 0;
             t = pkt_txt;
@@ -870,7 +882,7 @@ static void h_numeric_322_352(void)
         search_render_index();
         main_puts(nick);
 
-        current_attr = ATTR_MSG_CHAN;
+        set_attr_chan();
         main_puts2(" [", user);
         main_putc('@');
         main_puts2(host, "]");
@@ -905,7 +917,7 @@ static void h_numeric_303(void)
     if (*p == ':') p++;
     if (!*p) return;  // No friends online
     
-    current_attr = ATTR_MSG_PRIV;
+    set_attr_priv();
     main_puts("Friends online: ");
     main_print(p);
 }
@@ -944,7 +956,7 @@ static void h_join_error(void)
     // Param 0: Nick, Param 1: Canal
     const char *bad_chan = irc_param(1);
     
-    current_attr = ATTR_ERROR;
+    set_attr_err();
     main_puts("Cannot join "); 
     if (bad_chan && *bad_chan) main_print(bad_chan);
     else main_print("channel");
@@ -984,7 +996,7 @@ static void h_numeric_default(void)
         // Si estábamos paginando o buscando, cancelamos para ver el error
         if (pagination_active || search_mode != SEARCH_NONE) cancel_search_state();
 
-        current_attr = ATTR_ERROR;
+        set_attr_err();
         main_puts2("Err ", pkt_cmd); main_puts(S_COLON_SP);
 
         goto print_tail;
@@ -1032,7 +1044,7 @@ static void h_default_cmd(void)
     // FIX: Suprimir output de comandos no reconocidos durante búsqueda activa
     if (pagination_active && search_mode != SEARCH_NONE) return;
     
-    current_attr = ATTR_MSG_SYS;
+    set_attr_sys();
     main_puts2(">< ", pkt_cmd);
     if (*pkt_par) { main_putc(' '); main_puts(pkt_par); }
     if (*pkt_txt) { main_puts2(S_SP_COLON, pkt_txt); }

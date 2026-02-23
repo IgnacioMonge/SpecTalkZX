@@ -35,7 +35,6 @@ RING_MASK       EQU 0x07FF      ; Mask for ring buffer wrap (2048-1)
 ; PUBLIC FUNCTIONS (visible from C)
 ; =============================================================================
 PUBLIC _set_border
-PUBLIC _notification_beep
 PUBLIC _check_caps_toggle
 PUBLIC _key_shift_held
 PUBLIC _input_cache_invalidate
@@ -174,15 +173,6 @@ beep_loop:
 
     pop iy
     ret
-
-
-; -----------------------------------------------------------------------------
-; void notification_beep(void)  -- privado (doble beep corto)
-; -----------------------------------------------------------------------------
-PUBLIC _notification_beep
-_notification_beep:
-    ; Igualar sonido de privado al de mención y evitar código duplicado.
-    jp _mention_beep
 
 
 ; -----------------------------------------------------------------------------
@@ -2301,25 +2291,57 @@ EXTERN _current_attr
 EXTERN _time_hour
 EXTERN _time_minute
 EXTERN _ATTR_MSG_TIME
+EXTERN _last_ts_hour
+EXTERN _last_ts_minute
 
 ; -----------------------------------------------------------------------------
 ; void main_print_time_prefix(void)
 ; Prints "HH:MM| " using ATTR_MSG_TIME, then restores current_attr.
-; If show_timestamps==0: wrap_indent=0 and return.
-; Sets wrap_indent=7 when printed.
+; show_timestamps: 0=off, 1=always, 2=on-change (only when HH:MM differs)
+; Sets wrap_indent=7 when printed, 0 when skipped.
 ; -----------------------------------------------------------------------------
 PUBLIC _main_print_time_prefix
 _main_print_time_prefix:
     push ix
     push iy
 
-    ; if (!show_timestamps) { wrap_indent = 0; return; }
     ld a, (_show_timestamps)
     or a
-    jr nz, mptp_do
-    xor a
+    jr z, mptp_off          ; mode 0: off
+
+    cp 2
+    jr nz, mptp_do          ; mode 1: always print
+
+    ; mode 2: on-change — check if HH:MM matches last printed
+    ld a, (_time_hour)
+    ld b, a
+    ld a, (_last_ts_hour)
+    cp b
+    jr nz, mptp_changed     ; hour differs
+    ld a, (_time_minute)
+    ld b, a
+    ld a, (_last_ts_minute)
+    cp b
+    jr nz, mptp_changed     ; minute differs
+
+    ; Same time — print spaces as indent (7 chars) instead of timestamp
+    ld a, 7
     ld (_wrap_indent), a
+    ld b, 7
+mptp_spaces:
+    push bc
+    ld l, ' '
+    call _main_putc
+    pop bc
+    djnz mptp_spaces
     jr mptp_ret
+
+mptp_changed:
+    ; Update last printed time
+    ld a, (_time_hour)
+    ld (_last_ts_hour), a
+    ld a, (_time_minute)
+    ld (_last_ts_minute), a
 
 mptp_do:
     ; saved_attr = current_attr
@@ -2354,6 +2376,11 @@ mptp_do:
 
     ; wrap_indent = 7
     ld a, 7
+    ld (_wrap_indent), a
+    jr mptp_ret
+
+mptp_off:
+    xor a
     ld (_wrap_indent), a
 
 mptp_ret:
@@ -2982,6 +3009,8 @@ isci_crlf:
 PUBLIC _esx_fopen
 PUBLIC _esx_fread
 PUBLIC _esx_fclose
+PUBLIC _esx_fcreate
+PUBLIC _esx_fwrite
 
 ; Globals for parameter passing (set from C before calling)
 PUBLIC _esx_handle
@@ -3057,6 +3086,50 @@ _esx_fclose:
     ld a, (_esx_handle)
     rst 8
     defb 0x9B           ; F_CLOSE
+    pop ix
+    pop iy
+    ret
+
+; -----------------------------------------------------------------------------
+; void esx_fcreate(const char *path) __z88dk_fastcall
+; Open file for writing (create/truncate). Sets _esx_handle.
+; -----------------------------------------------------------------------------
+_esx_fcreate:
+    push iy
+    push ix
+    push hl
+    pop ix              ; IX = HL = path
+    ld a, '*'           ; default drive
+    ld b, $0E           ; FA_WRITE | FA_CREATE_AL | FA_TRUNC
+    rst 8
+    defb 0x9A           ; F_OPEN
+    jr nc, esxfc_ok
+    xor a
+esxfc_ok:
+    ld (_esx_handle), a
+    pop ix
+    pop iy
+    ret
+
+; -----------------------------------------------------------------------------
+; void esx_fwrite(void)
+; Write _esx_count bytes from _esx_buf to _esx_handle.
+; Sets _esx_result = bytes written.
+; -----------------------------------------------------------------------------
+_esx_fwrite:
+    push iy
+    push ix
+    ld a, (_esx_handle)
+    ld hl, (_esx_buf)
+    push hl
+    pop ix              ; IX = buffer source
+    ld bc, (_esx_count)
+    rst 8
+    defb 0x9E           ; F_WRITE
+    jr nc, esxfw_ok
+    ld bc, 0
+esxfw_ok:
+    ld (_esx_result), bc
     pop ix
     pop iy
     ret
@@ -3200,3 +3273,614 @@ u8a_tbl_c0:
     defb 'e','e','e','e','i','i','i','i'  ; E8-EF: èéêëìíîï
     defb 'o','n','o','o','o','o','o','/'  ; F0-F7: ðñòóôõö÷
     defb 'o','u','u','u','u','y','t','y'  ; F8-FF: øùúûüýþÿ
+
+; =============================================================================
+; void sntp_process_response(const char *line) __z88dk_fastcall
+; Parses AT+CIPSNTPTIME? response to extract HH:MM:SS
+; HL = line pointer
+; Response format: +CIPSNTPTIME:Thu Jan 01 00:00:00 1970
+; =============================================================================
+PUBLIC _sntp_process_response
+EXTERN _sntp_waiting
+EXTERN _sntp_queried
+EXTERN _time_hour
+EXTERN _time_minute
+EXTERN _time_second
+EXTERN _tick_counter
+EXTERN _draw_status_bar
+
+_sntp_process_response:
+    ; Validate: if (!line || !*line) return
+    ld a, h
+    or l
+    ret z
+    ld a, (hl)
+    or a
+    ret z
+
+    ; Count length into B, keep HL = start
+    push hl
+    ld b, 0
+spr_len:
+    ld a, (hl)
+    or a
+    jr z, spr_len_done
+    inc hl
+    inc b
+    jr nz, spr_len     ; max 255
+spr_len_done:
+    pop hl              ; HL = line start, B = len
+
+    ; if (len < 20) return
+    ld a, b
+    cp 20
+    ret c
+
+    ; if (line[0] != '+' || line[1] != 'C') return
+    ld a, (hl)
+    cp '+'
+    ret nz
+    inc hl
+    ld a, (hl)
+    cp 'C'
+    ret nz
+    dec hl              ; HL = line start again
+
+    ; Check for "1970" at end: line[len-4..len-1]
+    ; DE = line + len - 4
+    push hl
+    ld c, b             ; C = len (save)
+    ld a, b
+    sub 4
+    ld e, a
+    ld d, 0
+    add hl, de          ; HL = &line[len-4]
+    ld a, (hl)
+    cp '1'
+    jr nz, spr_no1970
+    inc hl
+    ld a, (hl)
+    cp '9'
+    jr nz, spr_no1970
+    inc hl
+    ld a, (hl)
+    cp '7'
+    jr nz, spr_no1970
+    inc hl
+    ld a, (hl)
+    cp '0'
+    jr nz, spr_no1970
+    ; It's 1970 — ESP not synced yet
+    pop hl
+    xor a
+    ld (_sntp_waiting), a
+    ret
+
+spr_no1970:
+    pop hl              ; HL = line start
+    ; C = len (still)
+
+    ; Search for HH:MM:SS pattern starting at offset 13
+    ; Pattern: line[i] in '0'..'2', line[i+2]==':',  line[i+5]==':'
+    ; Loop from i=13 to i < len-7
+    ld a, c
+    sub 7
+    ld b, a             ; B = len-7 (upper bound exclusive)
+
+    ; Advance HL to line+13
+    push hl             ; save line start on stack
+    ld de, 13
+    add hl, de          ; HL = &line[13]
+    ld e, 13            ; E = i (current index)
+
+spr_scan:
+    ld a, e
+    cp b
+    jr nc, spr_scan_bail ; i >= len-7
+    jr spr_scan_ok
+
+spr_scan_bail:
+    jp spr_notfound
+
+spr_scan_ok:
+
+    ; Check line[i] >= '0' && line[i] <= '2'
+    ld a, (hl)
+    cp '0'
+    jr c, spr_next
+    cp '3'              ; '2'+1
+    jr nc, spr_next
+
+    ; Check line[i+2] == ':'
+    push hl
+    inc hl
+    inc hl
+    ld a, (hl)
+    pop hl
+    cp ':'
+    jr nz, spr_next
+
+    ; Check line[i+5] == ':'
+    push hl
+    inc hl
+    inc hl
+    inc hl
+    inc hl
+    inc hl
+    ld a, (hl)
+    pop hl
+    cp ':'
+    jr nz, spr_next
+
+    ; === FOUND HH:MM:SS at HL ===
+    ; Parse hour: (HL[0]-'0')*10 + (HL[1]-'0')
+    ld a, (hl)
+    sub '0'
+    ld c, a             ; tens
+    add a, a            ; *2
+    add a, a            ; *4
+    add a, c            ; *5
+    add a, a            ; *10
+    inc hl
+    ld c, a             ; C = tens*10
+    ld a, (hl)
+    sub '0'
+    add a, c
+    ld (_time_hour), a
+
+    ; Skip ':'
+    inc hl              ; HL -> ':'
+    inc hl              ; HL -> minute tens
+
+    ; Parse minute
+    ld a, (hl)
+    sub '0'
+    ld c, a
+    add a, a
+    add a, a
+    add a, c
+    add a, a
+    inc hl
+    ld c, a
+    ld a, (hl)
+    sub '0'
+    add a, c
+    ld (_time_minute), a
+
+    ; Skip ':'
+    inc hl
+    inc hl
+
+    ; Parse second
+    ld a, (hl)
+    sub '0'
+    ld c, a
+    add a, a
+    add a, a
+    add a, c
+    add a, a
+    inc hl
+    ld c, a
+    ld a, (hl)
+    sub '0'
+    add a, c
+    ld (_time_second), a
+
+    ; Validate ranges: hour < 24, minute < 60, second < 60
+    ld a, (_time_hour)
+    cp 24
+    jr nc, spr_invalid      ; invalid hour
+    ld a, (_time_minute)
+    cp 60
+    jr nc, spr_invalid      ; invalid minute
+    ld a, (_time_second)
+    cp 60
+    jr nc, spr_invalid      ; invalid second
+
+    ; tick_counter = 0, sntp_waiting = 0, sntp_queried = 1
+    xor a
+    ld (_tick_counter), a
+    ld (_sntp_waiting), a
+    ld a, 1
+    ld (_sntp_queried), a
+
+    pop hl              ; clean stack (line start)
+    jp _draw_status_bar ; tail call
+
+spr_next:
+    inc hl
+    inc e
+    jp spr_scan
+
+spr_notfound:
+    pop hl              ; clean stack (line start)
+    xor a
+    ld (_sntp_waiting), a
+    ret
+
+spr_invalid:
+    pop hl              ; clean stack (line start)
+    ret                 ; keep sntp_waiting=1 so it retries
+
+; =============================================================================
+; uint8_t read_key(void)
+; Keyboard handler with debounce and auto-repeat.
+; Returns key code in L (0 = no key)
+; Uses globals: last_k, repeat_timer, debounce_zero
+; Calls: in_inkey()
+; =============================================================================
+PUBLIC _read_key
+EXTERN _in_inkey
+EXTERN _last_k
+EXTERN _repeat_timer
+EXTERN _debounce_zero
+
+DEFC RK_KEY_LEFT = 8
+DEFC RK_KEY_RIGHT = 9
+DEFC RK_KEY_DOWN = 10
+DEFC RK_KEY_UP = 11
+DEFC RK_KEY_BS = 12
+
+_read_key:
+    push iy
+    call _in_inkey      ; L = key (0 if none)
+    pop iy
+    ld a, l
+    or a
+    jr nz, rk_got_key
+
+    ; k == 0: clear state
+    xor a
+    ld (_last_k), a
+    ld (_repeat_timer), a
+    ; if (debounce_zero) debounce_zero--
+    ld a, (_debounce_zero)
+    or a
+    jr z, rk_ret_zero
+    dec a
+    ld (_debounce_zero), a
+rk_ret_zero:
+    ld l, 0
+    ret
+
+rk_got_key:
+    ld b, a             ; B = k
+
+    ; if (k == '0' && debounce_zero > 0) → suppress
+    cp '0'
+    jr nz, rk_check_new
+    ld a, (_debounce_zero)
+    or a
+    jr z, rk_check_new
+    dec a
+    ld (_debounce_zero), a
+    ld l, 0
+    ret
+
+rk_check_new:
+    ; if (k != last_k) → new key
+    ld a, (_last_k)
+    cp b
+    jr z, rk_repeat
+
+    ; --- Case fold check: ignore Shift release (e.g. 'S' → 's') ---
+    ; lk_fold = last_k | 32, k_fold = k | 32
+    ; if k_fold == lk_fold && lk_fold in 'a'..'z' → suppress
+    ld c, a             ; C = last_k
+    or 32               ; A = last_k | 32
+    ld d, a             ; D = lk_fold
+    ld a, b
+    or 32               ; A = k | 32
+    cp d
+    jr nz, rk_new_emit
+    ; Both fold to same letter — check if letter
+    ld a, d
+    cp 'a'
+    jr c, rk_new_emit
+    cp 'z'+1
+    jr nc, rk_new_emit
+    ; Same letter, just shift change — update but don't emit
+    ld a, b
+    ld (_last_k), a
+    ld l, 0
+    ret
+
+rk_new_emit:
+    ; last_k = k
+    ld a, b
+    ld (_last_k), a
+
+    ; Set repeat_timer based on key type
+    cp RK_KEY_BS
+    jr z, rk_new_bs
+    cp RK_KEY_LEFT
+    jr z, rk_new_arrow
+    cp RK_KEY_RIGHT
+    jr z, rk_new_arrow
+    ; Default: repeat_timer = 20
+    ld a, 20
+    jr rk_new_set_timer
+
+rk_new_bs:
+    ld a, 12
+    ld (_repeat_timer), a
+    ld a, 8
+    ld (_debounce_zero), a
+    ld l, b
+    ret
+
+rk_new_arrow:
+    ld a, 15
+rk_new_set_timer:
+    ld (_repeat_timer), a
+    ; debounce_zero = 0 (non-backspace)
+    xor a
+    ld (_debounce_zero), a
+    ld l, b
+    ret
+
+rk_repeat:
+    ; k == last_k → auto-repeat handling
+
+    ; if (k == KEY_BACKSPACE) debounce_zero = 8
+    ld a, b
+    cp RK_KEY_BS
+    jr nz, rk_rep_timer
+    ld a, 8
+    ld (_debounce_zero), a
+
+rk_rep_timer:
+    ; if (repeat_timer > 0) { repeat_timer--; return 0; }
+    ld a, (_repeat_timer)
+    or a
+    jr z, rk_rep_fire
+    dec a
+    ld (_repeat_timer), a
+    ld l, 0
+    ret
+
+rk_rep_fire:
+    ; Timer expired — emit based on key type
+    ld a, b
+    cp RK_KEY_BS
+    jr nz, rk_rep_lr
+    ld a, 1
+    ld (_repeat_timer), a
+    ld l, b
+    ret
+
+rk_rep_lr:
+    cp RK_KEY_LEFT
+    jr z, rk_rep_lr_emit
+    cp RK_KEY_RIGHT
+    jr z, rk_rep_lr_emit
+    cp RK_KEY_UP
+    jr z, rk_rep_ud
+    cp RK_KEY_DOWN
+    jr z, rk_rep_ud
+    ; Other keys: no repeat
+    ld l, 0
+    ret
+
+rk_rep_lr_emit:
+    ld a, 2
+    ld (_repeat_timer), a
+    ld l, b
+    ret
+
+rk_rep_ud:
+    ld a, 5
+    ld (_repeat_timer), a
+    ld l, b
+    ret
+
+; =============================================================================
+; int8_t find_query(const char *nick) __z88dk_fastcall
+; Search for a nick in channels[]. Returns slot index or -1.
+; HL = nick pointer
+; Returns: L = slot index (0..N) or 0xFF (-1)
+; =============================================================================
+PUBLIC _find_query
+EXTERN _st_stricmp
+EXTERN _channels        ; ChannelInfo[10], 32 bytes each
+EXTERN _channel_count
+EXTERN _irc_server
+EXTERN _S_CHANSERV
+EXTERN _S_NICKSERV
+EXTERN _S_GLOBAL
+
+DEFC FQ_CH_SIZE = 32
+DEFC FQ_FLAGS_OFS = 30
+DEFC FQ_FLAG_ACTIVE = 0x01
+DEFC FQ_FLAG_QUERY = 0x02
+
+_find_query:
+    ; Validate: if (!nick || !*nick) return -1
+    ld a, h
+    or l
+    jr z, fq_bail_neg1
+    ld a, (hl)
+    or a
+    jr z, fq_bail_neg1
+    jr fq_valid
+
+fq_bail_neg1:
+    ld l, 0xFF
+    ret
+
+fq_valid:
+
+    push iy             ; preserve sdcc frame pointer
+
+    ; Save nick in IY for repeated use
+    push hl
+    pop iy              ; IY = nick
+
+    ; Service filter: check first char (lowercase)
+    or 0x20             ; A = nick[0] | 0x20
+    cp 'c'
+    jr nz, fq_not_c
+    ; st_stricmp(nick, S_CHANSERV) == 0 → return 0
+    push iy
+    ld hl, _S_CHANSERV
+    push hl
+    call _st_stricmp
+    pop af
+    pop af
+    ld a, l
+    or h
+    jr z, fq_ret_0
+    jr fq_check_server
+
+fq_not_c:
+    cp 'n'
+    jr nz, fq_not_n
+    push iy
+    ld hl, _S_NICKSERV
+    push hl
+    call _st_stricmp
+    pop af
+    pop af
+    ld a, l
+    or h
+    jr z, fq_ret_0
+    jr fq_check_server
+
+fq_not_n:
+    cp 'g'
+    jr nz, fq_check_server
+    push iy
+    ld hl, _S_GLOBAL
+    push hl
+    call _st_stricmp
+    pop af
+    pop af
+    ld a, l
+    or h
+    jr z, fq_ret_0
+
+fq_check_server:
+    ; if (irc_server[0] && st_stricmp(nick, irc_server) == 0) return 0
+    ld a, (_irc_server)
+    or a
+    jr z, fq_loop_init
+    push iy
+    ld hl, _irc_server
+    push hl
+    call _st_stricmp
+    pop af
+    pop af
+    ld a, l
+    or h
+    jr z, fq_ret_0
+
+fq_loop_init:
+    ; Loop: for i=1; i < channel_count; i++
+    ; DE = &channels[1] = channels + 32
+    ld de, _channels + FQ_CH_SIZE
+    ld b, 1             ; B = i
+
+fq_loop:
+    ld a, (_channel_count)
+    cp b
+    jr z, fq_ret_neg1_iy ; i >= channel_count
+    jr c, fq_ret_neg1_iy
+
+    ; Check flags: (ch->flags & (ACTIVE|QUERY)) == (ACTIVE|QUERY)
+    ; flags at offset 30 from DE
+    push de             ; save ch base
+    ld hl, FQ_FLAGS_OFS
+    add hl, de          ; HL = &ch->flags
+    ld a, (hl)
+    pop de              ; restore ch base
+    and FQ_FLAG_ACTIVE | FQ_FLAG_QUERY
+    cp FQ_FLAG_ACTIVE | FQ_FLAG_QUERY
+    jr nz, fq_next
+
+    ; st_stricmp(ch->name, nick) — name at offset 0, so DE = &ch->name
+    push de             ; save ch base
+    push bc             ; save i
+    push iy             ; arg1: nick
+    push de             ; arg2: ch->name
+    call _st_stricmp
+    pop af              ; clean arg2
+    pop af              ; clean arg1
+    ; HL = result (0 if equal)
+    ld a, l
+    or h
+    pop bc              ; restore i
+    pop de              ; restore ch base
+    jr z, fq_found      ; match!
+
+fq_next:
+    ; DE += 32 (next channel)
+    ld hl, FQ_CH_SIZE
+    add hl, de
+    ex de, hl           ; DE = next ch
+    inc b
+    jr fq_loop
+
+fq_found:
+    ; Return B (= i)
+    pop iy
+    ld l, b
+    ret
+
+fq_ret_0:
+    pop iy
+    ld l, 0
+    ret
+
+fq_ret_neg1_iy:
+    pop iy
+    ld l, 0xFF
+    ret
+
+; =============================================================================
+; Attribute setter helpers - saves 3 bytes per call vs inline assignment
+; current_attr = ATTR_X requires 6 bytes inline (ld a,(nn); ld (nn),a)
+; call _set_attr_X requires 3 bytes
+; =============================================================================
+PUBLIC _set_attr_sys
+PUBLIC _set_attr_err
+PUBLIC _set_attr_priv
+PUBLIC _set_attr_chan
+PUBLIC _set_attr_nick
+PUBLIC _set_attr_join
+EXTERN _current_attr
+EXTERN _ATTR_MSG_SERVER  ; ATTR_MSG_SYS = ATTR_MSG_SERVER
+EXTERN _ATTR_ERROR
+EXTERN _ATTR_MSG_PRIV
+EXTERN _ATTR_MSG_CHAN
+EXTERN _ATTR_MSG_NICK
+EXTERN _ATTR_MSG_JOIN
+
+_set_attr_sys:
+    ld a, (_ATTR_MSG_SERVER)
+    ld (_current_attr), a
+    ret
+
+_set_attr_err:
+    ld a, (_ATTR_ERROR)
+    ld (_current_attr), a
+    ret
+
+_set_attr_priv:
+    ld a, (_ATTR_MSG_PRIV)
+    ld (_current_attr), a
+    ret
+
+_set_attr_chan:
+    ld a, (_ATTR_MSG_CHAN)
+    ld (_current_attr), a
+    ret
+
+_set_attr_nick:
+    ld a, (_ATTR_MSG_NICK)
+    ld (_current_attr), a
+    ret
+
+_set_attr_join:
+    ld a, (_ATTR_MSG_JOIN)
+    ld (_current_attr), a
+    ret
