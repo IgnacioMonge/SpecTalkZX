@@ -422,6 +422,10 @@ static void h_join(void)
         if (idx < 0) { ui_err("Max channels reached"); return; }
         
         if ((uint8_t)idx != current_channel_idx) switch_to_channel((uint8_t)idx);
+
+        // GUARD: re-copy name to slot — workaround for observed corruption
+        // when joining channels rapidly while NAMES flood is in progress
+        st_copy_n(channels[idx].name, chan, sizeof(channels[0].name));
         
         channels[idx].user_count = 0;
         counting_new_users = 1;

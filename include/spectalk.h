@@ -366,9 +366,9 @@ extern uint8_t uart_drain_limit;
 
 
 // Print context (used by ASM)
-extern uint8_t g_ps64_y;
-extern uint8_t g_ps64_col;
-extern uint8_t g_ps64_attr;
+extern volatile uint8_t g_ps64_y;
+extern volatile uint8_t g_ps64_col;
+extern volatile uint8_t g_ps64_attr;
 // g_ps64_str solo se usa internamente en spectalk.c, no necesita extern
 
 // Caps lock

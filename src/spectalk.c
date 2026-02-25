@@ -607,6 +607,7 @@ void switch_to_channel(uint8_t idx) __z88dk_fastcall
 
     other_channel_activity = 0;
     set_border(BORDER_COLOR);
+    force_status_redraw = 1;
     status_bar_dirty = 1;
 }
 
@@ -758,10 +759,10 @@ static void history_nav_down(void)
 // CONTEXTO GLOBAL PARA RUTINAS DE IMPRESIÓN 64 COL
 // Estas variables son accedidas por el código ASM en spectalk_asm.asm
 // ============================================================
-uint8_t g_ps64_y;
-uint8_t g_ps64_col;
-uint8_t g_ps64_attr;
-const char *g_ps64_str;
+volatile uint8_t g_ps64_y;
+volatile uint8_t g_ps64_col;
+volatile uint8_t g_ps64_attr;
+const char * volatile g_ps64_str;
 
 
 void print_char64(uint8_t y, uint8_t col, uint8_t c, uint8_t attr) __z88dk_callee
@@ -1286,8 +1287,11 @@ void draw_status_bar_real(void)
         } else if (irc_channel[0]) {
             if (is_query) *p++ = '@';
             p = sb_format_channel(p, central_limit, cur_flags);
-        } else {
+        } else if (current_channel_idx == 0) {
             p = sb_append(p, (char*)sb_pick_status(0), central_limit - 1);
+        } else {
+            // BUG: active slot with empty name — show placeholder, not network
+            *p++ = '#'; *p++ = '?';
         }
 
         *p++ = ']';
