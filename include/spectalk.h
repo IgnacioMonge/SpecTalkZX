@@ -40,7 +40,7 @@ const char *theme_get_name(uint8_t theme_id);
 // =============================================================================
 // VERSION
 // =============================================================================
-#define VERSION "1.3.1"
+#define VERSION "1.3.2"
 
 // =============================================================================
 // SCREEN LAYOUT CONSTANTS
@@ -232,8 +232,6 @@ extern uint8_t show_quits;
 extern int8_t sntp_tz;
 extern char irc_pass[IRC_PASS_SIZE];
 extern char nickserv_pass[IRC_PASS_SIZE];
-extern uint8_t autoconnect;
-extern uint8_t show_timestamps;
 extern char user_mode[USER_MODE_SIZE];
 extern char network_name[NETWORK_NAME_SIZE];
 extern uint8_t connection_state;
@@ -561,15 +559,15 @@ void draw_banner(void);
 // Configuration file (esxDOS)
 uint8_t config_load(void);
 
-// esxDOS file I/O
-extern uint8_t esx_handle;
+// esxDOS file I/O (ASM in spectalk_asm.asm)
+extern void esx_fopen(const char *path) __z88dk_fastcall;
+extern void esx_fcreate(const char *path) __z88dk_fastcall;
+extern void esx_fread(void);
+extern void esx_fwrite(void);
+extern void esx_fclose(void);
+extern uint8_t  esx_handle;
 extern uint16_t esx_buf;
 extern uint16_t esx_count;
 extern uint16_t esx_result;
-void esx_fopen(const char *path) __z88dk_fastcall;
-void esx_fcreate(const char *path) __z88dk_fastcall;
-void esx_fread(void);
-void esx_fwrite(void);
-void esx_fclose(void);
 
 #endif // SPECTALK_H

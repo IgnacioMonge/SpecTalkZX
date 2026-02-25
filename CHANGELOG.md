@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+
+## [1.3.2] - 2026-02-25
+
+### Fixed
+
+#### WiFi Connection Check (false positive)
+- **Problem**: At startup, `AT+CIFSR` could return a stale cached IP from the ESP8266's flash memory even when not connected to any WiFi network (e.g., after a power outage before the router has restarted)
+- SpecTalkZX would report WiFi OK and attempt autoconnect, which then timed out
+- **Solution**: Added `AT+CWJAP?` verification after `AT+CIFSR` — confirms actual AP association before setting `STATE_WIFI_OK`
+
+#### Config Parser Hardening (cfg_apply)
+- **Problem**: Key fields like `nick`/`nickpass`, `autoconnect`/`autoaway`, and `friend1-3` were accessed by fixed character index (e.g., `key[4]`, `key[6]`) without validating key length
+- A malformed or truncated config line could cause accidental writes to wrong settings
+- **Solution**: Added `st_strlen(key)` check; `nick` requires exactly 4 chars, `nickpass` requires ≥8, `autoconnect`/`autoaway` requires ≥5, `friendN` requires exactly 7
+
+#### esxDOS File I/O Compilation
+- **Problem**: `/save` command referenced `esx_fcreate` and `esx_fwrite` which were missing from ASM and header files, causing compilation failures
+- **Solution**: Added `_esx_fcreate` (FA_WRITE | FA_CREATE_AL mode 0x0C) and `_esx_fwrite` (F_WRITE 0x9E) to `spectalk_asm.asm` with proper PUBLIC declarations and extern declarations in `spectalk.h`
+
+#### Font Glyph: Capital N
+- **Problem**: The capital N was visually ambiguous with W in the 4px-wide 64-column font
+- **Solution**: Adopted Π-shape glyph (horizontal bar + two verticals) as suggested by community — reads unambiguously as N in context
+
+#### Status Bar Clock Overlap
+- **Problem**: When channel modes were displayed (e.g., `#channel(+Cnst)`), the user count could extend into columns 54-55 where the clock is rendered, causing visual corruption
+- **Solution**: Changed `limit_end` from position 56 to 54 — left part of status bar now stops before the clock area
+
+#### `!status` Disconnected State
+- **Problem**: After `/quit`, `!status` still showed server info without indicating disconnected state
+- **Solution**: `!status` now appends `(off)` next to server info when `connection_state < STATE_TCP_CONNECTED`
+
+---
+
 ## [1.3.1] - 2026-02-23 "Persistence"
 
 ### Added
@@ -73,11 +106,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **New config option**: `autoconnect=1` connects automatically to configured server on startup
 - Combined with `nickpass=`, provides fully automated login experience
 - Eliminates manual `/server` command for regular users
+- Cursor properly restored if autoconnect fails (e.g., no WiFi, no server configured)
 
 #### NickServ Auto-Identification
 - **New config option**: `nickpass=` for automatic NickServ identification after connect
 - Separate from server password (`pass=`) for clarity
 - Sends `IDENTIFY <password>` to NickServ immediately after registration completes
+
+#### WiFi Connectivity Check
+- `esp_init()` now verifies actual WiFi connection via `AT+CIFSR` after ESP8266 responds
+- Detects "module powered but no WiFi" scenario (e.g., router not yet booted)
+- Sets `STATE_DISCONNECTED` instead of false `STATE_WIFI_OK` when no IP assigned
 
 #### Friends Detection System
 - **New config options**: `friend1=`, `friend2=`, `friend3=` to define up to 3 friend nicks
@@ -85,10 +124,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Status bar indicator shows when friends are online
 - WHOIS information displayed when friend comes online
 
-#### Timestamps Toggle
-- **New command**: `/timestamps` (alias `/ts`) toggles timestamp display
-- **New config option**: `timestamps=1` to enable by default
-- Timestamps now shown consistently on all message types when enabled
+#### Timestamps (3 modes)
+- **New command**: `/timestamps` (alias `/ts`) cycles through display modes
+- **New config option**: `timestamps=N` — 0=off, 1=always on, 2=smart (shows on minute change)
+- Smart mode reduces visual clutter while preserving time awareness
+- Timestamps shown consistently on all message types when enabled
+
+#### SNTP Time Sync
+- Automatic time synchronization via SNTP after WiFi connection and after reconnection
+- Retry logic for SNTP failures — retries 3 times before giving up
+- Timezone support via `tz=` config option (UTC -12 to +12)
 
 #### Ping Latency Indicator
 - Server response time measured and displayed after PING/PONG
@@ -108,10 +153,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+#### IRCv3 Extended JOIN Compatibility
+- **Problem**: Libera.Chat sends IRCv3 extended-join (`JOIN #channel accountname :Real Name`) where `pkt_txt` contains the real name instead of the channel
+- The old code `(*pkt_txt) ? pkt_txt : pkt_par` selected the real name as channel → failed to create window
+- **Solution**: Always use `pkt_par` when it starts with `#` or `&`; fall back to `pkt_txt` only for trailing-only format
+
+#### SNTP Time Validation
+- **Problem**: Corrupted SNTP responses (e.g., during WiFi dropout) could produce invalid times like "10:60"
+- **Solution**: Added range validation — rejects hour ≥ 24, minute ≥ 60, second ≥ 60
+
+#### NAMES User Count Preservation
+- **Problem**: `/names` command could overwrite the accurate user count (obtained at JOIN) with an incomplete count if the NAMES response was truncated
+- **Solution**: Added `names_count_acc` accumulator — only updates `chan_user_count` when ENDOFNAMES (366) confirms complete list
+
+#### Status Bar Mode/Network Priority
+- **Problem**: Channel modes `(+Cnst)` consumed space needed for user count, overlapping with other elements
+- **Solution**: Always drop modes first, then network name if still exceeding available space
+
 #### Reentrant Disconnection Bug
 - Fixed race condition where multiple disconnect triggers could corrupt state
 - Added `disconnecting_in_progress` guard flag
 - Prevents crashes during network instability
+
+#### AT Command Leakage
+- **Problem**: AT command responses could leak into IRC transparent mode under certain timing conditions
+- **Solution**: Improved ESP8266 state machine handling to properly separate AT and transparent modes
 
 #### Search Command Reliability
 - Fixed `rx_overflow` not being reset in `send_pending_search_command`
@@ -126,20 +192,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `wrap_indent=0` now correctly applied after QUIT/KICK/KILL messages
 - Prevents visual artifacts in subsequent messages
 
+#### Cursor Visibility
+- Fixed cursor not restored after `/quit` command
+- Fixed cursor not restored when autoconnect fails at startup
+
 ### Optimized
 
-#### Deep Code Optimization (4 passes)
+#### CRT Optimization (-startup=31)
+- Switched from default CRT to `-startup=31` (no stdio FILE structures)
+- Saves **3,062 bytes** — single largest optimization in the project history
+- All existing functionality preserved (SpecTalkZX uses direct UART, not stdio)
+
+#### Deep Code Optimization (12 passes)
+- **C refactoring**: Attribute setter helpers (`set_attr_sys/err/priv/chan/nick/join`) — 335 bytes saved
+- **Cursor wrappers**: Centralized cursor show/hide — ~100 bytes saved
+- **ASM rewrites**: `sntp_process_response` (91 bytes), `read_key` (70 bytes), `find_query` (35 bytes)
+- **String deduplication**: Consolidated 20+ duplicate string literals into shared constants — 49+ bytes
 - **Library function elimination**: Replaced `strstr`, `strncmp`, `strcmp` with specialized inline checks
-- **String deduplication**: Consolidated 20+ duplicate string literals into shared constants
 - **ASM hot paths**: Converted `print_char64`, `print_str64`, `irc_param` to optimized assembly
 - **SDCC codegen improvements**: Applied `__z88dk_fastcall` and `__z88dk_callee` conventions throughout
 - **Table compression**: Optimized command dispatch tables and help text pool
-- **Call fusion**: Combined consecutive `main_puts` calls with `main_puts2` helper
+- **Call fusion**: Combined consecutive `main_puts` calls with `main_puts2`/`main_puts3` helpers
+- **Status bar simplification**: Reduced branching in mode/network display logic — 36 bytes
 
 #### Memory Footprint
 - Reduced command history buffer from 128 to 96 bytes per entry (128 bytes BSS saved)
 - Eliminated unused static buffers
 - Consolidated toggle command implementations
+- Total binary: 40,123 → 36,314 bytes (**3,809 bytes saved, 9.49%**)
 
 ### Changed
 
@@ -149,11 +229,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Maintains backward compatibility with v1.2 config files
 
 ### Technical Notes
-- Multiple optimization passes applied (see optimization reports r1-r4)
-- Total estimated savings: ~500-800 bytes ROM across all optimizations
-- New ASM routines: `_utf8_to_ascii`, `_st_strchr`
+- New ASM routines: `_utf8_to_ascii`, `_st_strchr`, `_sntp_process_response`, `_read_key`, `_find_query`
+- New attribute setter ASM helpers: `_set_attr_sys`, `_set_attr_err`, `_set_attr_priv`, `_set_attr_chan`, `_set_attr_nick`, `_set_attr_join`
+- New variable: `names_count_acc` (NAMES accumulator)
 - New handlers: friends ISON/WHOIS processing
-- Config parser extended for: `autoconnect`, `nickpass`, `friend1-3`, `timestamps`
+- Config parser extended for: `autoconnect`, `nickpass`, `friend1-3`, `timestamps`, `tz`
 
 ---
 

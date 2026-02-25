@@ -1229,7 +1229,7 @@ static char *sb_format_channel(char *p, char *central_limit, uint8_t cur_flags)
 void draw_status_bar_real(void)
 {
     char *p = sb_left_part;
-    char *const limit_end = sb_left_part + 56;
+    char *const limit_end = sb_left_part + 54;  // cols 54+ reserved for clock
 
     uint8_t cur_flags = channels[current_channel_idx].flags;
     uint8_t is_query = (cur_flags & CH_FLAG_QUERY) && current_channel_idx != 0;
@@ -1308,7 +1308,7 @@ void draw_status_bar_real(void)
 
         if (force_status_redraw) {
             first = 0;
-            last = 55;
+            last = 53;
         } else {
             char *p_new = sb_left_part;
             char *p_old = sb_last_status;
@@ -1318,7 +1318,7 @@ void draw_status_bar_real(void)
                     if (first == 255) first = i;
                     last = i;
                 }
-            } while (++i < 56);
+            } while (++i < 54);
         }
 
         if (first != 255) {
@@ -1326,7 +1326,7 @@ void draw_status_bar_real(void)
             sb_left_part[last + 1] = 0;
             print_str64(INFO_LINE, first, sb_left_part + first, ATTR_STATUS);
             sb_left_part[last + 1] = saved;
-            memcpy(sb_last_status, sb_left_part, 57);
+            memcpy(sb_last_status, sb_left_part, 55);
             force_status_redraw = 0;
         }
     }
@@ -1776,7 +1776,34 @@ uint8_t esp_init(void)
                     }
                     closed_reported = 0;
                     if (has_ip) {
-                        connection_state = STATE_WIFI_OK;
+                        // Verify actual AP association (ESP may cache stale IP)
+                        uart_send_line("AT+CWJAP?");
+                        rx_pos = 0;
+                        has_ip = 0;  // Reset - must confirm AP
+                        {
+                            uint8_t w2;
+                            for (w2 = 0; w2 < 100; w2++) {
+                                HALT(); uart_drain_to_buffer();
+                                if (try_read_line_nodrain()) {
+                                    // +CWJAP:"ssid"... means connected
+                                    if (rx_line[0] == '+' && rx_line[1] == 'C' &&
+                                        rx_line[2] == 'W' && rx_line[3] == 'J') {
+                                        has_ip = 1;
+                                    }
+                                    // "No AP" means not connected
+                                    if (rx_line[0] == 'N' && rx_line[1] == 'o') {
+                                        has_ip = 0;
+                                    }
+                                    if (rx_line[0] == 'O' && rx_line[1] == 'K') break;
+                                    rx_pos = 0;
+                                }
+                            }
+                        }
+                        if (has_ip) {
+                            connection_state = STATE_WIFI_OK;
+                        } else {
+                            connection_state = STATE_DISCONNECTED;
+                        }
                     } else {
                         connection_state = STATE_DISCONNECTED;
                     }
@@ -2107,11 +2134,12 @@ static uint16_t cfg_try_read(const char *path) __z88dk_fastcall {
 static void cfg_apply(char *key, char *val) {
     // 2-char dispatch: fast and tiny
     uint8_t k0 = key[0], k1 = key[1];
+    uint8_t klen = st_strlen(key);
     
     if (k0 == 'n' && k1 == 'i') {           // nick / nickpass
-        if (key[4] == 'p') {                // nickpass
+        if (klen >= 8 && key[4] == 'p') {   // nickpass (8 chars)
             st_copy_n(nickserv_pass, val, IRC_PASS_SIZE);
-        } else {                            // nick
+        } else if (klen == 4) {             // nick (4 chars)
             st_copy_n(irc_nick, val, IRC_NICK_SIZE);
         }
     } else if (k0 == 's' && k1 == 'e') {    // server
@@ -2123,17 +2151,17 @@ static void cfg_apply(char *key, char *val) {
     } else if (k0 == 't' && k1 == 'h') {    // theme
         uint8_t v = (uint8_t)str_to_u16(val);
         if (v >= 1 && v <= 3) current_theme = v;
-    } else if (k0 == 'a' && k1 == 'u') {    // autoaway / autoconnect
+    } else if (k0 == 'a' && k1 == 'u' && klen >= 5) {  // autoaway / autoconnect
         uint8_t v = (uint8_t)str_to_u16(val);
-        if (key[4] == 'c') {                // autoCon...
+        if (key[4] == 'c') {                // autoconnect
             autoconnect = v & 1;
-        } else {                            // autoAwa...
+        } else {                            // autoaway
             if (v <= 60) autoaway_minutes = v;
         }
-    } else if (k0 == 'f' && k1 == 'r') {    // friend1/2/3
-        uint8_t idx = (uint8_t)(key[6] - '1');
-        if (key[2] == 'i' && key[3] == 'e' && key[4] == 'n' && key[5] == 'd' && idx < 3 && key[7] == '\0') {
-            st_copy_n(friend_nicks[idx], val, IRC_NICK_SIZE);
+    } else if (k0 == 'f' && k1 == 'r' && klen == 7) {  // friend1/2/3
+        if (key[2] == 'i' && key[3] == 'e' && key[4] == 'n' && key[5] == 'd') {
+            uint8_t idx = (uint8_t)(key[6] - '1');
+            if (idx < 3) st_copy_n(friend_nicks[idx], val, IRC_NICK_SIZE);
         }
     } else if (k0 == 'b' && k1 == 'e') {    // beep
         beep_enabled = (uint8_t)str_to_u16(val) & 1;

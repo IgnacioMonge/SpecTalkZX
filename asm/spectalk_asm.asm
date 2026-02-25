@@ -555,7 +555,7 @@ font64_packed:
     defb 0x66, 0x87, 0x66  ; 'K' (ASCII 75)
     defb 0x55, 0x55, 0x58  ; 'L' (ASCII 76)
     defb 0x68, 0x88, 0x66  ; 'M' (ASCII 77)
-    defb 0x66, 0x68, 0x86  ; 'N' (ASCII 78)
+    defb 0x86, 0x66, 0x66  ; 'N' (ASCII 78)
     defb 0x26, 0x66, 0x62  ; 'O' (ASCII 79)
     defb 0x76, 0x67, 0x55  ; 'P' (ASCII 80)
     defb 0x26, 0x66, 0x74  ; 'Q' (ASCII 81)
@@ -3092,7 +3092,9 @@ _esx_fclose:
 
 ; -----------------------------------------------------------------------------
 ; void esx_fcreate(const char *path) __z88dk_fastcall
-; Open file for writing (create/truncate). Sets _esx_handle.
+; Input:  HL = path string
+; Output: _esx_handle = file handle (0 on error)
+; Creates file for writing (FA_WRITE | FA_CREATE_AL = 0x0C)
 ; -----------------------------------------------------------------------------
 _esx_fcreate:
     push iy
@@ -3100,11 +3102,11 @@ _esx_fcreate:
     push hl
     pop ix              ; IX = HL = path
     ld a, '*'           ; default drive
-    ld b, $0E           ; FA_WRITE | FA_CREATE_AL | FA_TRUNC
+    ld b, 0x0C          ; FA_WRITE | FA_CREATE_AL
     rst 8
     defb 0x9A           ; F_OPEN
     jr nc, esxfc_ok
-    xor a
+    xor a               ; error → handle = 0
 esxfc_ok:
     ld (_esx_handle), a
     pop ix
@@ -3113,8 +3115,10 @@ esxfc_ok:
 
 ; -----------------------------------------------------------------------------
 ; void esx_fwrite(void)
-; Write _esx_count bytes from _esx_buf to _esx_handle.
-; Sets _esx_result = bytes written.
+; Input:  _esx_handle = file handle
+;         _esx_buf    = source pointer
+;         _esx_count  = bytes to write
+; Preserves IY and IX.
 ; -----------------------------------------------------------------------------
 _esx_fwrite:
     push iy
@@ -3122,14 +3126,10 @@ _esx_fwrite:
     ld a, (_esx_handle)
     ld hl, (_esx_buf)
     push hl
-    pop ix              ; IX = buffer source
+    pop ix              ; IX = source buffer
     ld bc, (_esx_count)
     rst 8
     defb 0x9E           ; F_WRITE
-    jr nc, esxfw_ok
-    ld bc, 0
-esxfw_ok:
-    ld (_esx_result), bc
     pop ix
     pop iy
     ret

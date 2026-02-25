@@ -383,6 +383,7 @@ join_fail:
         cursor_visible = 1; draw_status_bar(); redraw_input_full();
 }
 
+
 static void cmd_nick(const char *args) __z88dk_fastcall
 {
     char *p;
@@ -988,7 +989,11 @@ static void sys_status(const char *args) __z88dk_fastcall
     main_puts2(S_SERVER, S_COLON_SP);
     
     set_attr_chan();
-    if (irc_server[0]) { main_puts(irc_server); main_putc(':'); main_print(irc_port); }
+    if (irc_server[0]) {
+        main_puts(irc_server); main_putc(':'); main_puts(irc_port);
+        if (connection_state < 2) main_print(" (off)");
+        else main_newline();
+    }
     else main_print(S_NOTSET);
 
     set_attr_nick(); main_puts("State: ");
