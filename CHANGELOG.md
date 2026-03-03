@@ -36,6 +36,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Both lists now aligned at 5 entries for consistency
 - All hardcoded `3` references replaced with `MAX_FRIENDS` constant
 
+### Optimized
+
+#### Redundant Zero-Initialization Removal
+- **Significant binary size reduction** by removing explicit `= 0`, `= {0}`, `= ""` initializers from global variables
+- The z88dk CRT startup code already zeroes the entire BSS segment before `main()` runs
+- Explicit initializers caused variables to be placed in the DATA segment with redundant initialization code
+- Removing them lets variables fall into BSS (zero-cost, zeroed by CRT), saving both code and data bytes
+
 ### Fixed
 
 #### `!theme` Usage Message Shows Wrong Prefix
