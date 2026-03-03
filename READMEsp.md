@@ -267,7 +267,7 @@ ignores=Troll1,Troll2
 | `timestamps` | Mostrar timestamps | 0, 1, o 2 (smart) | 1 |
 | `autoaway` | Minutos auto-away | 0-60 (0=off) | 0 |
 | `beep` | Sonido en mención | 0 o 1 | 1 |
-| `quits` | Mostrar mensajes quit | 0 o 1 | 1 |
+| `traffic` | Mostrar mensajes QUIT/JOIN | 0 o 1 | 1 |
 | `tz` | Desplazamiento horario | -12 a +12 | 0 |
 | `friends` | Nicks de amigos a monitorizar (separados por coma, máx 5) | nick1,nick2,... | (ninguno) |
 | `ignores` | Nicks ignorados (separados por coma, máx 5) | nick1,nick2,... | (ninguno) |
