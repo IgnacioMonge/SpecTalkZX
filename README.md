@@ -200,7 +200,7 @@ Local commands that don't require server connection.
 | Command | Alias | Description |
 |---------|-------|-------------|
 | `/beep` | — | Toggle sound on nick mention (on/off) |
-| `/quits` | — | Toggle display of QUIT messages (on/off) |
+| `/traffic` | — | Toggle display of QUIT/JOIN messages (on/off) |
 | `/timestamps` | `/ts` | Cycle timestamp mode (off/on/smart) |
 | `/autoconnect` | `/ac` | Toggle auto-connect on startup (on/off) |
 | `/tz [±N]` | — | View or set timezone offset (UTC -12 to +12) |
