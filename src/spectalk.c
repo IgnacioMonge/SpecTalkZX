@@ -1179,7 +1179,7 @@ static char *sb_format_channel(char *p, char *central_limit, uint8_t cur_flags)
     char *chan, *modes, *net;
     uint8_t chan_len, mode_len, net_len;
 
-    if (p >= central_limit) p = central_limit - 1;
+    if (p >= central_limit) return p;
     space = (uint8_t)(central_limit - p);
     if (space) space--;  // reservar 1 char para el ']'
     if (!space) return p;
@@ -1294,7 +1294,7 @@ void draw_status_bar_real(void)
             *p++ = '#'; *p++ = '?';
         }
 
-        *p++ = ']';
+        if (p < central_limit) *p++ = ']';
     }
 
     if (user_buf[0]) {

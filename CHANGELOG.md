@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.3] - 2026-03-03 "Remember Me"
+
+### Added
+
+#### Persistent Ignore List
+- **Ignore list now saved to config**: `/ignore nick` + `/save` persists the ignore list across restarts
+- On startup, `SPECTALK.CFG` is parsed and the ignore list is restored automatically
+- `!config` now displays `ignores=` alongside other settings
+
+#### Colored Status Bar Banner
+- **Top status bar** now renders with a colored background matching the current theme
+- Provides a cleaner visual separation between the status bar and the main text area
+
+### Changed
+
+#### CSV Config Format for Lists
+- **Friends and ignores** now use comma-separated format in config file:
+  - Old: `friend1=Nick1`, `friend2=Nick2`, `friend3=Nick3` (one line per entry)
+  - New: `friends=Nick1,Nick2,Nick3` (single line, comma-separated)
+  - New: `ignores=Troll1,Troll2` (single line, comma-separated)
+- Parser tolerates spaces after commas (`nick1, nick2`)
+- Shared `csv_next_tok()` parser and `cfg_put_csv()` writer eliminate code duplication
+
+#### Expanded Friends & Ignore Slots
+- **Friends**: Increased from 3 to 5 slots (`MAX_FRIENDS`)
+- **Ignores**: Reduced from 8 to 5 slots (`MAX_IGNORES`)
+- Both lists now aligned at 5 entries for consistency
+- All hardcoded `3` references replaced with `MAX_FRIENDS` constant
+
+### Fixed
+
+#### `!theme` Usage Message Shows Wrong Prefix
+- **Problem**: `!theme` without arguments displayed `Usage: /theme 1|2|3` (wrong prefix)
+- **Cause**: `ui_usage()` always prepends `/`, but `!theme` is a system command
+- **Solution**: Custom usage path with correct `Usage: !theme 1|2|3` message
+
+#### Nick Underscore Confusion with Ellipsis
+- **Problem**: "Autoconnecting as spectalk_..." visually merged the `_` with `...` on Spectrum font
+- **Solution**: Added space separator: "Autoconnecting as spectalk_ ..."
+
+### Technical Notes
+- New defines: `MAX_FRIENDS 5` (was hardcoded `3`), `MAX_IGNORES` reduced from 8 to 5
+- New helpers: `csv_next_tok()` (spectalk.c), `cfg_put_csv()` (user_cmds.c)
+- `friend_nicks` declaration changed from `[3]` to `[MAX_FRIENDS]`
+- Config keys renamed: `friend1`..`friend3` -> `friends`, new key `ignores`
+- `!config` output now includes `ignores=` line
+
+---
 
 ## [1.3.2] - 2026-02-25
 

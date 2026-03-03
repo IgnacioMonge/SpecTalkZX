@@ -8,7 +8,7 @@
 
 ![Plataforma](https://img.shields.io/badge/Plataforma-ZX%20Spectrum-blue)
 ![Licencia](https://img.shields.io/badge/Licencia-GPLv2-green)
-![Versión](https://img.shields.io/badge/Versión-1.3.1-orange)
+![Versión](https://img.shields.io/badge/Versión-1.3.3-orange)
 
 ---
 
@@ -42,7 +42,7 @@ SpecTalk ZX es un cliente IRC completo para ZX Spectrum que trae la funcionalida
 ### Conectividad
 - **Auto-conexión**: Conecta automáticamente al servidor configurado al iniciar
 - **Auto-identificación**: Identificación automática con NickServ tras conectar
-- **Sistema de amigos**: Monitoriza hasta 3 amigos con notificaciones de estado online
+- **Sistema de amigos**: Monitoriza hasta 5 amigos con notificaciones de estado online
 - **Manejo de colisión de nick**: Nick alternativo automático si el primario está en uso
 - **Sistema Keep-alive**: PING automático para detectar desconexiones silenciosas
 - **Latencia de ping**: Medición del tiempo de respuesta del servidor
@@ -204,7 +204,7 @@ Comandos locales que no requieren conexión al servidor.
 | `/timestamps` | `/ts` | Ciclar modo de timestamps (off/on/smart) |
 | `/autoconnect` | `/ac` | Alternar auto-conexión al iniciar (on/off) |
 | `/tz [±N]` | — | Ver o establecer zona horaria (UTC -12 a +12) |
-| `/friend [nick]` | — | Listar amigos, o alternar añadir/quitar un amigo (máx 3) |
+| `/friend [nick]` | — | Listar amigos, o alternar añadir/quitar un amigo (máx 5) |
 | `/save` | `/sv` | Guardar configuración actual en tarjeta SD |
 
 ---
@@ -249,7 +249,8 @@ autoaway=15
 beep=1
 quits=1
 tz=1
-friend1=MiAmigo
+friends=Amigo1,Amigo2,Amigo3
+ignores=Troll1,Troll2
 ```
 
 ### Ajustes Disponibles
@@ -268,9 +269,8 @@ friend1=MiAmigo
 | `beep` | Sonido en mención | 0 o 1 | 1 |
 | `quits` | Mostrar mensajes quit | 0 o 1 | 1 |
 | `tz` | Desplazamiento horario | -12 a +12 | 0 |
-| `friend1` | Nick de amigo a monitorizar | Cualquier nick | (ninguno) |
-| `friend2` | Nick de amigo a monitorizar | Cualquier nick | (ninguno) |
-| `friend3` | Nick de amigo a monitorizar | Cualquier nick | (ninguno) |
+| `friends` | Nicks de amigos a monitorizar (separados por coma, máx 5) | nick1,nick2,... | (ninguno) |
+| `ignores` | Nicks ignorados (separados por coma, máx 5) | nick1,nick2,... | (ninguno) |
 
 ### Ver Configuración Actual
 

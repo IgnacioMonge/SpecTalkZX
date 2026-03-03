@@ -8,7 +8,7 @@
 
 ![Platform](https://img.shields.io/badge/Platform-ZX%20Spectrum-blue)
 ![License](https://img.shields.io/badge/License-GPLv2-green)
-![Version](https://img.shields.io/badge/Version-1.3.1-orange)
+![Version](https://img.shields.io/badge/Version-1.3.3-orange)
 
 ---
 
@@ -42,7 +42,7 @@ SpecTalk ZX is a fully-featured IRC client for the ZX Spectrum, bringing modern 
 ### Connectivity
 - **Auto-connect**: Connect automatically to configured server on startup
 - **Auto-identify**: Automatic NickServ identification after connect
-- **Friends system**: Monitor up to 3 friends' online status with notifications
+- **Friends system**: Monitor up to 5 friends' online status with notifications
 - **Nick collision handling**: Automatic alternate nick if primary is in use
 - **Keep-alive system**: Automatic PING to detect silent disconnections
 - **Ping latency**: Server response time measurement
@@ -204,7 +204,7 @@ Local commands that don't require server connection.
 | `/timestamps` | `/ts` | Cycle timestamp mode (off/on/smart) |
 | `/autoconnect` | `/ac` | Toggle auto-connect on startup (on/off) |
 | `/tz [±N]` | — | View or set timezone offset (UTC -12 to +12) |
-| `/friend [nick]` | — | List friends, or toggle add/remove a friend (max 3) |
+| `/friend [nick]` | — | List friends, or toggle add/remove a friend (max 5) |
 | `/save` | `/sv` | Save current configuration to SD card |
 
 ---
@@ -249,7 +249,8 @@ autoaway=15
 beep=1
 quits=1
 tz=1
-friend1=MyFriend
+friends=Friend1,Friend2,Friend3
+ignores=Troll1,Troll2
 ```
 
 ### Available Settings
@@ -268,9 +269,8 @@ friend1=MyFriend
 | `beep` | Sound on mention | 0 or 1 | 1 |
 | `quits` | Show quit messages | 0 or 1 | 1 |
 | `tz` | Timezone offset | -12 to +12 | 0 |
-| `friend1` | Friend nick to monitor | Any nick | (none) |
-| `friend2` | Friend nick to monitor | Any nick | (none) |
-| `friend3` | Friend nick to monitor | Any nick | (none) |
+| `friends` | Friend nicks to monitor (comma-separated, max 5) | nick1,nick2,... | (none) |
+| `ignores` | Ignored nicks (comma-separated, max 5) | nick1,nick2,... | (none) |
 
 ### Viewing Current Configuration
 
