@@ -200,7 +200,7 @@ Comandos locales que no requieren conexión al servidor.
 | Comando | Alias | Descripción |
 |---------|-------|-------------|
 | `/beep` | — | Alternar sonido en mención de nick (on/off) |
-| `/quits` | — | Alternar mostrar mensajes QUIT (on/off) |
+| `/traffic` | — | Alternar mostrar mensajes QUIT/JOIN (on/off) |
 | `/timestamps` | `/ts` | Ciclar modo de timestamps (off/on/smart) |
 | `/autoconnect` | `/ac` | Alternar auto-conexión al iniciar (on/off) |
 | `/tz [±N]` | — | Ver o establecer zona horaria (UTC -12 a +12) |
@@ -247,7 +247,7 @@ theme=1
 timestamps=1
 autoaway=15
 beep=1
-quits=1
+traffic=1
 tz=1
 friends=Amigo1,Amigo2,Amigo3
 ignores=Troll1,Troll2
