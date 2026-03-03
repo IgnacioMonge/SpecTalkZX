@@ -15,6 +15,28 @@
 ;; You should have received a copy of the GNU General Public License
 ;; along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+; =============================================================================
+; BSS ZEROING - runs before main() via code_crt_init
+; Allows the TAP binary to be truncated before BSS (saving ~4KB of zeros)
+; =============================================================================
+SECTION code_crt_init
+EXTERN __data_compiler_tail
+EXTERN __bss_compiler_tail
+    ld hl, __bss_compiler_tail
+    ld de, __data_compiler_tail
+    or a
+    sbc hl, de          ; HL = total size to zero
+    ld b, h
+    ld c, l             ; BC = size
+    ld h, d
+    ld l, e             ; HL = start address
+    ld (hl), 0
+    ld d, h
+    ld e, l
+    inc de              ; DE = start + 1
+    dec bc              ; BC = size - 1
+    ldir
+
 SECTION code_user
 
 ; =============================================================================
@@ -28,8 +50,10 @@ SCREEN_HEIGHT   EQU 24          ; Physical screen height in rows
 ; =============================================================================
 ; CONSTANTS - Ring Buffer
 ; =============================================================================
-RING_SIZE       EQU 2048        ; Ring buffer size (must be power of 2)
-RING_MASK       EQU 0x07FF      ; Mask for ring buffer wrap (2048-1)
+; WARNING-M14: Estas constantes DEBEN coincidir con spectalk.h
+; RING_BUFFER_SIZE=2048, RING_BUFFER_MASK=0x07FF
+RING_SIZE       EQU 2048        ; == RING_BUFFER_SIZE  (spectalk.h:85)
+RING_MASK       EQU 0x07FF      ; == RING_BUFFER_MASK  (spectalk.h:86)
 
 ; =============================================================================
 ; PUBLIC FUNCTIONS (visible from C)
@@ -64,6 +88,9 @@ PUBLIC _scroll_main_zone
 PUBLIC _main_newline
 PUBLIC _tokenize_params
 PUBLIC _sb_append
+PUBLIC _draw_badge_dither
+PUBLIC _in_inkey
+PUBLIC asm_in_inkey
 
 ; =============================================================================
 ; EXTERNAL VARIABLES AND FUNCTIONS (defined in C or other .asm)
@@ -408,6 +435,7 @@ trln_loop:
     ; 5. CRÍTICO: Chequear desbordamiento ANTES de escribir (HARDENED)
     ld hl, (_rx_pos)
     push hl             ; Guardar rx_pos para paso 6
+    ; ¡¡DUPLICADO DE C!! Si cambias, actualiza spectalk.h RX_LINE_SIZE
     ld de, 510          ; RX_LINE_SIZE - 2 (espacio para \0)
     or a
     sbc hl, de
@@ -506,7 +534,6 @@ _attr_row_base:
 ALIGN 16
 font_lut:
     defb 0x00, 0x22, 0x44, 0x55, 0x66, 0x88, 0xAA, 0xCC, 0xEE, 0xFF
-    defb 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  ; Padding to 16 bytes
 
 font64_packed:
     defb 0x00, 0x00, 0x00  ; ' ' (ASCII 32)
@@ -601,7 +628,7 @@ font64_packed:
     defb 0x06, 0x64, 0x17  ; 'y' (ASCII 121)
     defb 0x08, 0x12, 0x58  ; 'z' (ASCII 122)
     defb 0x42, 0x52, 0x24  ; '{' (ASCII 123)
-    defb 0x55, 0x00, 0x55  ; '|' (ASCII 124)
+    defb 0x22, 0x22, 0x22  ; '|' (ASCII 124) - línea vertical sólida
     defb 0x72, 0x12, 0x27  ; '}' (ASCII 125)
     defb 0x36, 0x00, 0x00  ; '~' (ASCII 126)
     defb 0x99, 0x96, 0x06  ; DEL (ASCII 127)
@@ -683,7 +710,7 @@ unpack_loop:
 
 ; -----------------------------------------------------------------------------
 ; uint8_t* screen_line_addr(uint8_t y, uint8_t phys_x, uint8_t scanline)
-; Stack: [IX+6]=y, [IX+7]=phys_x, [IX+8]=scanline
+; Stack: [IX+6]=y, [IX+7]=phys_x, [IX+8]=scanline (sdcc_iy byte-packed)
 ; -----------------------------------------------------------------------------
 _screen_line_addr:
     push iy
@@ -703,11 +730,11 @@ _screen_line_addr:
     ld h, (hl)
     ld l, a
     
-    ld a, (ix+8)
+    ld a, (ix+8)            ; scanline (ORIGINAL)
     add a, h
     ld h, a
     
-    ld a, (ix+7)
+    ld a, (ix+7)            ; phys_x (ORIGINAL)
     add a, l
     ld l, a
     jr nc, sla_done
@@ -719,7 +746,7 @@ sla_done:
 
 ; -----------------------------------------------------------------------------
 ; uint8_t* attr_addr(uint8_t y, uint8_t phys_x)
-; Stack: [IX+6]=y, [IX+7]=phys_x
+; Stack: [IX+4]=y, [IX+6]=phys_x (FIX6: solo push ix, SDCC 16-bit args)
 ; -----------------------------------------------------------------------------
 _attr_addr:
     ; OPTIMIZADO: Usa tabla precalculada en lugar de y*32+0x5800
@@ -740,7 +767,7 @@ _attr_addr:
     ld l, a             ; HL = base de atributos de fila
     
     ; Añadir phys_x
-    ld a, (ix+5)
+    ld a, (ix+6)        ; phys_x (FIX6: era IX+5)
     add a, l
     ld l, a
     jr nc, aa_done
@@ -831,7 +858,7 @@ _clear_line:
 
 ; -----------------------------------------------------------------------------
 ; void clear_zone(uint8_t start, uint8_t lines, uint8_t attr)
-; Stack: [IX+6]=start, [IX+7]=lines, [IX+8]=attr
+; Stack: [IX+6]=start, [IX+7]=lines, [IX+8]=attr (sdcc_iy byte-packed)
 ; -----------------------------------------------------------------------------
 _clear_zone:
     push iy
@@ -980,11 +1007,9 @@ p64_set_attr:
     ret
 
 ; -----------------------------------------------------------------------------
-; void print_line64_fast(uint8_t y, uint8_t start_lo, uint8_t start_hi, uint8_t attr)
-; Args en stack (caller empuja 4 bytes y luego CALL):
-;   [SP+2]=y, [SP+3]=start_lo, [SP+4]=start_hi, [SP+5]=attr
-; OJO: como preservamos IX con push ix y luego IX=SP, los args pasan a:
-;   [IX+4]=y, [IX+5]=start_lo, [IX+6]=start_hi, [IX+7]=attr
+; void print_line64_fast(uint8_t y, const char *s, uint8_t attr)
+; Stack layout (con push ix):
+;   [IX+4]=y, [IX+5,6]=s (pointer), [IX+7]=attr
 ; -----------------------------------------------------------------------------
 _print_line64_fast:
     push ix
@@ -1087,69 +1112,41 @@ _redraw_input_asm:
     ld c, a                     ; C = line_len total
     ld b, 62                    ; 62 chars restantes en línea 1
 
-ria_line1_loop:
-    ; ¿Quedan chars por pintar?
-    ld a, c
-    or a
-    jr z, ria_line1_space       ; No quedan, pintar espacio
-    
-    ; Leer char del buffer
-    ld a, (de)
-    inc de
-    dec c                       ; Un char menos pendiente
-    jr ria_line1_print
+    call ria_print_n_chars
 
-ria_line1_space:
-    ld a, 32                    ; Espacio
-
-ria_line1_print:
-    ld l, a
-    push bc
-    push de
-    call _print_str64_char
-    pop de
-    pop bc
-    
-    ld hl, _g_ps64_col
-    inc (hl)
-    
-    djnz ria_line1_loop
-    
     ; === Línea 2: siguientes 64 chars ===
     ld a, INPUT_ROW_2
     ld (_g_ps64_y), a
     xor a
     ld (_g_ps64_col), a
-    
+
     ; B = 64 chars, C ya tiene chars restantes
     ld b, 64
+    call ria_print_n_chars
+    ret
 
-ria_line2_loop:
+; Helper: pinta B chars desde (DE), rellenando con espacios si C=0
+; B = num chars a pintar, C = chars restantes en buffer, DE = ptr buffer
+ria_print_n_chars:
     ld a, c
     or a
-    jr z, ria_line2_space
-    
+    jr z, ria_pnc_space
     ld a, (de)
     inc de
     dec c
-    jr ria_line2_print
-
-ria_line2_space:
+    jr ria_pnc_print
+ria_pnc_space:
     ld a, 32
-
-ria_line2_print:
+ria_pnc_print:
     ld l, a
     push bc
     push de
     call _print_str64_char
     pop de
     pop bc
-    
     ld hl, _g_ps64_col
     inc (hl)
-    
-    djnz ria_line2_loop
-    
+    djnz ria_print_n_chars
     ret
 
 
@@ -1171,27 +1168,26 @@ ind_pattern_medium:   defb 0x00, 0x00, 0x18, 0x3C, 0x3C, 0x18, 0x00, 0x00  ; ~6p
 ind_pattern_small:    defb 0x00, 0x00, 0x00, 0x18, 0x18, 0x00, 0x00, 0x00  ; ~4px dot
 
 _draw_indicator:
-    push iy
     push ix
     ld ix, 0
     add ix, sp
-    
-    ld a, (ix+6)            ; y
-    ld c, (ix+8)            ; attr (save in C)
-    
+
+    ld a, (ix+4)            ; y
+    ld c, (ix+6)            ; attr
+
     ; Calcular dirección screen
     ld l, a
     ld h, 0
     add hl, hl
     ld de, _screen_row_base
     add hl, de
-    
+
     ld a, (hl)
     inc hl
     ld h, (hl)
     ld l, a                 ; HL = base de fila
-    
-    ld e, (ix+7)            ; phys_x
+
+    ld e, (ix+5)            ; phys_x
     ld d, 0
     add hl, de              ; HL = dirección exacta pixel
     push hl                 ; Save screen address for later
@@ -1234,7 +1230,7 @@ di_pattern_loop:
 
     ; Calcular dirección atributos
     pop hl                  ; Discard (we recalculate - cleaner)
-    ld a, (ix+6)            ; y
+    ld a, (ix+4)            ; y
     ld l, a
     ld h, 0
     add hl, hl
@@ -1244,15 +1240,14 @@ di_pattern_loop:
     add hl, hl
     ld de, 0x5800
     add hl, de
-    
-    ld e, (ix+7)            ; phys_x
+
+    ld e, (ix+5)            ; phys_x
     ld d, 0
     add hl, de
-    
+
     ld (hl), c              ; attr
-    
+
     pop ix
-    pop iy
     ret
 
 ; =============================================================================
@@ -1287,15 +1282,14 @@ _stl_done:
 ; Retorna: 0 si iguales, <0 si a<b, >0 si a>b
 ; -----------------------------------------------------------------------------
 _st_stricmp:
-    push iy
     push ix
     ld ix, 0
     add ix, sp
-    
-    ld l, (ix+6)
-    ld h, (ix+7)            ; HL = a
-    ld e, (ix+8)
-    ld d, (ix+9)            ; DE = b
+
+    ld l, (ix+4)
+    ld h, (ix+5)            ; HL = a
+    ld e, (ix+6)
+    ld d, (ix+7)            ; DE = b
 
 stricmp_loop:
     ld a, (hl)
@@ -1305,7 +1299,8 @@ stricmp_loop:
     ld a, (de)
     call irc_tolower        ; Convertir según RFC 1459
     
-    ; Comparar
+    ; Comparar (NOTE-M12: retorna b-a, signo invertido vs strcmp.
+    ; OK porque TODOS los callers solo chequean ==0)
     sub b                   ; A = b_norm - a_norm
     jr nz, stricmp_diff
     
@@ -1331,7 +1326,6 @@ stricmp_equal:
     ld hl, 0
 stricmp_done:
     pop ix
-    pop iy
     ret
 
 ; -----------------------------------------------------------------------------
@@ -1370,16 +1364,15 @@ irc_tl_add32:
 ; Stack: [IX+6,7]=hay, [IX+8,9]=needle
 ; -----------------------------------------------------------------------------
 _st_stristr:
-    push iy
     push ix
     ld ix, 0
     add ix, sp
-    
+
     ; Cargar argumentos
-    ld l, (ix+6)
-    ld h, (ix+7)            ; HL = hay
-    ld e, (ix+8)
-    ld d, (ix+9)            ; DE = needle
+    ld l, (ix+4)
+    ld h, (ix+5)            ; HL = hay
+    ld e, (ix+6)
+    ld d, (ix+7)            ; DE = needle
     
     ; Validar needle
     ld a, d
@@ -1443,19 +1436,16 @@ sstr_found:
     pop de                  ; Limpiar stack
     pop hl                  ; HL = posición del match
     pop ix
-    pop iy
     ret
 
 sstr_ret_hay:
     ; HL ya tiene hay
     pop ix
-    pop iy
     ret
 
 sstr_fail:
     ld hl, 0
     pop ix
-    pop iy
     ret
 
 ; =============================================================================
@@ -1635,13 +1625,12 @@ skpto_end:
 ; Stack: [IX+6,7]=s
 ; -----------------------------------------------------------------------------
 _strip_irc_codes:
-    push iy
     push ix
     ld ix, 0
     add ix, sp
-    
-    ld l, (ix+6)
-    ld h, (ix+7)            ; HL = lectura
+
+    ld l, (ix+4)
+    ld h, (ix+5)            ; HL = lectura
     ld d, h
     ld e, l                 ; DE = escritura
 
@@ -1705,7 +1694,6 @@ strip_done:
     xor a
     ld (de), a              ; NULL terminator
     pop ix
-    pop iy
     ret
 
 ; Subrutina: ¿es A un dígito?
@@ -1895,6 +1883,18 @@ drain_exit:
 ; 
 ; Timing: ~12,000 t-states (~3.4ms @ 3.5MHz)
 ; Note: Interrupts disabled during scroll to avoid visual artifacts
+; Helper: aplica offset de scanline a HL(src) y DE(dst), preserva A=offset
+smz_apply_offset:
+    ld c, a
+    ld a, h
+    add a, c
+    ld h, a
+    ld a, d
+    add a, c
+    ld d, a
+    ld a, c
+    ret
+
 ; =============================================================================
 _scroll_main_zone:
     push iy
@@ -1903,103 +1903,48 @@ _scroll_main_zone:
     xor a                   ; A = offset scanline (0..7)
 
 smz_scanline_loop:
-    ; ---------------------------------------------------------
     ; BLOQUE 1: Filas 3-7 -> 2-6 (Src: 0x4060, Dest: 0x4040, Len: 160)
-    ; ---------------------------------------------------------
     ld h, 0x40
     ld l, 0x60
     ld d, 0x40
     ld e, 0x40
-
-    ld c, a                 ; C = offset
-    ld a, h
-    add a, c
-    ld h, a
-    ld a, d
-    add a, c
-    ld d, a
-    ld a, c                 ; restaurar A=offset
-
+    call smz_apply_offset
     ld bc, 160
     ldir
 
-    ; ---------------------------------------------------------
     ; BLOQUE 2: Fila 8 -> 7 (Src: 0x4800, Dest: 0x40E0, Len: 32)
-    ; ---------------------------------------------------------
     ld h, 0x48
     ld l, 0x00
     ld d, 0x40
     ld e, 0xE0
-
-    ld c, a
-    ld a, h
-    add a, c
-    ld h, a
-    ld a, d
-    add a, c
-    ld d, a
-    ld a, c
-
+    call smz_apply_offset
     ld bc, 32
     ldir
 
-    ; ---------------------------------------------------------
     ; BLOQUE 3: Filas 9-15 -> 8-14 (Src: 0x4820, Dest: 0x4800, Len: 224)
-    ; ---------------------------------------------------------
     ld h, 0x48
     ld l, 0x20
     ld d, 0x48
     ld e, 0x00
-
-    ld c, a
-    ld a, h
-    add a, c
-    ld h, a
-    ld a, d
-    add a, c
-    ld d, a
-    ld a, c
-
+    call smz_apply_offset
     ld bc, 224
     ldir
 
-    ; ---------------------------------------------------------
     ; BLOQUE 4: Fila 16 -> 15 (Src: 0x5000, Dest: 0x48E0, Len: 32)
-    ; ---------------------------------------------------------
     ld h, 0x50
     ld l, 0x00
     ld d, 0x48
     ld e, 0xE0
-
-    ld c, a
-    ld a, h
-    add a, c
-    ld h, a
-    ld a, d
-    add a, c
-    ld d, a
-    ld a, c
-
+    call smz_apply_offset
     ld bc, 32
     ldir
 
-    ; ---------------------------------------------------------
     ; BLOQUE 5: Filas 17-19 -> 16-18 (Src: 0x5020, Dest: 0x5000, Len: 96)
-    ; ---------------------------------------------------------
     ld h, 0x50
     ld l, 0x20
     ld d, 0x50
     ld e, 0x00
-
-    ld c, a
-    ld a, h
-    add a, c
-    ld h, a
-    ld a, d
-    add a, c
-    ld d, a
-    ld a, c
-
+    call smz_apply_offset
     ld bc, 96
     ldir
 
@@ -2099,12 +2044,12 @@ mn_indent:
 
 mn_indent_loop:
     ld (hl), c          ; g_ps64_col = c
-    ld l, ' '
-    push hl             ; preserve HL (clobbered by _print_str64_char)
+    push hl             ; preserve HL BEFORE clobbering L
     push bc             ; preserve BC (clobbered by _print_str64_char)
+    ld l, ' '           ; L = space char for __z88dk_fastcall
     call _print_str64_char
     pop bc
-    pop hl
+    pop hl              ; restore correct pointer to _g_ps64_col
     inc c
     djnz mn_indent_loop
 
@@ -2277,6 +2222,66 @@ sba_done:
     ret
 
 ; =============================================================================
+; void draw_badge_dither(uint8_t count) __z88dk_fastcall
+; Dibuja patrón de triángulos para el badge del banner en línea 0.
+; count en L = número de celdas (4 o 2)
+; Calcula phys_x automáticamente: 28 si count=4, 30 si count=2
+; Los atributos deben estar ya configurados por el caller.
+; PAPER = color izquierdo, INK = color derecho
+; =============================================================================
+_draw_badge_dither:
+    ; L = count (fastcall)
+    ld b, l                 ; B = contador de celdas
+    
+    ; Calcular phys_x: si count=4 -> 28, si count=2 -> 30
+    ; phys_x = 32 - count
+    ld a, 32
+    sub l
+    ld c, a                 ; C = phys_x
+    
+    ; Dirección base de pantalla para fila 0 = 0x4000
+    ld hl, 0x4000
+    
+    ; Añadir phys_x
+    ld e, c
+    ld d, 0
+    add hl, de              ; HL = dirección de primer celda
+    
+    ; B = contador de celdas (ya está)
+dbd_cell_loop:
+    push bc                 ; Guardar contador
+    push hl                 ; Guardar dirección base de celda
+    
+    ; Dibujar 8 scanlines con patrón de triángulo
+    ld de, dbd_pattern
+    ld b, 8
+dbd_scanline:
+    ld a, (de)
+    ld (hl), a
+    inc de
+    inc h                   ; Siguiente scanline (H += 1)
+    djnz dbd_scanline
+    
+    pop hl                  ; Recuperar base
+    inc hl                  ; Siguiente celda (columna +1)
+    pop bc                  ; Recuperar contador
+    djnz dbd_cell_loop
+    
+    ret
+
+; Patrón de triángulo inferior-derecho (8 bytes)
+; PAPER = fondo (izquierda), INK = triángulo (derecha)
+dbd_pattern:
+    defb 0x00               ; ........
+    defb 0x01               ; .......X
+    defb 0x03               ; ......XX
+    defb 0x07               ; .....XXX
+    defb 0x0F               ; ....XXXX
+    defb 0x1F               ; ...XXXXX
+    defb 0x3F               ; ..XXXXXX
+    defb 0x7F               ; .XXXXXXX
+
+; =============================================================================
 ; OPTIMIZED C FUNCTIONS REPLACEMENT
 ; High-performance replacements for spectalk.c bottlenecks
 ; (EXTERNs already declared at top of file)
@@ -2298,7 +2303,7 @@ EXTERN _last_ts_minute
 ; void main_print_time_prefix(void)
 ; Prints "HH:MM| " using ATTR_MSG_TIME, then restores current_attr.
 ; show_timestamps: 0=off, 1=always, 2=on-change (only when HH:MM differs)
-; Sets wrap_indent=7 when printed, 0 when skipped.
+; Sets wrap_indent=6 when printed, 0 when skipped.
 ; -----------------------------------------------------------------------------
 PUBLIC _main_print_time_prefix
 _main_print_time_prefix:
@@ -2324,10 +2329,10 @@ _main_print_time_prefix:
     cp b
     jr nz, mptp_changed     ; minute differs
 
-    ; Same time — print spaces as indent (7 chars) instead of timestamp
-    ld a, 7
+    ; Same time — print spaces as indent (6 chars) instead of timestamp
+    ld a, 6
     ld (_wrap_indent), a
-    ld b, 7
+    ld b, 6
 mptp_spaces:
     push bc
     ld l, ' '
@@ -2364,9 +2369,7 @@ mptp_do:
     ld a, (_time_minute)
     call mptp_put2
 
-    ; "| "
-    ld l, '|'
-    call _main_putc
+    ; " " (solo espacio, sin barra vertical)
     ld l, ' '
     call _main_putc
 
@@ -2374,8 +2377,8 @@ mptp_do:
     pop af
     ld (_current_attr), a
 
-    ; wrap_indent = 7
-    ld a, 7
+    ; wrap_indent = 6
+    ld a, 6
     ld (_wrap_indent), a
     jr mptp_ret
 
@@ -2413,10 +2416,7 @@ mptp_div_done:
     ld a, c
     add a, '0'
     ld l, a
-    push bc
-    call _main_putc
-    pop bc
-    ret
+    jp _main_putc           ; tail call
 
 ; -----------------------------------------------------------------------------
 ; void main_putc(char c) __z88dk_fastcall
@@ -2855,17 +2855,19 @@ tsl_done:
 ; void st_copy_n(char *dst, const char *src, uint8_t max_len)
 ; Copies src to dst, max (max_len-1) chars, always null-terminates
 ; Stack (stdcall): [ret] [dst] [src] [max_len]
+; FIX1: POP AF pone byte bajo en F, no en A
 PUBLIC _st_copy_n
 _st_copy_n:
-    pop bc          ; ret
+    pop af          ; ret en AF (temporal)
     pop de          ; dst
     pop hl          ; src
-    pop af          ; max_len in A (low byte only)
-    push af
+    pop bc          ; max_len en BC (C = byte bajo)
+    push bc
     push hl
     push de
-    push bc
+    push af         ; restaurar ret
     
+    ld a, c         ; max_len real en A
     or a
     ret z           ; max_len == 0 → nothing to do
     dec a           ; max_len - 1 = max chars to copy
@@ -2907,25 +2909,7 @@ _main_puts2:
     pop iy
     jp _main_puts   ; tail call
 
-; void main_puts3(const char *a, const char *b, const char *c) __z88dk_callee
-; Prints three strings consecutively
-PUBLIC _main_puts3
-_main_puts3:
-    pop af          ; ret (in AF temp)
-    pop hl          ; a
-    pop de          ; b
-    pop bc          ; c
-    push af         ; restore ret
-
-    push iy         ; sdcc_iy ABI: preserve frame pointer
-    push bc         ; save c
-    push de         ; save b
-    call _main_puts ; print a
-    pop hl
-    call _main_puts ; print b
-    pop hl
-    pop iy
-    jp _main_puts   ; print c (tail call)
+; OPT: main_puts3 eliminated (no longer called from C)
 
 ; =============================================================================
 ; IRC SEND COMMAND HELPERS
@@ -3243,9 +3227,11 @@ u8a_c3:
     and 0x3F
     ld c, a
     ld b, 0
+    push hl             ; FIX-C2: guardar puntero de lectura del string
     ld hl, u8a_tbl_c0
     add hl, bc
     ld a, (hl)
+    pop hl              ; FIX-C2: restaurar puntero de lectura
     jp u8a_store
 
 u8a_invalid:
@@ -3376,13 +3362,7 @@ spr_no1970:
 spr_scan:
     ld a, e
     cp b
-    jr nc, spr_scan_bail ; i >= len-7
-    jr spr_scan_ok
-
-spr_scan_bail:
-    jp spr_notfound
-
-spr_scan_ok:
+    jp nc, spr_notfound  ; i >= len-7
 
     ; Check line[i] >= '0' && line[i] <= '2'
     ld a, (hl)
@@ -3413,57 +3393,20 @@ spr_scan_ok:
     jr nz, spr_next
 
     ; === FOUND HH:MM:SS at HL ===
-    ; Parse hour: (HL[0]-'0')*10 + (HL[1]-'0')
-    ld a, (hl)
-    sub '0'
-    ld c, a             ; tens
-    add a, a            ; *2
-    add a, a            ; *4
-    add a, c            ; *5
-    add a, a            ; *10
-    inc hl
-    ld c, a             ; C = tens*10
-    ld a, (hl)
-    sub '0'
-    add a, c
+    ; Parse hour
+    call spr_parse2
     ld (_time_hour), a
-
-    ; Skip ':'
-    inc hl              ; HL -> ':'
-    inc hl              ; HL -> minute tens
+    inc hl              ; HL past second digit
+    inc hl              ; HL past ':'
 
     ; Parse minute
-    ld a, (hl)
-    sub '0'
-    ld c, a
-    add a, a
-    add a, a
-    add a, c
-    add a, a
-    inc hl
-    ld c, a
-    ld a, (hl)
-    sub '0'
-    add a, c
+    call spr_parse2
     ld (_time_minute), a
-
-    ; Skip ':'
-    inc hl
-    inc hl
+    inc hl              ; HL past second digit
+    inc hl              ; HL past ':'
 
     ; Parse second
-    ld a, (hl)
-    sub '0'
-    ld c, a
-    add a, a
-    add a, a
-    add a, c
-    add a, a
-    inc hl
-    ld c, a
-    ld a, (hl)
-    sub '0'
-    add a, c
+    call spr_parse2
     ld (_time_second), a
 
     ; Validate ranges: hour < 24, minute < 60, second < 60
@@ -3501,6 +3444,25 @@ spr_notfound:
 spr_invalid:
     pop hl              ; clean stack (line start)
     ret                 ; keep sntp_waiting=1 so it retries
+
+; --- subroutine: parse 2-digit decimal at (HL) ---
+; Input:  HL = pointer to first digit
+; Output: A = parsed value (0..99), HL = pointer to second digit
+; Clobbers: C
+spr_parse2:
+    ld a, (hl)
+    sub '0'
+    ld c, a
+    add a, a            ; *2
+    add a, a            ; *4
+    add a, c            ; *5
+    add a, a            ; *10
+    inc hl
+    ld c, a
+    ld a, (hl)
+    sub '0'
+    add a, c
+    ret
 
 ; =============================================================================
 ; uint8_t read_key(void)
@@ -3720,43 +3682,24 @@ fq_valid:
     or 0x20             ; A = nick[0] | 0x20
     cp 'c'
     jr nz, fq_not_c
-    ; st_stricmp(nick, S_CHANSERV) == 0 → return 0
-    push iy
     ld hl, _S_CHANSERV
-    push hl
-    call _st_stricmp
-    pop af
-    pop af
-    ld a, l
-    or h
+    call fq_check_service
     jr z, fq_ret_0
     jr fq_check_server
 
 fq_not_c:
     cp 'n'
     jr nz, fq_not_n
-    push iy
     ld hl, _S_NICKSERV
-    push hl
-    call _st_stricmp
-    pop af
-    pop af
-    ld a, l
-    or h
+    call fq_check_service
     jr z, fq_ret_0
     jr fq_check_server
 
 fq_not_n:
     cp 'g'
     jr nz, fq_check_server
-    push iy
     ld hl, _S_GLOBAL
-    push hl
-    call _st_stricmp
-    pop af
-    pop af
-    ld a, l
-    or h
+    call fq_check_service
     jr z, fq_ret_0
 
 fq_check_server:
@@ -3764,14 +3707,8 @@ fq_check_server:
     ld a, (_irc_server)
     or a
     jr z, fq_loop_init
-    push iy
     ld hl, _irc_server
-    push hl
-    call _st_stricmp
-    pop af
-    pop af
-    ld a, l
-    or h
+    call fq_check_service
     jr z, fq_ret_0
 
 fq_loop_init:
@@ -3836,6 +3773,20 @@ fq_ret_neg1_iy:
     ld l, 0xFF
     ret
 
+; --- subroutine: compare IY (nick) with HL (service string) ---
+; Input:  HL = string to compare, IY = nick
+; Output: Z flag set if match (stricmp == 0)
+; Clobbers: AF, BC, DE, HL
+fq_check_service:
+    push iy             ; arg1: nick
+    push hl             ; arg2: service string
+    call _st_stricmp
+    pop af
+    pop af
+    ld a, l
+    or h
+    ret
+
 ; =============================================================================
 ; Attribute setter helpers - saves 3 bytes per call vs inline assignment
 ; current_attr = ATTR_X requires 6 bytes inline (ld a,(nn); ld (nn),a)
@@ -3857,30 +3808,153 @@ EXTERN _ATTR_MSG_JOIN
 
 _set_attr_sys:
     ld a, (_ATTR_MSG_SERVER)
-    ld (_current_attr), a
-    ret
+    jr set_attr_common
 
 _set_attr_err:
     ld a, (_ATTR_ERROR)
-    ld (_current_attr), a
-    ret
+    jr set_attr_common
 
 _set_attr_priv:
     ld a, (_ATTR_MSG_PRIV)
-    ld (_current_attr), a
-    ret
+    jr set_attr_common
 
 _set_attr_chan:
     ld a, (_ATTR_MSG_CHAN)
-    ld (_current_attr), a
-    ret
+    jr set_attr_common
 
 _set_attr_nick:
     ld a, (_ATTR_MSG_NICK)
-    ld (_current_attr), a
-    ret
+    jr set_attr_common
 
 _set_attr_join:
     ld a, (_ATTR_MSG_JOIN)
+    ; fall through to set_attr_common
+
+set_attr_common:
     ld (_current_attr), a
     ret
+
+; =============================================================================
+; COMPACT KEYBOARD READER (replaces z88dk in_inkey)
+; Saves ~80 bytes: no rowtable (bit-scan instead), no CAPS+SYM table section,
+; no ghost-key detection (unnecessary for single-user IRC client).
+; Returns: HL = ASCII code (0 if no key)
+; =============================================================================
+_in_inkey:
+asm_in_inkey:
+    ld bc, 0xFEFE          ; B = row $FE, C = port $FE
+    ld e, 0                ; E = table offset accumulator
+
+    ; --- Row 0: CAPS SHIFT row (port $FEFE) ---
+    in a,(c)
+    or 0xE1                ; mask CS (bit0) + bits 5-7
+    cp 0xFF
+    jr nz, ik_found
+
+    ; --- Rows 1-6: main keyboard rows ---
+    ld b, 0xFD
+ik_row_loop:
+    ld a, e
+    add a, 5
+    ld e, a                ; E += 5 (next row base)
+    in a,(c)
+    or 0xE0                ; mask bits 5-7
+    cp 0xFF
+    jr nz, ik_found
+    rlc b
+    jp m, ik_row_loop      ; loop while bit 7 set ($FD..$BF)
+
+    ; --- Row 7: SYM SHIFT row (port $7FFE, B=$7F after loop) ---
+    ld a, e
+    add a, 5
+    ld e, a                ; E = 35 (row 7 base)
+    in a,(c)
+    or 0xE2                ; mask SS (bit1) + bits 5-7
+    cp 0xFF
+    jr nz, ik_found
+
+    ; No key pressed
+ik_nokey:
+    ld hl, 0
+    ret
+
+ik_found:
+    ; A = row reading (one of bits 0-4 is 0 = pressed key)
+    ; Bit-scan from bit 0 to find key position
+    ld d, 0
+ik_bitscan:
+    rra
+    jr nc, ik_gotkey
+    inc d
+    jr ik_bitscan
+
+ik_gotkey:
+    ; D = key position (0-4), E = row base offset
+    ld a, e
+    add a, d
+    ld e, a                ; E = table index (0-39)
+    ld d, 0
+    ld hl, ik_keytable
+    add hl, de             ; HL -> unshifted table entry
+
+    ; --- Shift detection ---
+    ld a, 0xFE
+    in a,(0xFE)            ; read CAPS SHIFT row
+    ld d, a                ; D bit0: 0=CS pressed, 1=not
+    ld a, 0x7F
+    in a,(0xFE)            ; read SYM SHIFT row
+
+    bit 0, d
+    jr nz, ik_nocaps
+    ; CAPS is pressed — check if SYM also pressed
+    bit 1, a
+    jr z, ik_nokey         ; both shifts = ignore (no CTRL codes needed)
+    ld bc, 40
+    add hl, bc             ; -> CAPS section
+    jr ik_lookup
+
+ik_nocaps:
+    bit 1, a
+    jr nz, ik_lookup       ; no shift
+    ld bc, 80
+    add hl, bc             ; -> SYM section
+
+ik_lookup:
+    ld l, (hl)
+    ld h, 0
+    ret
+
+; --- Translation table: 120 bytes (unshifted + CAPS + SYM) ---
+; Row order: 0=$FEFE(CS,Z,X,C,V) 1=$FDFE(A,S,D,F,G) 2=$FBFE(Q,W,E,R,T)
+;            3=$F7FE(1,2,3,4,5) 4=$EFFE(0,9,8,7,6) 5=$DFFE(P,O,I,U,Y)
+;            6=$BFFE(EN,L,K,J,H) 7=$7FFE(SP,SS,M,N,B)
+ik_keytable:
+    ; Unshifted (offset 0-39)
+    defb 0xFF, 'z','x','c','v'     ; row 0
+    defb 'a','s','d','f','g'       ; row 1
+    defb 'q','w','e','r','t'       ; row 2
+    defb '1','2','3','4','5'       ; row 3
+    defb '0','9','8','7','6'       ; row 4
+    defb 'p','o','i','u','y'       ; row 5
+    defb  13,'l','k','j','h'       ; row 6 (13=ENTER)
+    defb  32,0xFF,'m','n','b'      ; row 7 (32=SPACE, 0xFF=SS)
+
+    ; CAPS shifted (offset 40-79)
+    defb 0xFF, 'Z','X','C','V'     ; row 0
+    defb 'A','S','D','F','G'       ; row 1
+    defb 'Q','W','E','R','T'       ; row 2
+    defb   7,  6,128,129,  8       ; row 3 (EDIT,CAPSLOCK,TRUEVID,INVVID,LEFT)
+    defb  12,  8,  9, 11, 10       ; row 4 (DELETE,RIGHT,TAB,UP,DOWN)
+    defb 'P','O','I','U','Y'       ; row 5
+    defb  13, 'L','K','J','H'      ; row 6
+    defb  32,0xFF,'M','N','B'      ; row 7
+
+    ; SYM shifted (offset 80-119)
+    defb 0xFF, ':','`','?','/'      ; row 0
+    defb '~','|','\\','{','}'      ; row 1
+    defb 131,132,133, '<','>'       ; row 2 (131-133=gfx chars)
+    defb '!','@','#','$','%'       ; row 3
+    defb '_',')','(', 39,'&'       ; row 4 (39=apostrophe)
+    defb  34, ';',130,']','['       ; row 5 (34=quote, 130=gfx)
+    defb  13, '=','+','-','^'      ; row 6
+    defb  32,0xFF,'.',',','*'      ; row 7

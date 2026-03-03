@@ -45,6 +45,9 @@ uint8_t banner;
     uint8_t ind_yellow;
     uint8_t ind_green;
     uint8_t border;
+    // Badge colors (up to 4 stripes)
+    uint8_t badge[4];
+    uint8_t badge_count; // Number of stripes (2 or 4)
 } Theme;
 
 // OPT-01: Tabla de themes definida en spectalk.c para evitar duplicación si se incluye desde múltiples .c

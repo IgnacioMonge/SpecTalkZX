@@ -41,19 +41,19 @@ uartRead:
 
     ld a, (_is_recv)
     and 1
-    jr nz, uartRead_hw_latched
+    jr nz, uartRead_do_read
 
     ; Check Hardware
     ld bc, ZXUNO_ADDR
     ld a, UART_STAT_REG
     out (c), a
-    
+
     ; OPTIMIZACIÓN: FC3B -> FD3B (4 ciclos vs 10 ciclos)
-    inc b           
-    
+    inc b
+
     in a, (c)
     and UART_BYTE_RECIVED
-    jr nz, uartRead_hw_new
+    jr nz, uartRead_do_read
 
     or a            ; CF=0 (No data)
     ei              ; Restaurar interrupciones
@@ -66,14 +66,6 @@ uartRead_retBuff:
     scf             ; CF=1 (Data)
     ei              ; Restaurar interrupciones
     ret
-
-uartRead_hw_latched:
-    ; Flag was latched, just read data
-    jr uartRead_do_read
-
-uartRead_hw_new:
-    ; New byte available
-    ; Fallthrough to read
 
 uartRead_do_read:
     ld bc, ZXUNO_ADDR
@@ -166,6 +158,8 @@ _ay_uart_send:
 
 uartSend_checkSent:
     ld bc, ZXUNO_REG
+    ; NOTE-M13: loop sin timeout. A 115200 baud tarda ~7 iteraciones (~300 T-states).
+    ; Un hang permanente aquí solo ocurriría por fallo físico del hardware UART.
 uartSend_wait_tx:
     in a, (c)
     and UART_BYTE_SENDING

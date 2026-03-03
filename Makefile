@@ -46,7 +46,7 @@ CFLAGS = -vn -SO3 -startup=31 -compiler=sdcc -clib=sdcc_iy \
          -pragma-define:CLIB_STDIO_HEAP_SIZE=0 \
          -pragma-define:CRT_STACK_SIZE=$(STACK_SIZE) \
          -pragma-define:CRT_ENABLE_STDIO=0 \
-         -Wl,--gc-sections -Wall 
+         -Wl,--gc-sections -Wall
 # ------------------------------------------------------------
 # Helpers
 # ------------------------------------------------------------
@@ -117,12 +117,12 @@ endef
 # ------------------------------------------------------------
 # Phony targets
 # ------------------------------------------------------------
-.PHONY: all check clean build info help ay divmmc AY DIVMMC release RELEASE
+.PHONY: all check clean build trim info help ay divmmc AY DIVMMC release RELEASE
 
 # ------------------------------------------------------------
 # Default pipeline
 # ------------------------------------------------------------
-all: check clean build info
+all: check clean build trim info
 
 # Convenience targets
 ay:
@@ -196,6 +196,32 @@ $(TAP): $(C_SOURCES) $(ASM_SOURCES)
 	$(call HR)
 
 # ------------------------------------------------------------
+# TRIM phase - strip BSS zeros from TAP (saves ~4KB)
+# BSS is zeroed at startup by code_crt_init in spectalk_asm.asm
+# ------------------------------------------------------------
+trim: $(TAP) $(MAP)
+	@sh -c ' \
+	  bss=$$(grep "__data_compiler_tail" $(MAP) | grep -o "\$$[0-9A-Fa-f]*" | head -1 | tr -d "\$$"); \
+	  if [ -z "$$bss" ]; then \
+	    printf "$(C_YEL)[WARN]$(C_RESET) BSS trim skipped (symbol not found in map)\n"; \
+	    exit 0; \
+	  fi; \
+	  trim=$$((0x$$bss - $(ZORG))); \
+	  bin="$(OUTPUT)_CODE.bin"; \
+	  if [ ! -f "$$bin" ]; then bin="$(OUTPUT)"; fi; \
+	  if [ ! -f "$$bin" ]; then \
+	    printf "$(C_YEL)[WARN]$(C_RESET) BSS trim skipped (binary not found)\n"; \
+	    exit 0; \
+	  fi; \
+	  full=$$(wc -c < "$$bin"); \
+	  saved=$$((full - trim)); \
+	  head -c $$trim "$$bin" > $(BUILD_DIR)/trimmed.bin; \
+	  z88dk-appmake +zx -b $(BUILD_DIR)/trimmed.bin --org $(ZORG) -o $(TAP) 2>/dev/null; \
+	  rm -f $(BUILD_DIR)/trimmed.bin; \
+	  printf "$(C_GRN)[OK]$(C_RESET) BSS trimmed: %d -> %d bytes (-%d bytes of zeros)\n" "$$full" "$$trim" "$$saved"; \
+	'
+
+# ------------------------------------------------------------
 # INFO phase (colored, no redundant "(SpecTalkZX.tap)")
 # ------------------------------------------------------------
 info: $(TAP)
@@ -212,5 +238,7 @@ info: $(TAP)
 
 release:
 	@$(MAKE) BUILD_PROFILE=RELEASE EXTRA_CFLAGS=--max-allocs-per-node200000 all
+release-ay:
+	@$(MAKE) BUILD_PROFILE=RELEASE EXTRA_CFLAGS=--max-allocs-per-node200000 AY_UART=1 all
 RELEASE:
 	@$(MAKE) release

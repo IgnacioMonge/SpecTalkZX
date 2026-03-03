@@ -31,8 +31,12 @@ extern uint8_t last_ts_hour;
 extern uint8_t last_ts_minute;
 
 // =============================================================================
-// INTERNAL HELPERS 
+// INTERNAL HELPERS
 // =============================================================================
+
+static void sys_puts_print(const char *label, const char *value) {
+    set_attr_sys(); main_puts(label); main_print(value);
+}
 
 // NIVELES DE VALIDACIÓN JERÁRQUICA
 #define LVL_TCP  1  // Conectado a Internet (Socket abierto)
@@ -86,18 +90,21 @@ static uint8_t wait_for_connection_result(uint16_t max_frames) __z88dk_fastcall
         uart_drain_to_buffer();
 
         if (try_read_line_nodrain()) {
-            char c0 = rx_line[0];
-            
-            // FIX: "CONNECT" exacto o "ALREADY CONNECT", NO "WIFI CONNECTED"
-            if (c0 == 'C' && rx_line[1] == 'O' && rx_line[7] == 0) { rx_pos = 0; return 1; }
-            if (c0 == 'A' && rx_line[1] == 'L') { rx_pos = 0; return 1; }
-            if (c0 == 'O' && rx_line[1] == 'K') { rx_pos = 0; return 1; }
+            // FIX P0-1: Verificar longitud antes de acceder a índices fijos
+            if (rx_last_len < 2) { rx_pos = 0; continue; }
 
-            // ERRORES - prefix checks
-            if (c0 == 'D' && rx_line[1] == 'N') { ui_err("DNS failed"); rx_pos = 0; return 0; }
-            if (c0 == 'C' && rx_line[1] == 'L') { ui_err(S_CONN_REFUSED); rx_pos = 0; return 0; }
-            if (c0 == 'c' && rx_line[1] == 'o') { ui_err(S_CONN_REFUSED); rx_pos = 0; return 0; }
-            if (c0 == 'E' && rx_line[1] == 'R') { ui_err("Connection error"); rx_pos = 0; return 0; }
+            char c0 = rx_line[0];
+
+            // FIX: "CONNECT" exacto (7 chars) o "ALREADY CONNECT", NO "WIFI CONNECTED"
+            if (c0 == 'C' && rx_line[1] == 'O' && rx_last_len == 7 && rx_line[7] == 0) goto wcr_ok;
+            if (c0 == 'A' && rx_line[1] == 'L') goto wcr_ok;
+            if (c0 == 'O' && rx_line[1] == 'K') goto wcr_ok;
+
+            // ERRORES - prefix checks (ya verificamos rx_last_len >= 2 arriba)
+            if (c0 == 'D' && rx_line[1] == 'N') { ui_err("DNS failed"); goto wcr_fail; }
+            if (c0 == 'C' && rx_line[1] == 'L') { ui_err(S_CONN_REFUSED); goto wcr_fail; }
+            if (c0 == 'c' && rx_line[1] == 'o') { ui_err(S_CONN_REFUSED); goto wcr_fail; }
+            if (c0 == 'E' && rx_line[1] == 'R') { ui_err("Connection error"); goto wcr_fail; }
             rx_pos = 0;
         }
         frames++;
@@ -105,11 +112,16 @@ static uint8_t wait_for_connection_result(uint16_t max_frames) __z88dk_fastcall
 
     ui_err(S_TIMEOUT);
     return 0;
+wcr_fail:
+    rx_pos = 0;
+    return 0;
+wcr_ok:
+    rx_pos = 0;
+    return 1;
 }
 
 
-extern char ay_uart_read(void);
-extern uint8_t ay_uart_ready(void);
+// FIX-H6: redundant externs removed - already in spectalk.h with correct types
 
 // OPT M2: Helper para imprimir uint8 sin leading zero (usado por !config y !autoaway)
 static void puts_u8_nolz(uint8_t v) {
@@ -196,7 +208,7 @@ do_connect:
         return;
     }
     
-    if (irc_port[0] == '6' && irc_port[1] == '6' && irc_port[2] == '9' && irc_port[3] == '7') use_ssl = 1;
+    if (irc_port[0] == '6' && irc_port[1] == '6' && irc_port[2] == '9' && irc_port[3] == '7' && !irc_port[4]) use_ssl = 1;
     
     set_attr_priv();
     main_puts2("Connecting to ", irc_server); main_putc(':'); main_puts2(irc_port, "... ");
@@ -234,11 +246,14 @@ do_connect:
         for (sntp_wait = 0; sntp_wait < 100; sntp_wait++) {
             HALT(); uart_drain_to_buffer();
             if (try_read_line_nodrain()) {
-                if (rx_line[0] == '+' && rx_line[1] == 'C') {
-                    sntp_process_response(rx_line);
+                // FIX P0-1: Verificar longitud antes de acceder a índices
+                if (rx_last_len >= 2) {
+                    if (rx_line[0] == '+' && rx_line[1] == 'C') {
+                        sntp_process_response(rx_line);
+                    }
+                    if (rx_line[0] == 'O' && rx_line[1] == 'K') { rx_pos = 0; break; }
                 }
                 rx_pos = 0;
-                if (rx_line[0] == 'O' && rx_line[1] == 'K') break;  // OK received
             }
         }
         rx_pos = 0;
@@ -325,26 +340,31 @@ do_connect:
                 // PING
                 {
                     char *ping_ptr = NULL;
-                    if (line[0] == 'P' && line[1] == 'I') ping_ptr = line; 
+                    if (line[0] == 'P' && line[1] == 'I' && line[2] == 'N' && line[3] == 'G') ping_ptr = line;
                     else if (sp && sp[1] == 'P' && sp[2] == 'I' && sp[3] == 'N' && sp[4] == 'G') ping_ptr = sp + 1;
-                    
+
                     if (ping_ptr) {
-                        char *params = ping_ptr;
-                        if (*params == ' ') params++;
-                        params += 4; while (*params == ' ') params++;
+                        char *params = ping_ptr + 4;
+                        while (*params == ' ') params++;
                         uart_send_string(S_PONG); uart_send_line(params);
                         rx_pos = 0; continue;
                     }
                 }
 
                 // ERROR : - siempre al inicio de línea
-                if (line[0] == 'E' && line[1] == 'R' && line[5] == 'R') {
+                // FIX P0-1: Verificar longitud antes de acceder a índices
+                // FIX-H5: usar longitud restante desde 'line', no rx_last_len global
+                {
+                uint16_t remaining = rx_last_len - (uint16_t)(line - rx_line);
+                if (remaining >= 6 && line[0] == 'E' && line[1] == 'R' && line[5] == 'R') {
                     abort_msg = "Server error";
                     abort_disc = 1;
                     goto join_fail;
                 }
-                
-                if (rx_line[0] == 'C' && rx_line[1] == 'L' && rx_line[2] == 'O') {  // CLOSED
+                }
+
+                // FIX P0-1: Verificar longitud antes de acceder a índices
+                if (rx_last_len >= 3 && rx_line[0] == 'C' && rx_line[1] == 'L' && rx_line[2] == 'O') {  // CLOSED
                     abort_msg = "Connection lost";
                     abort_disc = 1;
                     goto join_fail;
@@ -371,7 +391,6 @@ join_fail:
 
         rb_head = rb_tail = 0; rx_pos = 0; rx_overflow = 0;
     } else {
-        // unreachable: nick check moved to before connect
         force_disconnect_wifi();
     }
     goto connect_cleanup;
@@ -412,9 +431,7 @@ static void cmd_nick(const char *args) __z88dk_fastcall
         // Desconectado: Actualizar inmediatamente
         st_copy_n(irc_nick, p, sizeof(irc_nick));
 
-        set_attr_sys();
-        main_puts("Nick set to: ");
-        main_print(irc_nick);
+        sys_puts_print("Nick set to: ", irc_nick);
         draw_status_bar();
     }
 }
@@ -422,9 +439,7 @@ static void cmd_nick(const char *args) __z88dk_fastcall
 static void cmd_pass(const char *args) __z88dk_fastcall
 {
     if (!args || !*args) {
-        set_attr_sys();
-        main_puts("Server password: ");
-        main_print(irc_pass[0] ? S_SET : S_NOTSET);
+        sys_puts_print("Server password: ", irc_pass[0] ? S_SET : S_NOTSET);
         return;
     }
     
@@ -469,16 +484,14 @@ static void cmd_join(const char *args) __z88dk_fastcall
 
     idx = find_channel(lookup);
     if (idx >= 0) {
-        if ((uint8_t)idx == current_channel_idx) {
-            set_attr_sys();
-            main_puts2(S_ALREADY_IN, channels[idx].name);
-            main_newline();
-        } else {
+        const char *msg = S_ALREADY_IN;
+        if ((uint8_t)idx != current_channel_idx) {
             switch_to_channel((uint8_t)idx);
-            set_attr_sys();
-            main_puts2(S_SWITCHTO, channels[idx].name);
-            main_newline();
+            msg = S_SWITCHTO;
         }
+        set_attr_sys();
+        main_puts2(msg, channels[idx].name);
+        main_newline();
         return;
     }
 
@@ -586,9 +599,7 @@ static void cmd_query(const char *args) __z88dk_fastcall
         if (idx >= 0) {
             if ((uint8_t)idx != current_channel_idx) {
                 switch_to_channel((uint8_t)idx);
-                set_attr_sys();
-                main_puts("Query opened with ");
-                main_print(channels[idx].name);
+                sys_puts_print("Query opened with ", channels[idx].name);
             }
             status_bar_dirty = 1;
         } else {
@@ -693,15 +704,7 @@ static void cmd_id(const char *args) __z88dk_fastcall
     // Usar password del argumento, o el de config si no hay
     if (args && *args) {
         pass = args;
-        // Save for future /save
-        {
-            uint8_t i = 0;
-            while (args[i] && i < IRC_PASS_SIZE - 1) {
-                nickserv_pass[i] = args[i];
-                i++;
-            }
-            nickserv_pass[i] = '\0';
-        }
+        st_copy_n(nickserv_pass, args, IRC_PASS_SIZE);
     } else if (nickserv_pass[0]) {
         pass = nickserv_pass;
     } else {
@@ -760,10 +763,7 @@ static void cmd_list(const char *args) __z88dk_fastcall
     if (!check_status(LVL_IRC)) return;
     if (!args || !*args) { ui_usage("list #channel"); main_print("(Full list disabled)"); return; }
 
-    set_attr_sys();
-    main_puts("LIST: ");
-    main_print(args);
-
+    sys_puts_print("LIST: ", args);
     start_search_command(PEND_LIST, args);
 }
 
@@ -774,10 +774,7 @@ static void cmd_who(const char *args) __z88dk_fastcall
     const char *target = (args && *args) ? args : irc_channel;
     if (!target[0]) { ui_usage("who #channel or nick"); return; }
 
-    set_attr_sys();
-    main_puts("WHO: ");
-    main_print(target);
-
+    sys_puts_print("WHO: ", target);
     start_search_command(PEND_WHO, target);
 }
 
@@ -793,6 +790,7 @@ static void cmd_names(const char *args) __z88dk_fastcall
     
     counting_new_users = 1;
     show_names_list = 1;
+    names_was_manual = 1;  // Flag para distinguir de JOIN automático
     start_pagination();
     
     irc_send_cmd1("NAMES", target);
@@ -804,27 +802,30 @@ static void cmd_topic(const char *args) __z88dk_fastcall
 {
     if (!check_status(LVL_IRC)) return; // Nivel 2
 
-    const char *target = (args && *args) ? args : irc_channel;
-    if (!target[0] || target[0] != '#') {
-        ui_err(S_MUST_CHAN);
+    // Sin args: consultar topic del canal actual
+    if (!args || !*args) {
+        if (irc_channel[0] != '#') { ui_err(S_MUST_CHAN); return; }
+        irc_send_cmd2("TOPIC", irc_channel, NULL);
         return;
     }
 
-    // FIX warning 196: Hard cast via void* para silenciar "lost const qualifier"
-    // Sabemos que target apunta a buffers mutables (args o irc_channel)
-    char *mutable_target = (char *)(void *)target;
-    char *new_topic = NULL;
-
-    char *space = strchr(mutable_target, ' ');
-    if (space) {
-        *space = '\0';        // Cortamos el string temporalmente
-        new_topic = space + 1; // Mantener comportamiento: NO trim (igual que antes)
+    // Si args empieza con '#': comportamiento original (primer token = canal)
+    if (args[0] == '#') {
+        char *mutable_target = (char *)(void *)args;
+        char *new_topic = NULL;
+        char *space = strchr(mutable_target, ' ');
+        if (space) {
+            *space = '\0';
+            new_topic = space + 1;
+        }
+        irc_send_cmd2("TOPIC", mutable_target, new_topic);
+        if (space) *space = ' ';
+        return;
     }
 
-    // OPT: llamada unificada (si new_topic==NULL -> consulta; si no -> set)
-    irc_send_cmd2("TOPIC", mutable_target, new_topic);
-
-    if (space) *space = ' '; // Restauramos
+    // Args sin '#': usar canal actual como target, args entero como topic
+    if (irc_channel[0] != '#') { ui_err(S_MUST_CHAN); return; }
+    irc_send_cmd2("TOPIC", irc_channel, args);
 }
 
 static void cmd_search(const char *args) __z88dk_fastcall
@@ -1044,14 +1045,14 @@ static void sys_config(const char *args) __z88dk_fastcall
     if (autoaway_minutes) { puts_u8_nolz(autoaway_minutes); main_print(S_MIN); } 
     else main_print(S_OFF);
     main_puts("beep="); main_print(beep_enabled ? S_ON : S_OFF);
-    main_puts("quits="); main_print(show_quits ? S_ON : S_OFF);
+    main_puts("traffic="); main_print(show_traffic ? S_ON : S_OFF);
     main_puts("timestamps="); main_print(show_timestamps == 0 ? S_OFF :
                                         show_timestamps == 1 ? S_ON : S_SMART);
 
     main_puts("friends=");
     {
         uint8_t i, count = 0;
-        for (i = 0; i < 3; i++) {
+        for (i = 0; i < MAX_FRIENDS; i++) {
             if (friend_nicks[i][0]) {
                 if (count++) main_puts(S_COMMA_SP);
                 // NOTE: main_print() adds newline; for inline list we must use main_puts().
@@ -1059,6 +1060,16 @@ static void sys_config(const char *args) __z88dk_fastcall
             }
         }
         if (count == 0) main_puts(S_NOTSET);
+        main_newline();
+    }
+    main_puts("ignores=");
+    {
+        uint8_t i;
+        if (ignore_count == 0) main_puts(S_NOTSET);
+        else for (i = 0; i < ignore_count; i++) {
+            if (i) main_puts(S_COMMA_SP);
+            main_puts(ignore_list[i]);
+        }
         main_newline();
     }
     main_puts("tz=");
@@ -1108,32 +1119,25 @@ static void cmd_theme(const char *args) __z88dk_fastcall
 {
     uint8_t t;
     const char *p;
-    static const char usage_theme[] = "!theme 1|2|3";
-
-    if (!ensure_args(args, usage_theme)) return;
-
     /* Require exactly one digit (1..3), allow trailing spaces only */
+    if (!args || args[0] < '1' || args[0] > '3') goto theme_usage;
     p = args + 1; while (*p == ' ') p++;
-    if (args[0] < '1' || args[0] > '3' || *p) {
-        ui_usage(usage_theme);
-        return;
-    }
+    if (*p) goto theme_usage;
 
     t = (uint8_t)(args[0] - '0');
 
     if (t == current_theme) {
-        set_attr_sys();
-        main_puts("Already using ");
-        main_print(theme_get_name(t));
+        sys_puts_print("Already using ", theme_get_name(t));
         return;
     }
 
     current_theme = t;
     apply_theme();
 
-    set_attr_sys();
-    main_puts("Theme set to ");
-    main_print(theme_get_name(t));
+    sys_puts_print("Theme set to ", theme_get_name(t));
+    return;
+theme_usage:
+    set_attr_err(); main_print("Usage: !theme 1|2|3");
 }
 
 static void cmd_autoaway(const char *args) __z88dk_fastcall
@@ -1180,48 +1184,49 @@ static void cmd_autoaway(const char *args) __z88dk_fastcall
     main_print(S_MIN);
 }
 
-// OPT H4: Helper para comandos toggle
-static void toggle_flag(uint8_t *flag, const char *label) {
-    *flag = !*flag;
-    set_attr_sys();
-    main_puts(label);
-    main_print(*flag ? S_ON : S_OFF);
+// OPT H4: Helper para comandos toggle con argumento directo opcional
+static void set_or_toggle_flag(uint8_t *flag, const char *label, const char *args) {
+    if (args && *args) {
+        if (args[0] == '0' && (!args[1] || args[1] == ' ')) *flag = 0;
+        else if (args[0] == '1' && (!args[1] || args[1] == ' ')) *flag = 1;
+        else { ui_usage("0|1"); return; }
+    } else {
+        *flag = !*flag;
+    }
+    sys_puts_print(label, *flag ? S_ON : S_OFF);
 }
 
 static void cmd_beep(const char *args) __z88dk_fastcall
 {
-    (void)args;
-    toggle_flag(&beep_enabled, "Beep: ");
+    set_or_toggle_flag(&beep_enabled, "Beep: ", args);
 }
 
-static void cmd_quits(const char *args) __z88dk_fastcall
+static void cmd_traffic(const char *args) __z88dk_fastcall
 {
-    (void)args;
-    toggle_flag(&show_quits, "Show quits: ");
+    set_or_toggle_flag(&show_traffic, "Show traffic: ", args);
 }
 
 static void cmd_timestamps(const char *args) __z88dk_fastcall
 {
-    (void)args;
-    // Cycle: 0 (off) → 1 (always) → 2 (on-change) → 0
-    if (++show_timestamps > 2) show_timestamps = 0;
+    if (args && *args) {
+        if (args[0] >= '0' && args[0] <= '2' && (!args[1] || args[1] == ' '))
+            show_timestamps = args[0] - '0';
+        else { ui_usage("0|1|2"); return; }
+    } else {
+        // Cycle: 0 (off) -> 1 (always) -> 2 (on-change) -> 0
+        if (++show_timestamps > 2) show_timestamps = 0;
+    }
     if (show_timestamps == 2) {
         last_ts_hour = 0xFF;
         last_ts_minute = 0xFF;
     }
-    set_attr_sys();
-    main_puts("Timestamps: ");
-    main_print(show_timestamps == 0 ? "OFF" :
+    sys_puts_print("Timestamps: ", show_timestamps == 0 ? "OFF" :
                show_timestamps == 1 ? "ON" : S_SMART);
 }
 
 static void cmd_autoconnect(const char *args) __z88dk_fastcall
 {
-    (void)args;
-    autoconnect ^= 1;
-    set_attr_sys();
-    main_puts("Autoconnect: ");
-    main_print(autoconnect ? "ON" : "OFF");
+    set_or_toggle_flag(&autoconnect, "Autoconnect: ", args);
 }
 
 static void cmd_tz(const char *args) __z88dk_fastcall
@@ -1256,27 +1261,27 @@ static void cmd_friend(const char *args) __z88dk_fastcall
     if (!args || !*args) {
         set_attr_sys();
         main_puts("Friends:");
-        for (i = 0; i < 3; i++)
+        for (i = 0; i < MAX_FRIENDS; i++)
             if (friend_nicks[i][0]) { main_putc(' '); main_puts(friend_nicks[i]); }
         main_newline();
         return;
     }
     // Toggle: remove if exists, add if not
-    for (i = 0; i < 3; i++) {
+    for (i = 0; i < MAX_FRIENDS; i++) {
         if (friend_nicks[i][0] && st_stricmp(friend_nicks[i], args) == 0) {
             friend_nicks[i][0] = '\0';
             SYS_PUTS("- "); main_print(args);
             return;
         }
     }
-    for (i = 0; i < 3; i++) {
+    for (i = 0; i < MAX_FRIENDS; i++) {
         if (!friend_nicks[i][0]) {
             st_copy_n(friend_nicks[i], args, IRC_NICK_SIZE);
             SYS_PUTS("+ "); main_print(args);
             return;
         }
     }
-    ui_err("Max 3 friends");
+    ui_err("Max 5 friends");
 }
 
 // Append string to buffer, return new position
@@ -1285,8 +1290,24 @@ static char *cfg_put(char *p, const char *s) {
     return p;
 }
 
+// Write "key=val1,val2,...\r\n" from array of strings
+static char *cfg_put_csv(char *p, const char *key,
+                         const char *list, uint8_t elem_size, uint8_t count) {
+    uint8_t i, any = 0;
+    for (i = 0; i < count; i++) {
+        const char *s = list + i * elem_size;
+        if (!*s) continue;
+        if (!any) { p = cfg_put(p, key); *p++ = '='; any = 1; }
+        else *p++ = ',';
+        p = cfg_put(p, s);
+    }
+    if (any) { *p++ = '\r'; *p++ = '\n'; }
+    return p;
+}
+
 // Write key=value\r\n to buffer. Returns new position.
-// If val is NULL, skips. If (uint16_t)val <= 9, writes single digit.
+// NOTE-M11: (uint16_t)val <= 9 trick: treats small integers cast to pointer
+// as literal digits 0-9. Safe on Z80 (addrs 0-9 are ROM, never valid string ptrs).
 static char *cfg_kv(char *p, const char *key, const char *val) {
     p = cfg_put(p, key);
     if ((uint16_t)val <= 9) {
@@ -1300,6 +1321,7 @@ static char *cfg_kv(char *p, const char *key, const char *val) {
 
 static void cmd_save(const char *args) __z88dk_fastcall
 {
+    // FIX-H7: worst-case write is ~329 bytes (all fields max length) << 2048
     char *p = (char *)ring_buffer;
     char tmp[4];
 
@@ -1316,7 +1338,7 @@ static void cmd_save(const char *args) __z88dk_fastcall
     // Numeric settings (cast to pointer trick: 1-9 = single digit)
     p = cfg_kv(p, "theme=", (const char *)(uint16_t)current_theme);
     p = cfg_kv(p, "beep=", (const char *)(uint16_t)beep_enabled);
-    p = cfg_kv(p, "quits=", (const char *)(uint16_t)show_quits);
+    p = cfg_kv(p, "traffic=", (const char *)(uint16_t)show_traffic);
     p = cfg_kv(p, "timestamps=", (const char *)(uint16_t)show_timestamps);
     p = cfg_kv(p, "autoconnect=", (const char *)(uint16_t)autoconnect);
 
@@ -1337,18 +1359,8 @@ static void cmd_save(const char *args) __z88dk_fastcall
     tmp[2] = '\0';
     p = cfg_put(p, tmp); *p++ = '\r'; *p++ = '\n';
 
-    // Friends
-    {
-        uint8_t i;
-        for (i = 0; i < 3; i++) {
-            if (friend_nicks[i][0]) {
-                p = cfg_put(p, "friend");
-                *p++ = '1' + i; *p++ = '=';
-                p = cfg_put(p, friend_nicks[i]);
-                *p++ = '\r'; *p++ = '\n';
-            }
-        }
-    }
+    p = cfg_put_csv(p, "friends", (const char *)friend_nicks, IRC_NICK_SIZE, MAX_FRIENDS);
+    p = cfg_put_csv(p, "ignores", (const char *)ignore_list, sizeof(ignore_list[0]), ignore_count);
 
     esx_fcreate("/SYS/CONFIG/SPECTALK.CFG");
     if (!esx_handle) esx_fcreate("/SYS/SPECTALK.CFG");
@@ -1359,7 +1371,7 @@ static void cmd_save(const char *args) __z88dk_fastcall
     esx_fwrite();
     esx_fclose();
 
-    SYS_PUTS("Saved (");
+    SYS_PUTS("Saving config... OK (");
     {
         char nbuf[6];
         u16_to_dec(nbuf, esx_count);
@@ -1368,11 +1380,7 @@ static void cmd_save(const char *args) __z88dk_fastcall
     main_print(" bytes)");
 }
 
-static void cmd_clear(const char *args) __z88dk_fastcall
-{
-    (void)args;
-    clear_main();
-}
+// OPT-C14: cmd_clear eliminated — command table points directly to clear_main
 
 
 // ============================================================
@@ -1393,9 +1401,7 @@ static void cmd_close_wrapper(const char *a) __z88dk_fastcall {
         return;
     }
     if (channels[current_channel_idx].flags & CH_FLAG_QUERY) {
-        set_attr_sys();
-        main_puts("Closed query with ");
-        main_print(channels[current_channel_idx].name);
+        sys_puts_print("Closed query with ", channels[current_channel_idx].name);
         // remove_channel() YA llama a draw_status_bar()
         remove_channel(current_channel_idx);
     } else {
@@ -1472,14 +1478,14 @@ static const char cmd_pool[] =
     "help\0h\0status\0s\0init\0i\0config\0cfg\0theme\0about\0server\0connec"
     "t\0nick\0pass\0id\0join\0j\0part\0p\0msg\0m\0query\0q\0close\0quit\0me"
     "\0away\0autoaway\0aa\0raw\0whois\0wi\0who\0list\0ls\0names\0topic\0sea"
-    "rch\0ignore\0kick\0k\0channels\0w\0beep\0quits\0timestamps\0ts\0clear\0cls\0"
+    "rch\0ignore\0kick\0k\0channels\0w\0beep\0traffic\0timestamps\0ts\0clear\0cls\0"
     "save\0sv\0autoconnect\0ac\0tz\0friend\0"
     "Help\0Status info\0Reset WiFi\0Show config\0Theme 1|2|3\0About\0"
     "Connect host\0Set nick\0Set pass\0Identify\0Join #chan\0Leave chan\0Se"
     "nd msg\0Open query\0Close win\0Quit IRC\0Action /me\0Set away\0Auto-aw"
     "ay min\0Raw IRC cmd\0Whois nick\0Who #chan\0List chans\0Names #chan\0T"
-    "opic\0Search\0Ignore nick\0Kick nick\0Windows\0Toggle beep\0Toggle qui"
-    "ts\0Toggle timestamps\0Clear screen\0Save config\0Toggle autoconn\0"
+    "opic\0Search\0Ignore nick\0Kick nick\0Windows\0Toggle beep\0Toggle traf"
+    "fic\0Toggle timestamps\0Clear screen\0Save config\0Toggle autoconn\0"
     "Set timezone\0Add/rm friend\0"
 ;
 
@@ -1514,9 +1520,9 @@ static const PackedCmd USER_COMMANDS[] = {
     {  39,  40, cmd_kick },
     {  41,  42, cmd_windows_wrapper },
     {  43, 255, cmd_beep },
-    {  44, 255, cmd_quits },
+    {  44, 255, cmd_traffic },
     {  45,  46, cmd_timestamps },
-    {  47,  48, cmd_clear },
+    {  47,  48, (void (*)(const char *))clear_main },
     {  49,  50, cmd_save },
     {  51,  52, cmd_autoconnect },
     {  53, 255, cmd_tz },
@@ -1602,7 +1608,8 @@ void parse_user_input(char *line) __z88dk_fastcall
     } else if (cmd_str[0] == '/') {
         cmd_str++;
     } else {
-        if (connection_state < STATE_TCP_CONNECTED) {
+        // FIX-M10: require IRC_READY, not just TCP_CONNECTED
+        if (connection_state < STATE_IRC_READY) {
             set_attr_err();
             ERR_NOTCONN();
             return;
@@ -1662,14 +1669,10 @@ void parse_user_input(char *line) __z88dk_fastcall
             const char *chn_name = (idx == 0) ? S_SERVER : channels[idx].name;
 
             if (idx == current_channel_idx) {
-                set_attr_sys();
-                main_puts(S_ALREADY_IN);
-                main_print(chn_name);
+                sys_puts_print(S_ALREADY_IN, chn_name);
             } else {
                 switch_to_channel(idx);
-                set_attr_sys();
-                main_puts(S_SWITCHTO);
-                main_print(chn_name);
+                sys_puts_print(S_SWITCHTO, chn_name);
             }
         } else {
             set_attr_err();

@@ -40,7 +40,7 @@ const char *theme_get_name(uint8_t theme_id);
 // =============================================================================
 // VERSION
 // =============================================================================
-#define VERSION "1.3.2"
+#define VERSION "1.3.3"
 
 // =============================================================================
 // SCREEN LAYOUT CONSTANTS
@@ -97,8 +97,9 @@ const char *theme_get_name(uint8_t theme_id);
 // Cross-module buffers (must match definitions in spectalk.c)
 #define NAMES_TARGET_CHANNEL_SIZE 32
 #define SEARCH_PATTERN_SIZE       32
-// RX_LINE_SIZE: Also defined in spectalk_asm.asm line 420 (ld de, RX_LINE_SIZE-2)
-// If changed, update ASM constant accordingly
+// RX_LINE_SIZE: ¡¡DUPLICADO EN ASM!!
+// Si cambias este valor, DEBES actualizar también:
+//   spectalk_asm.asm línea ~411: "ld de, 510" debe ser (RX_LINE_SIZE - 2)
 #define RX_LINE_SIZE              512
 
 // =============================================================================
@@ -106,7 +107,8 @@ const char *theme_get_name(uint8_t theme_id);
 // =============================================================================
 #define MAX_CHANNELS 10
 #define NAV_HIST_SIZE 6
-#define MAX_IGNORES 8
+#define MAX_FRIENDS 5
+#define MAX_IGNORES 5
 
 // Channel flags defined above (lines 77-80)
 
@@ -167,6 +169,10 @@ typedef struct {
 // =============================================================================
 // FRAME MACRO
 // =============================================================================
+// NOTA P0-3: El 'ei' antes de 'halt' puede causar jitter si hay interrupción
+// pendiente (se dispara antes del halt, luego halt espera otra interrupción).
+// Idealmente sería solo 'halt', pero cambiar requiere auditar que ningún
+// código deshabilite interrupciones antes de llamar a HALT().
 #define HALT() do { __asm__("ei"); __asm__("halt"); } while(0)
 
 // =============================================================================
@@ -228,7 +234,7 @@ extern uint8_t autoaway_minutes;
 extern uint16_t autoaway_counter;
 extern uint8_t autoaway_active;
 extern uint8_t beep_enabled;
-extern uint8_t show_quits;
+extern uint8_t show_traffic;
 extern int8_t sntp_tz;
 extern char irc_pass[IRC_PASS_SIZE];
 extern char nickserv_pass[IRC_PASS_SIZE];
@@ -319,6 +325,7 @@ extern char names_target_channel[NAMES_TARGET_CHANNEL_SIZE];
 extern uint8_t counting_new_users;
 extern uint16_t names_count_acc;
 extern uint8_t show_names_list;
+extern uint8_t names_was_manual;
 
 
 // Keep-alive system
@@ -532,7 +539,7 @@ void irc_check_friends_online(void);
 // OPT-P2-B: Shared nick-in-use retry logic (used by h_numeric_433 and cmd_connect)
 void nick_try_alternate(void);
 
-extern char friend_nicks[3][IRC_NICK_SIZE];
+extern char friend_nicks[MAX_FRIENDS][IRC_NICK_SIZE];
 extern uint8_t friends_ison_sent;
 
 // =============================================================================

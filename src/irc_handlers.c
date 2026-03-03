@@ -50,7 +50,7 @@ static void mark_channel_activity(uint8_t idx) __z88dk_fastcall
 // Helper: Mostrar razón entre paréntesis si existe y forzar salto
 static void print_reason_and_newline(void)
 {
-    if (pkt_txt && *pkt_txt) { main_puts2(S_SP_PAREN, pkt_txt); main_putc(')'); }
+    if (*pkt_txt) { main_puts2(S_SP_PAREN, pkt_txt); main_putc(')'); }
     wrap_indent = 0;      // FIX: do not carry timestamp indent to next message
     main_newline();
 }
@@ -61,7 +61,7 @@ static uint8_t is_tracked_friend(const char *nick) __z88dk_fastcall
     uint8_t i;
     if (!nick || !*nick) return 0;
 
-    for (i = 0; i < 3; i++) {
+    for (i = 0; i < MAX_FRIENDS; i++) {
         if (friend_nicks[i][0] && st_stricmp(friend_nicks[i], nick) == 0) return 1;
     }
     return 0;
@@ -96,9 +96,9 @@ static void h_nick(void)
     if (st_stricmp(pkt_usr, irc_nick) == 0) {
         st_copy_n(irc_nick, new_nick, sizeof(irc_nick));
         draw_status_bar();
-        main_print_time_prefix();
+        wrap_indent = 6;
         set_attr_sys();
-        main_puts("You are now known as "); main_print(irc_nick);
+        main_puts("      You are now known as "); main_print(irc_nick);
         return;
     }
 
@@ -289,15 +289,15 @@ static void h_privmsg_notice(void)
 
         switch (ctcp_cmd[0]) {
             case 'A': // ACTION - "ACTION "
-                if (ctcp_cmd[1] == 'C' && ctcp_cmd[6] == ' ') {
+                if (ctcp_cmd[1] == 'C' && ctcp_cmd[2] == 'T'
+                    && ctcp_cmd[3] == 'I' && ctcp_cmd[4] == 'O'
+                    && ctcp_cmd[5] == 'N' && ctcp_cmd[6] == ' ') {
                     char *act = ctcp_cmd + 7;
                     char *end = strchr(act, 1);
                     if (end) *end = 0;
 
                     if (target[0] == '#') {
                         set_attr_chan();
-                        main_puts2(S_ASTERISK, pkt_usr);
-                        main_putc(' '); main_print(act);
                     } else {
                         int8_t query_idx = add_query(pkt_usr);
                         if (query_idx >= 0) {
@@ -305,9 +305,9 @@ static void h_privmsg_notice(void)
                             mark_channel_activity((uint8_t)query_idx);
                         }
                         set_attr_priv();
-                        main_puts2(S_ASTERISK, pkt_usr);
-                        main_putc(' '); main_print(act);
                     }
+                    main_puts2(S_ASTERISK, pkt_usr);
+                    main_putc(' '); main_print(act);
                     return;
                 }
                 break;
@@ -317,7 +317,7 @@ static void h_privmsg_notice(void)
                 break;
 
             case 'P': // PING
-                if (ctcp_cmd[1] == 'I' && ctcp_cmd[2] == 'N') {
+                if (ctcp_cmd[1] == 'I' && ctcp_cmd[2] == 'N' && ctcp_cmd[3] == 'G') {
                     const char *p = ctcp_cmd + 4;
                     if (*p == ' ') p++;
                     send_ctcp_reply(pkt_usr, "PING", p);
@@ -344,9 +344,8 @@ static void h_privmsg_notice(void)
 
         set_attr_nick();
         
-        // FUSIÓN SEGURA
-        main_puts2("<", pkt_usr);
-        main_puts(S_PROMPT);
+        // FUSIÓN SEGURA - formato: NICK> mensaje
+        main_puts2(pkt_usr, S_PROMPT);
         
         set_attr_chan();
 
@@ -366,25 +365,14 @@ static void h_privmsg_notice(void)
 
         if (query_idx < 0 || (uint8_t)query_idx != current_channel_idx) {
             current_attr = ATTR_MSG_SELF;
-            
-            // FUSIÓN SEGURA
             main_puts2(S_ARROW_IN, pkt_usr);
             main_puts(S_COLON_SP);
-            
-            set_attr_priv();
-
-            main_print_wrapped_ram(pkt_txt);
         } else {
             set_attr_nick();
-            
-            // FUSIÓN SEGURA
-            main_puts2("<", pkt_usr);
-            main_puts(S_PROMPT);
-            
-            set_attr_priv();
-
-            main_print_wrapped_ram(pkt_txt);
+            main_puts2(pkt_usr, S_PROMPT);
         }
+        set_attr_priv();
+        main_print_wrapped_ram(pkt_txt);
 
         // Privado: usar exactamente el mismo beep que las menciones.
         mention_beep();
@@ -448,12 +436,14 @@ static void h_join(void)
             }
 
             if ((uint8_t)idx == current_channel_idx) {
-                main_print_time_prefix();
-                set_attr_join();
-                main_puts2(S_ARROW_OUT, pkt_usr);
-                main_puts(S_JOINED_SP);
-                main_print(chan);
-                draw_status_bar();
+                if (show_traffic) {
+                    main_print_time_prefix();
+                    set_attr_join();
+                    main_puts2(S_ARROW_OUT, pkt_usr);
+                    main_puts(S_JOINED_SP);
+                    main_print(chan);
+                }
+                draw_status_bar();  // Siempre actualizar conteo
             }
         }
     }
@@ -465,6 +455,14 @@ static void handle_connection_drop(void)
     if (disconnecting_in_progress) return;
     force_disconnect_wifi();  // ya resetea canales internamente
     status_bar_dirty = 1;
+}
+
+static void print_departure(const char *verb) __z88dk_fastcall {
+    main_print_time_prefix();
+    set_attr_join();
+    main_puts(S_ARROW_IN);
+    main_puts2(pkt_usr, verb);
+    print_reason_and_newline();
 }
 
 static void h_part(void)
@@ -486,14 +484,7 @@ static void h_part(void)
             channel_dec_users(idx);
 
             if ((uint8_t)idx == current_channel_idx) {
-                set_attr_join();
-                main_print_time_prefix();
-                
-                // FIX BUG-07: Era main_puts2(S_ARROW_IN, S_ARROW_IN) -> "<< << "
-                main_puts(S_ARROW_IN);
-                main_puts2(pkt_usr, " left");
-                
-                print_reason_and_newline();
+                print_departure(" left");
                 draw_status_bar();
             } else {
                 mark_channel_activity((uint8_t)idx);
@@ -504,15 +495,8 @@ static void h_part(void)
 
 static void h_quit(void)
 {
-    if (show_quits) {
-        main_print_time_prefix();
-        set_attr_join();
-        
-        // FIX BUG-07: Era main_puts2(S_ARROW_IN, S_ARROW_IN) -> "<< << "
-        main_puts(S_ARROW_IN);
-        main_puts2(pkt_usr, " quit");
-        
-        print_reason_and_newline();
+    if (show_traffic) {
+        print_departure(" quit");
     }
 
     {
@@ -525,6 +509,10 @@ static void h_quit(void)
     }
 
     // Decrementar user_count si solo hay 1 canal
+    // NOTA: Con múltiples canales no decrementamos porque IRC QUIT no indica
+    // en qué canales estaba el usuario. El contador se resincroniza con NAMES
+    // (al hacer /names o cuando otro usuario hace JOIN). Limitación aceptable
+    // para evitar mantener listas de miembros por canal (prohibitivo en 48K).
     {
         uint8_t i, joined_cnt = 0, target_idx = 0;
         for (i = 1; i < MAX_CHANNELS && joined_cnt < 2; i++) {
@@ -557,6 +545,7 @@ static void h_kick(void)
         main_puts2(" by ", pkt_usr);
         print_reason_and_newline();
         // remove_channel() YA llama a draw_status_bar()
+        // NOTE-L4: idx > 0 (not >= 0) is correct: channel 0 is Server, can't be kicked from it
         if (idx > 0) remove_channel((uint8_t)idx);
     } else {
         if (idx >= 0) {
@@ -586,7 +575,7 @@ static void h_kill(void)
     if (target && st_stricmp(target, irc_nick) == 0) {
         set_attr_err();
         main_puts2("*** Killed by ", pkt_usr);
-        if (pkt_txt && *pkt_txt) {
+        if (*pkt_txt) {
             main_puts(S_COLON_SP);
             main_print(pkt_txt);
         } else {
@@ -596,8 +585,10 @@ static void h_kill(void)
         handle_connection_drop();
     } else {
         set_attr_join();
-        main_puts(S_ASTERISK); if (target) main_puts(target);
+        main_puts(S_ASTERISK);
+        if (target) main_puts(target);
         main_puts2(" killed by ", pkt_usr);
+        print_reason_and_newline();  // FIX BUG-03: faltaba newline
     }
 }
 
@@ -607,7 +598,7 @@ static void h_error(void)
 {
     set_attr_err();
     main_puts("*** Server: ");
-    if (pkt_txt && *pkt_txt) main_print(pkt_txt); else main_print("Connection terminated");
+    if (*pkt_txt) main_print(pkt_txt); else main_print("Connection terminated");
     handle_connection_drop();
 }
 
@@ -676,7 +667,7 @@ static void h_numeric_305_306(void)
     
     draw_status_bar();
     
-    if (pkt_txt && *pkt_txt) {
+    if (*pkt_txt) {
         set_attr_sys();
         main_print(pkt_txt);
     }
@@ -684,7 +675,7 @@ static void h_numeric_305_306(void)
 
 static void h_numeric_332(void)
 {
-    if (pkt_txt && *pkt_txt) {
+    if (*pkt_txt) {
         current_attr = ATTR_MSG_TOPIC;
         main_print_time_prefix(); 
         main_puts(S_TOPIC_PFX); main_print(pkt_txt);
@@ -752,12 +743,17 @@ static void h_numeric_366(void)
         names_target_channel[0] = '\0';
     }
     
-    // Commit user count to status bar ONLY from JOIN-initiated NAMES
-    // (show_names_list=0 means this was triggered by JOIN, not /names)
-    // /names is unreliable due to buffer limits on large channels
-    if (!show_names_list && names_count_acc > 0) {
+    // Commit user count to status bar:
+    // - JOIN automático (names_was_manual=0): siempre actualizar
+    // - /names manual (names_was_manual=1): solo si no hubo pérdida de datos ni cancelación
+    if (!names_was_manual && names_count_acc > 0) {
+        // JOIN automático - siempre confiable
+        chan_user_count = names_count_acc;
+    } else if (names_was_manual && !search_data_lost && names_count_acc > 0) {
+        // /names manual completado correctamente (sin cancelar, sin pérdida)
         chan_user_count = names_count_acc;
     }
+    // Si names_was_manual=1 y search_data_lost=1 → cancelado o datos perdidos → no actualizar
     
     // Finalizar paginación de /names
     if (show_names_list && pagination_active) {
@@ -774,7 +770,9 @@ static void h_numeric_366(void)
         redraw_input_full();
     }
     
-    show_names_list = 0; 
+    show_names_list = 0;
+    names_was_manual = 0;  // Reset flag
+    search_data_lost = 0;  // Reset aquí después de usarlo
     draw_status_bar();
 }
 
@@ -853,7 +851,7 @@ static void h_numeric_322_352(void)
         main_puts2(" (", users);
         main_putc(')');
 
-        if (pkt_txt && *pkt_txt) {
+        if (*pkt_txt) {
             set_attr_chan();
             main_putc(' ');
             len = 0;
@@ -966,7 +964,7 @@ static void h_join_error(void)
     else main_print("channel");
     
     main_puts(S_COLON_SP);
-    if (pkt_txt && *pkt_txt) main_print(pkt_txt); 
+    if (*pkt_txt) main_print(pkt_txt); 
     else main_print("Access denied");
 
     // SEGURIDAD: Si la ventana existe (estado zombie), forzar su cierre inmediato.
@@ -975,9 +973,7 @@ static void h_join_error(void)
         int8_t idx = find_channel(bad_chan);
         if (idx > 0) {
             remove_channel((uint8_t)idx);
-            // Si estábamos en esa ventana, remove_channel nos mueve a otra
-            // y redibuja la barra de estado automáticamente.
-            if ((uint8_t)idx == current_channel_idx) draw_status_bar();
+            draw_status_bar();
         }
     }
 }
@@ -1024,7 +1020,7 @@ print_tail:
     }
 
     // Imprimir texto final si existe
-    if (pkt_txt && *pkt_txt) {
+    if (*pkt_txt) {
         main_print(pkt_txt);
     } else {
         main_newline();
@@ -1064,18 +1060,18 @@ typedef struct {
     void (*fn)(void);
 } CmdEntry;
 
-static void h_ignore(void) { /* Do nothing */ }
+static void h_ignore(void) { /* Intentional no-op: suppress numerics 2,3,4,900 */ }
 
 static void h_pong(void)
 {
     // Calculate latency from keepalive_timeout (frames since PING)
     // 50 frames = 1 second
-    if (keepalive_timeout < 25) {
-        ping_latency = 0;       // Good: < 500ms
-    } else if (keepalive_timeout < 50) {
-        ping_latency = 1;       // Medium: 500-1000ms
+    if (keepalive_timeout < 20) {
+        ping_latency = 0;       // Good: < 400ms
+    } else if (keepalive_timeout < 40) {
+        ping_latency = 1;       // Medium: 400-800ms
     } else {
-        ping_latency = 2;       // High: > 1000ms
+        ping_latency = 2;       // High: > 800ms
     }
     status_bar_dirty = 1;       // Redraw indicator
     
@@ -1242,7 +1238,8 @@ void process_irc_data(void)
     if (connection_state == STATE_WIFI_OK && sntp_waiting) {
         uart_drain_to_buffer();
         while (try_read_line_nodrain()) {
-            if (rx_line[0] == '+') sntp_process_response(rx_line);
+            // FIX P0-1: Verificar longitud antes de acceder a índices
+            if (rx_last_len >= 1 && rx_line[0] == '+') sntp_process_response(rx_line);
         }
         return;
     }
@@ -1260,17 +1257,19 @@ void process_irc_data(void)
     }
 
     // Fusión total: un solo paso fija drain_limit y max_lines
-    uart_drain_limit = DRAIN_NORMAL;
-    if (backlog > 1024)      { uart_drain_limit = RX_TICK_DRAIN_MAX; max_lines = 32; }
-    else if (backlog > 512)  { uart_drain_limit = DRAIN_FAST;        max_lines = 24; }
-    else if (backlog > 256)  { uart_drain_limit = 128;               max_lines = 16; }
-    else if (backlog > 128)  {                                        max_lines = 10; }
-    else                     {                                        max_lines = 6;  }
+    if (backlog > 1024)      { max_lines = 32; }
+    else if (backlog > 512)  { max_lines = 24; }
+    else if (backlog > 256)  { max_lines = 16; }
+    else if (backlog > 128)  { max_lines = 10; }
+    else                     { max_lines = 6;  }
 
     uart_drain_to_buffer();
 
     // FIX: early-out barato cuando no hay nada que procesar
     if (rx_pos == 0 && rb_head == rb_tail) return;
+
+    // FIX P0-2: Variable para detectar CLOSED sin actuar dentro del bucle
+    uint8_t closed_detected = 0;
 
     while (try_read_line_nodrain()) {
 
@@ -1280,15 +1279,14 @@ void process_irc_data(void)
         // This prevents ERROR/CLOSED from server triggering reentrant handlers
         if (disconnecting_in_progress) continue;
 
-        // FIX: Match completo "CLOSED" para evitar falsos positivos
-        // (ej: mensaje de chat que empiece por "CLO...")
-        if (rx_line[0] == 'C' && rx_line[1] == 'L' && rx_line[2] == 'O' &&
+        // FIX P0-1: Verificar longitud antes de acceder a índices fijos
+        // "CLOSED" tiene 6 caracteres, necesitamos rx_last_len >= 6
+        if (rx_last_len >= 6 &&
+            rx_line[0] == 'C' && rx_line[1] == 'L' && rx_line[2] == 'O' &&
             rx_line[3] == 'S' && rx_line[4] == 'E' && rx_line[5] == 'D') {
+            // FIX P0-2: Solo marcar, no actuar dentro del bucle
             if (!closed_reported) {
-                closed_reported = 1;
-                ui_err("Connection closed by server");
-                force_disconnect_wifi();
-                draw_status_bar();
+                closed_detected = 1;
             }
         } else {
             // Reset silence counter on ANY server activity
@@ -1307,9 +1305,17 @@ void process_irc_data(void)
             }
 
             bytes_this_call += (rx_last_len + 1);
-            if (bytes_this_call >= current_budget) return;
+            if (bytes_this_call >= current_budget) break;  // FIX P0-2: break en vez de return
         }
 
-        if (lines_this_call >= max_lines) return;
+        if (lines_this_call >= max_lines) break;  // FIX P0-2: break en vez de return
+    }
+
+    // FIX P0-2: Actuar DESPUÉS de salir del bucle de consumo
+    if (closed_detected) {
+        closed_reported = 1;
+        ui_err("Connection closed by server");
+        force_disconnect_wifi();
+        draw_status_bar();
     }
 }
