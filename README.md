@@ -247,7 +247,7 @@ theme=1
 timestamps=1
 autoaway=15
 beep=1
-quits=1
+traffic=1
 tz=1
 friends=Friend1,Friend2,Friend3
 ignores=Troll1,Troll2
@@ -267,7 +267,7 @@ ignores=Troll1,Troll2
 | `timestamps` | Show timestamps | 0, 1, or 2 (smart) | 1 |
 | `autoaway` | Auto-away minutes | 0-60 (0=off) | 0 |
 | `beep` | Sound on mention | 0 or 1 | 1 |
-| `quits` | Show quit messages | 0 or 1 | 1 |
+| `traffic` | Show quit/join messages | 0 or 1 | 1 |
 | `tz` | Timezone offset | -12 to +12 | 0 |
 | `friends` | Friend nicks to monitor (comma-separated, max 5) | nick1,nick2,... | (none) |
 | `ignores` | Ignored nicks (comma-separated, max 5) | nick1,nick2,... | (none) |
