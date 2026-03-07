@@ -40,7 +40,7 @@ const char *theme_get_name(uint8_t theme_id);
 // =============================================================================
 // VERSION
 // =============================================================================
-#define VERSION "1.3.3"
+#define VERSION "1.3.4"
 
 // =============================================================================
 // SCREEN LAYOUT CONSTANTS
@@ -97,9 +97,8 @@ const char *theme_get_name(uint8_t theme_id);
 // Cross-module buffers (must match definitions in spectalk.c)
 #define NAMES_TARGET_CHANNEL_SIZE 32
 #define SEARCH_PATTERN_SIZE       32
-// RX_LINE_SIZE: ¡¡DUPLICADO EN ASM!!
-// Si cambias este valor, DEBES actualizar también:
-//   spectalk_asm.asm línea ~411: "ld de, 510" debe ser (RX_LINE_SIZE - 2)
+// RX_LINE_SIZE: duplicado como RX_LINE_MAX EQU en spectalk_asm.asm
+// Si cambias este valor, actualiza también RX_LINE_MAX en el ASM
 #define RX_LINE_SIZE              512
 
 // =============================================================================
@@ -228,6 +227,7 @@ extern char irc_server[IRC_SERVER_SIZE];
 extern char irc_port[IRC_PORT_SIZE];
 extern char irc_nick[IRC_NICK_SIZE];
 extern uint8_t irc_is_away;
+extern uint8_t ping_latency;
 extern char away_message[32];
 extern uint8_t away_reply_cd;
 extern uint8_t autoaway_minutes;
@@ -270,22 +270,23 @@ extern uint8_t nav_hist_ptr;
 extern char ignore_list[][16];
 extern uint8_t ignore_count;
 
-// Theme attributes (set by apply_theme)
-extern uint8_t ATTR_BANNER;
-extern uint8_t ATTR_STATUS;
-extern uint8_t ATTR_MSG_CHAN;
-extern uint8_t ATTR_MSG_SELF;
-extern uint8_t ATTR_MSG_PRIV;
-extern uint8_t ATTR_MAIN_BG;
-extern uint8_t ATTR_INPUT;
-extern uint8_t ATTR_INPUT_BG;
-extern uint8_t ATTR_PROMPT;
-extern uint8_t ATTR_MSG_SERVER;
-extern uint8_t ATTR_MSG_JOIN;
-extern uint8_t ATTR_MSG_NICK;
-extern uint8_t ATTR_MSG_TIME;
-extern uint8_t ATTR_MSG_TOPIC;
-extern uint8_t ATTR_MSG_MOTD;
+// Theme attributes array — indices match Theme struct fields banner..border
+extern uint8_t theme_attrs[20];
+#define ATTR_BANNER     theme_attrs[0]
+#define ATTR_STATUS     theme_attrs[1]
+#define ATTR_MSG_CHAN   theme_attrs[2]
+#define ATTR_MSG_SELF   theme_attrs[3]
+#define ATTR_MSG_PRIV   theme_attrs[4]
+#define ATTR_MAIN_BG    theme_attrs[5]
+#define ATTR_INPUT      theme_attrs[6]
+#define ATTR_INPUT_BG   theme_attrs[7]
+#define ATTR_PROMPT     theme_attrs[8]
+#define ATTR_MSG_SERVER theme_attrs[9]
+#define ATTR_MSG_JOIN   theme_attrs[10]
+#define ATTR_MSG_NICK   theme_attrs[11]
+#define ATTR_MSG_TIME   theme_attrs[12]
+#define ATTR_MSG_TOPIC  theme_attrs[13]
+#define ATTR_MSG_MOTD   theme_attrs[14]
 
 // =============================================================================
 // CROSS-MODULE FUNCTIONS (defined in spectalk.c)
@@ -293,12 +294,13 @@ extern uint8_t ATTR_MSG_MOTD;
 extern void main_print_time_prefix(void);
 extern void main_run_u16(uint16_t val, uint8_t attr) __z88dk_callee;
 extern void reset_all_channels(void);
+extern void send_identify(const char *pass) __z88dk_fastcall;
 void sntp_process_response(const char *line) __z88dk_fastcall;
-extern uint8_t ATTR_ERROR;
-extern uint8_t STATUS_RED;
-extern uint8_t STATUS_YELLOW;
-extern uint8_t STATUS_GREEN;
-extern uint8_t BORDER_COLOR;
+#define ATTR_ERROR      theme_attrs[15]
+#define STATUS_RED      theme_attrs[16]
+#define STATUS_YELLOW   theme_attrs[17]
+#define STATUS_GREEN    theme_attrs[18]
+#define BORDER_COLOR    theme_attrs[19]
 extern uint8_t current_theme;
 
 #define ATTR_MSG_SYS ATTR_MSG_SERVER
@@ -335,6 +337,7 @@ extern uint16_t keepalive_timeout;
 
 // Pagination
 extern uint8_t pagination_active;
+extern uint8_t pagination_lines;
 extern uint8_t search_data_lost;
 extern uint8_t buffer_pressure;
 extern uint16_t pagination_count;
@@ -351,6 +354,11 @@ extern uint16_t search_index;
 void cancel_search_state(void);
 void start_pagination(void);
 void start_search_command(uint8_t type, const char *arg);
+
+// Timestamps
+extern uint8_t show_timestamps;
+extern uint8_t last_ts_hour;
+extern uint8_t last_ts_minute;
 
 // IRC parsing
 extern char *irc_params[IRC_MAX_PARAMS];
@@ -498,6 +506,7 @@ int8_t add_channel(const char *name) __z88dk_fastcall;
 int8_t add_query(const char *nick) __z88dk_fastcall;
 void remove_channel(uint8_t idx) __z88dk_fastcall;
 void switch_to_channel(uint8_t idx) __z88dk_fastcall;
+// Channel switcher is state-based (internal to spectalk.c)
 void nav_push(uint8_t idx);
 void nav_fix_on_delete(uint8_t deleted_idx);
 
@@ -532,6 +541,7 @@ uint8_t esp_at_cmd(const char *cmd) __z88dk_fastcall;
 // FUNCTION DECLARATIONS - IRC SEND (spectalk.c)
 // =============================================================================
 // irc_send_raw eliminado - se usa uart_send_string directo
+void irc_send_pong(const char *token) __z88dk_fastcall;
 void irc_send_cmd1(const char *cmd, const char *p1) __z88dk_callee;
 void irc_send_cmd2(const char *cmd, const char *p1, const char *p2) __z88dk_callee;
 void irc_send_privmsg(const char *target, const char *msg) __z88dk_callee;
@@ -557,7 +567,6 @@ void parse_user_input(char *line) __z88dk_fastcall;
 // FUNCTION DECLARATIONS - MISC (spectalk.c)
 // =============================================================================
 void force_disconnect(void);
-void force_disconnect_wifi(void);
 void apply_theme(void);
 void init_screen(void);
 uint8_t esp_init(void);

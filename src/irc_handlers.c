@@ -10,9 +10,6 @@
 
 #include "../include/spectalk.h"
 
-// Extern for latency indicator (defined in spectalk.c)
-extern uint8_t ping_latency;
-
 // =============================================================================
 // GLOBAL PARSING CONTEXT (Replaces Stack Args)
 // Optimization: Saves pushing 8 bytes to stack for every handler call.
@@ -123,10 +120,16 @@ static void h_nick(void)
 
 static void h_cap(void)
 {
-    // pkt_par contains: "* LS ..." or "* ACK ..."
-    // Check for "* L" pattern (covers "* LS" and "* LS ...")
-    if (pkt_par && pkt_par[0] == '*' && pkt_par[1] == ' ' && pkt_par[2] == 'L') {
-        uart_send_line(S_CAP_END);
+    // pkt_par: "* LS :..." or "nick LS :..." depending on server
+    // Search for " LS" or " L " anywhere in params to handle both formats
+    const char *p = pkt_par;
+    if (!p) return;
+    while (*p) {
+        if (p[0] == 'L' && p[1] == 'S') {
+            uart_send_line(S_CAP_END);
+            return;
+        }
+        p++;
     }
 }
 
@@ -135,11 +138,7 @@ static void h_ping(void)
     const char *token = pkt_txt;
     if (!token || !*token) token = irc_param(0);
     if (!token) token = "";
-
-    uart_send_string(S_PONG);
-    uart_send_string(irc_server);
-    uart_send_string(" :");
-    uart_send_line(token);
+    irc_send_pong(token);
 }
 
 static void h_mode(void)
@@ -202,10 +201,7 @@ static void h_privmsg_notice(void)
     // Some networks send as :NickServ NOTICE, others as :server.name NOTICE
     if (is_notice && nickserv_pass[0] &&
         st_stristr(pkt_txt, "registered") && st_stristr(pkt_txt, "identify")) {
-        uart_send_string(S_PRIVMSG);
-        uart_send_string(S_NICKSERV);
-        uart_send_string(S_IDENTIFY_CMD);
-        uart_send_line(nickserv_pass);
+        send_identify(nickserv_pass);
         set_attr_sys();
         main_print("Auto-identifying...");
         return;
@@ -253,10 +249,13 @@ static void h_privmsg_notice(void)
         if (pkt_txt[0] == '[') {
             char *close_bracket = strchr(pkt_txt, ']');
             if (close_bracket && close_bracket[1] == ' ') {
-                main_print_time_prefix();
                 current_attr = ATTR_MSG_TOPIC;
+                uint8_t saved_ts = show_timestamps;
+                if (counting_new_users && saved_ts != 1) show_timestamps = 1;
+                main_print_time_prefix();
+                show_timestamps = saved_ts;
                 main_puts(S_TOPIC_PFX);
-                main_print(close_bracket + 2);
+                main_print_wrapped_ram(close_bracket + 2);
                 return;
             }
         }
@@ -318,8 +317,11 @@ static void h_privmsg_notice(void)
 
             case 'P': // PING
                 if (ctcp_cmd[1] == 'I' && ctcp_cmd[2] == 'N' && ctcp_cmd[3] == 'G') {
-                    const char *p = ctcp_cmd + 4;
+                    char *p = ctcp_cmd + 4;
+                    char *end;
                     if (*p == ' ') p++;
+                    end = strchr(p, 1);
+                    if (end) *end = 0;
                     send_ctcp_reply(pkt_usr, "PING", p);
                     return;
                 }
@@ -328,6 +330,7 @@ static void h_privmsg_notice(void)
             case 'T': // TIME
                 if (ctcp_cmd[1] == 'I' && ctcp_cmd[2] == 'M') { send_ctcp_reply(pkt_usr, "TIME", "(no rtc)"); return; }
                 break;
+
         }
     }
 
@@ -453,7 +456,7 @@ static void handle_connection_drop(void)
 {
     // FIX: Don't trigger disconnect if already disconnecting (e.g., /quit in progress)
     if (disconnecting_in_progress) return;
-    force_disconnect_wifi();  // ya resetea canales internamente
+    force_disconnect();  // ya resetea canales internamente
     status_bar_dirty = 1;
 }
 
@@ -677,8 +680,11 @@ static void h_numeric_332(void)
 {
     if (*pkt_txt) {
         current_attr = ATTR_MSG_TOPIC;
-        main_print_time_prefix(); 
-        main_puts(S_TOPIC_PFX); main_print(pkt_txt);
+        uint8_t saved_ts = show_timestamps;
+        if (counting_new_users && saved_ts != 1) show_timestamps = 1;
+        main_print_time_prefix();
+        show_timestamps = saved_ts;
+        main_puts(S_TOPIC_PFX); main_print_wrapped_ram(pkt_txt);
     }
 }
 
@@ -736,8 +742,7 @@ static void h_numeric_366(void)
 {
     const char *msg_chan = irc_param(1);
     const char *target = names_target_channel[0] ? names_target_channel : irc_channel;
-    extern char *u16_to_dec3(char *dst, uint16_t v);
-    
+
     if (target[0] && st_stricmp(msg_chan, target) == 0) {
         names_pending = 0; names_timeout_frames = 0;
         names_target_channel[0] = '\0';
@@ -760,7 +765,7 @@ static void h_numeric_366(void)
         set_attr_sys();
         if (pagination_count > 0) {
             char buf[8];
-            u16_to_dec3(buf, names_count_acc);
+            u16_to_dec(buf, names_count_acc);
             main_puts2("-- ", buf);
             main_print(search_data_lost ? " (incomplete) --" : " listed --");
         }
@@ -870,7 +875,7 @@ static void h_numeric_322_352(void)
         nick_idx = (irc_param_count > 2) ? irc_param_count - 2 : 5;
         host_idx = (irc_param_count > 4) ? irc_param_count - 4 : 3;
 
-        user = irc_param(2);
+        user = irc_param(1);
         host = irc_param(host_idx);
         nick = irc_param(nick_idx);
 
@@ -909,7 +914,6 @@ static void h_numeric_1(void)
 
 // End of MOTD: check friends online
 static void h_numeric_376(void) { irc_check_friends_online(); }
-static void h_numeric_422(void) { irc_check_friends_online(); }
 
 // RPL_ISON (303): show friends online (simple version)
 static void h_numeric_303(void)
@@ -986,7 +990,7 @@ static void h_numeric_default(void)
     // Filtrar ruido de conexión y canal (silencioso)
     // 001-005: welcome/server info, 250-266: stats, 329: channel creation time,
     // 333: topic who/time, 396: host hidden
-    if ((num >= 1 && num <= 5) || (num >= 250 && num <= 266) ||
+    if ((num >= 250 && num <= 266) ||
         num == 329 || num == 333 || num == 396) {
         return;
     }
@@ -1115,8 +1119,9 @@ static const CmdEntry CMD_TABLE[] = {
     { 376, h_numeric_376 },
     { 401, h_numeric_401 },
     { 433, h_numeric_433 },
-    { 422, h_numeric_422 },
+    { 422, h_numeric_376 },
     { 451, h_numeric_451 },
+
     { 403, h_join_error },
     { 404, h_join_error },
     { 405, h_join_error },
@@ -1200,11 +1205,11 @@ void parse_irc_message(char *line) __z88dk_fastcall
         } else if (pkt_cmd[0] && pkt_cmd[1]) {
             // FIX: Normalizar a mayúsculas para compatibilidad con bouncers/gateways
             // que envían comandos en minúsculas (ej: "privmsg" en vez de "PRIVMSG")
-            uint8_t c0 = pkt_cmd[0];
-            uint8_t c1 = pkt_cmd[1];
-            if (c0 >= 'a' && c0 <= 'z') c0 -= 32;
-            if (c1 >= 'a' && c1 <= 'z') c1 -= 32;
-            cmd_id = ((uint16_t)c0 << 8) | c1;
+            // FIX: Normalizar pkt_cmd in-place para que handlers puedan comparar
+            if (pkt_cmd[0] >= 'a' && pkt_cmd[0] <= 'z') pkt_cmd[0] -= 32;
+            if (pkt_cmd[1] >= 'a' && pkt_cmd[1] <= 'z') pkt_cmd[1] -= 32;
+            if (pkt_cmd[2] >= 'a' && pkt_cmd[2] <= 'z') pkt_cmd[2] -= 32;
+            cmd_id = ((uint16_t)pkt_cmd[0] << 8) | pkt_cmd[1];
         } else {
             h_default_cmd();
             return;
@@ -1315,7 +1320,7 @@ void process_irc_data(void)
     if (closed_detected) {
         closed_reported = 1;
         ui_err("Connection closed by server");
-        force_disconnect_wifi();
+        force_disconnect();
         draw_status_bar();
     }
 }

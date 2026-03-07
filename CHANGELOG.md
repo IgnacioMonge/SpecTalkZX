@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.4] - 2026-03-07 "Solid Ground"
+
+### Added
+
+#### Channel Switcher Bar
+- **New overlay**: Press EDIT to open a visual tab bar showing all active channels
+- Navigate with LEFT/RIGHT arrows, select with ENTER, or press a digit key for direct access
+- Active channel highlighted, unread channels marked with `*`, mentions marked with `!`
+- Auto-hides after 20 seconds of inactivity
+- Live refresh: unread/mention indicators update in real-time while the switcher is open
+- Dynamic rebuild: channels added or removed while the switcher is open are reflected immediately
+
+#### Help Screen Improvements
+- Exit key changed from SPACE to BREAK (CS+SPACE) — avoids accidental dismissal when typing
+- Removed blank line before `/0-9` entry for better layout
+
+### Fixed
+
+#### IRC Color Strip Bug (Critical)
+- **Problem**: `strip_is_digit` in ASM returned "is digit" for characters below ASCII `'0'` (including NUL terminator)
+- **Impact**: A bare `^C` color reset at the end of an IRC message caused reads past the NUL terminator, corrupting output with garbage bytes
+- **Root cause**: `cp '0'` sets carry when A < 0x30 (underflow), and `ret c` returned with carry set — but the convention is carry set = IS a digit
+- **Solution**: Added explicit `jr c, sid_false` branch that clears carry before returning
+
+#### Lowercase IRC Command Handling
+- **Problem**: The command dispatcher normalized the hash to uppercase for routing, but `pkt_cmd` itself was not modified — handlers comparing `pkt_cmd[0]` or `pkt_cmd[2]` against uppercase literals silently failed for lowercase commands
+- **Impact**: Bouncers/gateways sending lowercase commands (e.g., `notice`, `kick`) caused NOTICE to be misidentified as PRIVMSG (wrong rendering, broken auto-identify, spurious query windows) and KICK/KILL to be silently dropped (channel not removed, stale data)
+- **Solution**: Normalize `pkt_cmd[0..2]` to uppercase in-place before dispatch, so all downstream handlers see consistent uppercase
+
+#### `/friend` Space Truncation
+- **Problem**: `/friend nick extra` stored `"nick extra"` instead of just `"nick"`, unlike every other command that accepts a nick argument
+- **Solution**: Added space truncation before processing, matching `cmd_ignore` pattern
+
+#### Switcher Bar Stale Map After Channel Removal
+- **Problem**: If a channel was removed (kick/part) while the switcher was open, key handling on the next frame used stale `sw_map[]` data because the dirty-rebuild check ran after key processing
+- **Solution**: Moved `if (sw_dirty) switcher_render()` to run before key handling, ensuring the map is always current
+
+### Technical Notes
+- New ASM label: `sid_false` in `strip_is_digit` (2 bytes added)
+- `pkt_cmd` normalization adds 3 conditional subtracts (~18 bytes)
+- `cmd_friend` space truncation reuses existing `strchr` pattern (~12 bytes)
+- Switcher rebuild moved before key handler (no size change, just reorder)
+- Binary TAP size: 37,176 bytes
+
+---
+
 ## [1.3.3] - 2026-03-03 "Remember Me"
 
 ### Added

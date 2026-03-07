@@ -8,7 +8,7 @@
 
 ![Platform](https://img.shields.io/badge/Platform-ZX%20Spectrum-blue)
 ![License](https://img.shields.io/badge/License-GPLv2-green)
-![Version](https://img.shields.io/badge/Version-1.3.3-orange)
+![Version](https://img.shields.io/badge/Version-1.3.4-orange)
 
 ---
 
@@ -122,6 +122,8 @@ SpecTalk ZX is a fully-featured IRC client for the ZX Spectrum, bringing modern 
 | **DELETE** (Caps+0) | Delete character (backspace) |
 | **← / →** | Move cursor within input line |
 | **↑ / ↓** | Navigate command history |
+| **EDIT** (Caps+1) | Open/close channel switcher bar |
+| **BREAK** (Caps+Space) | Exit help screens |
 
 ### System Commands (!)
 
@@ -219,6 +221,7 @@ SpecTalk supports up to 10 simultaneous windows:
 ### Navigation
 - Use `/0` through `/9` to switch windows
 - Use `/w` or `/channels` to see all open windows
+- Press **EDIT** to open the **channel switcher bar** — a visual tab overlay showing all active channels. Use LEFT/RIGHT to navigate, ENTER to select, or digit keys for direct access. Auto-hides after 20 seconds.
 - Activity indicator (●) shows windows with unread messages
 - Mention indicator (!) shows windows where your nick was mentioned (highlighted in color)
 

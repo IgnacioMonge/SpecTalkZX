@@ -202,26 +202,12 @@ const char S_SMART[] = "smart";                   // D10: dedup (2 uses)
 // THEME SYSTEM - Global attributes set by apply_theme()
 // =============================================================================
 uint8_t current_theme = 1;  // 1=DEFAULT, 2=TERMINAL, 3=COLORFUL
-uint8_t ATTR_BANNER;
-uint8_t ATTR_STATUS;
-uint8_t ATTR_MSG_CHAN;
-uint8_t ATTR_MSG_SELF;
-uint8_t ATTR_MSG_PRIV;
-uint8_t ATTR_MAIN_BG;
-uint8_t ATTR_INPUT;
-uint8_t ATTR_INPUT_BG;
-uint8_t ATTR_PROMPT;
-uint8_t ATTR_MSG_SERVER;
-uint8_t ATTR_MSG_JOIN;
-uint8_t ATTR_MSG_NICK;
-uint8_t ATTR_MSG_TIME;
-uint8_t ATTR_MSG_TOPIC;
-uint8_t ATTR_MSG_MOTD;
-uint8_t ATTR_ERROR;
-uint8_t STATUS_RED;
-uint8_t STATUS_YELLOW;
-uint8_t STATUS_GREEN;
-uint8_t BORDER_COLOR;
+// Theme attributes array — layout MUST match Theme struct fields banner..border
+// Indices: 0=BANNER 1=STATUS 2=MSG_CHAN 3=MSG_SELF 4=MSG_PRIV 5=MAIN_BG
+//   6=INPUT 7=INPUT_BG 8=PROMPT 9=MSG_SERVER 10=MSG_JOIN 11=MSG_NICK
+//   12=MSG_TIME 13=MSG_TOPIC 14=MSG_MOTD 15=ERROR 16=IND_RED 17=IND_YELLOW
+//   18=IND_GREEN 19=BORDER
+uint8_t theme_attrs[20];
 
 // =============================================================================
 // UI STATE FLAGS
@@ -511,6 +497,10 @@ int8_t find_empty_channel_slot(void)
     return -1;
 }
 
+// Forward declarations for switcher live-update
+static uint8_t sw_active;
+static uint8_t sw_dirty;
+
 // Internal: add slot with given flags
 static int8_t add_slot_internal(const char *name, uint8_t flags)
 {
@@ -522,6 +512,7 @@ static int8_t add_slot_internal(const char *name, uint8_t flags)
     channels[idx].user_count = 0;
     channels[idx].flags = flags;
     channel_count++;
+    if (sw_active) sw_dirty = 1;
     return idx;
 }
 
@@ -587,9 +578,13 @@ void remove_channel(uint8_t idx) __z88dk_fastcall
     for (i = idx; i < MAX_CHANNELS - 1; i++) {
         channels[i] = channels[i + 1];
     }
-    // Optimización: Invalidar slot solo con flags, evitando memset costoso
+    // Limpiar último slot completo tras defragmentación
     channels[MAX_CHANNELS - 1].flags = 0;
+    channels[MAX_CHANNELS - 1].name[0] = '\0';
+    channels[MAX_CHANNELS - 1].mode[0] = '\0';
+    channels[MAX_CHANNELS - 1].user_count = 0;
     if (channel_count > 1) channel_count--;
+    if (sw_active) sw_dirty = 1;
 
     // 3. Ajustar índices DESPUÉS de defragmentar
     if (was_current) {
@@ -624,16 +619,198 @@ void switch_to_channel(uint8_t idx) __z88dk_fastcall
     status_bar_dirty = 1;
 }
 
+// =============================================================================
+// CHANNEL SWITCHER OVERLAY (state-based, non-blocking)
+// =============================================================================
+
+// Forward declaration (defined later in this file)
+extern uint8_t last_frames_lo;
+
+// Switcher state — persists across main loop frames
+// (sw_active and sw_dirty declared earlier for live-update from add/remove channel)
+static uint8_t sw_sel;
+static uint8_t sw_first;
+static uint8_t sw_map[MAX_CHANNELS];
+static uint8_t sw_count;
+static uint8_t sw_released;  // EDIT key released after open
+static uint16_t sw_timeout;  // frames since last key press (auto-close)
+static uint8_t sw_flags_snap[MAX_CHANNELS];  // flags snapshot for change detection
+
+// Even-width tabs + 2-char separator " |" → all tab boundaries align to
+// attribute cell boundaries (8px), so inverse video never bleeds into separators.
+// Tab format: " N:name " with N = slot number (0-9).
+// Uses print_str64 (not print_line64_fast) → font at scanlines 1-7, matching
+// the status bar's vertical alignment.
+
+static void switcher_close(void);
+
+// Compute tab width for a given channel slot index (always even)
+static uint8_t sw_tab_width(uint8_t slot)
+{
+    // " N:name " = 1 + 1 + 1 + nlen + 1 = nlen + 4, rounded up to even
+    uint8_t tw = st_strlen(channels[slot].name) + 4;
+    if (tw & 1) tw++;
+    return tw;
+}
+
+static void switcher_rebuild_map(void)
+{
+    uint8_t old_slot = (sw_count > 0) ? sw_map[sw_sel] : current_channel_idx;
+    uint8_t i;
+    sw_count = 0;
+    sw_sel = 0;
+    for (i = 0; i < MAX_CHANNELS; i++) {
+        if (channels[i].flags & CH_FLAG_ACTIVE) {
+            if (i == old_slot) sw_sel = sw_count;
+            sw_map[sw_count++] = i;
+        }
+    }
+    if (sw_sel >= sw_count && sw_count > 0) sw_sel = sw_count - 1;
+}
+
+static void switcher_render(void)
+{
+    char buf[SCREEN_COLS + 1];
+    uint8_t i, j, pos;
+    uint8_t last_shown;
+    uint8_t tw;
+
+    // Rebuild map to pick up any added/removed channels
+    switcher_rebuild_map();
+    if (sw_count < 2) { switcher_close(); return; }
+
+    // Adjust sw_first so selected tab is visible
+    if (sw_first > sw_sel) sw_first = sw_sel;
+    while (sw_first < sw_sel) {
+        pos = (sw_first > 0) ? 2 : 0;
+        for (i = sw_first; i <= sw_sel; i++) {
+            if (i > sw_first) pos += 2;
+            pos += sw_tab_width(sw_map[i]);
+        }
+        if (pos <= SCREEN_COLS) break;
+        sw_first++;
+    }
+
+    memset(buf, ' ', SCREEN_COLS);
+    buf[SCREEN_COLS] = 0;
+
+    pos = (sw_first > 0) ? 2 : 0;  // "< " takes 2 cols (even)
+    last_shown = sw_first;
+
+    for (i = sw_first; i < sw_count; i++) {
+        const char *name = channels[sw_map[i]].name;
+        uint8_t nlen = st_strlen(name);
+        uint8_t need;
+        tw = nlen + 4;
+        if (tw & 1) tw++;
+        need = tw + ((i > sw_first) ? 2 : 0);
+
+        if (pos + need > SCREEN_COLS) break;
+
+        if (i > sw_first) {
+            buf[pos] = ' ';
+            buf[pos + 1] = '|';
+            pos += 2;               // 2-char separator (even)
+        }
+
+        // " N:name " — slot number prefix
+        buf[pos] = ' ';
+        buf[pos + 1] = '0' + sw_map[i];
+        buf[pos + 2] = ':';
+        for (j = 0; j < nlen; j++) buf[pos + 3 + j] = name[j];
+        // trailing spaces already present from memset
+        pos += tw;
+        last_shown = i;
+    }
+
+    if (sw_first > 0) buf[0] = '<';
+    if (last_shown < sw_count - 1) buf[SCREEN_COLS - 1] = '>';
+
+    // print_str64 renders font at scanlines 1-7 (scanline 0 cleared per char),
+    // matching the status bar's vertical alignment. No clear_line needed —
+    // print_str64_char updates every nibble across all 8 scanlines, so no
+    // old content persists, and there's no blank-then-repaint flicker.
+    print_str64(1, 0, buf, ATTR_STATUS);
+
+    // Patch attributes: inverse=selected, BRIGHT=unread, FLASH=mention
+    {
+        uint8_t sel_attr = (ATTR_STATUS & 0xC0)
+                         | ((ATTR_STATUS & 0x07) << 3)
+                         | ((ATTR_STATUS >> 3) & 0x07);
+        uint8_t *attr_base = (uint8_t *)0x5820;
+        uint8_t x0, attr, px, flags;
+
+        pos = (sw_first > 0) ? 2 : 0;
+        for (i = sw_first; i <= last_shown; i++) {
+            uint8_t slot = sw_map[i];
+            tw = sw_tab_width(slot);
+
+            if (i > sw_first) pos += 2;
+            x0 = pos;
+            pos += tw;
+
+            flags = channels[slot].flags;
+
+            if (i == sw_sel) {
+                attr = sel_attr;
+            } else if (flags & CH_FLAG_MENTION) {
+                attr = ATTR_STATUS | 0x80;       // FLASH
+            } else if (flags & CH_FLAG_UNREAD) {
+                attr = ATTR_STATUS | 0x40;       // BRIGHT
+            } else {
+                continue;
+            }
+
+            // x0 and pos are both even → clean attr cell boundaries
+            for (px = x0 >> 1; px < pos >> 1; px++)
+                attr_base[px] = attr;
+        }
+    }
+
+    // Save flags snapshot for change detection
+    {
+        uint8_t k;
+        for (k = 0; k < sw_count; k++)
+            sw_flags_snap[k] = channels[sw_map[k]].flags;
+    }
+
+    sw_dirty = 0;
+}
+
+static void switcher_open(void)
+{
+    uint8_t i;
+    sw_count = 0;
+    sw_sel = 0;
+    sw_first = 0;
+    for (i = 0; i < MAX_CHANNELS; i++) {
+        if (channels[i].flags & CH_FLAG_ACTIVE) {
+            if (i == current_channel_idx) sw_sel = sw_count;
+            sw_map[sw_count++] = i;
+        }
+    }
+    if (sw_count < 2) return;
+    sw_active = 1;
+    sw_released = 0;
+    sw_timeout = 0;
+    sw_dirty = 1;
+}
+
+static void switcher_close(void)
+{
+    sw_active = 0;
+    clear_line(1, ATTR_MAIN_BG);
+    last_frames_lo = *(volatile uint8_t *)23672;
+}
+
 
 // Reset all channels (on disconnect)
 void reset_all_channels(void)
 {
     uint8_t i;
-    // OPT: Solo resetear slots que estaban activos
-    uint8_t limit = (channel_count < MAX_CHANNELS) ? channel_count : MAX_CHANNELS;
     ChannelInfo *ch = channels;
 
-    for (i = 0; i < limit; i++, ch++) {
+    for (i = 0; i < MAX_CHANNELS; i++, ch++) {
         ch->flags = 0;
         ch->name[0] = '\0';
         ch->mode[0] = '\0';
@@ -688,8 +865,9 @@ uint8_t sntp_init_sent = 0;     // Flag: SNTP init commands sent (not static - n
 uint8_t sntp_waiting = 0;       // Flag: waiting for SNTP response
 uint8_t sntp_queried = 0;       // Flag: valid time received (stop retrying)
 
-// Simple ticker for 50Hz counting
-uint8_t tick_counter = 0;
+// Frame-accurate ticker using system variable FRAMES (23672)
+uint8_t last_frames_lo = 0;  // Last read of FRAMES low byte
+uint8_t tick_accum = 0;      // Frame accumulator (0-49 -> 1 second)
 
 // SCREEN STATE
 uint8_t main_line = MAIN_START;
@@ -1356,7 +1534,7 @@ void draw_status_bar_real(void)
     user_buf[0] = 0;
 
     if (irc_channel[0] && !(cur_flags & CH_FLAG_QUERY) && chan_user_count > 0) {
-        char *u_end = u16_to_dec3(user_buf, chan_user_count);
+        char *u_end = u16_to_dec(user_buf, chan_user_count);
         user_len = (uint8_t)(u_end - user_buf) + 3;  // " [" + numero + "]"
     }
 
@@ -1410,35 +1588,24 @@ void draw_status_bar_real(void)
     while (p < limit_end) *p++ = ' ';
     *p = 0;
 
-    // === DIFF-REDRAW: Solo repintar caracteres que cambiaron ===
-    // Compara sb_left_part con sb_last_status para encontrar rango [first, last]
-    // que necesita repintado. Evita flicker y ahorra tiempo de CPU.
+    // === DIFF-REDRAW: Detectar cambios y repintar línea completa ===
+    // Compara sb_left_part con sb_last_status. Si hay cualquier diferencia
+    // (o force_status_redraw), repinta toda la línea para evitar artefactos
+    // por píxeles/atributos perdidos entre redraws parciales.
     {
-        uint8_t first = 255, last = 0;
+        uint8_t changed = force_status_redraw;
 
-        if (force_status_redraw) {
-            // Forzar repintado completo (tras cambio de tema, etc.)
-            first = 0;
-            last = 53;
-        } else {
-            // Buscar primer y último carácter diferente
+        if (!changed) {
             char *p_new = sb_left_part;
             char *p_old = sb_last_status;
-            uint8_t i = 0;
+            uint8_t i = 54;
             do {
-                if (*p_new++ != *p_old++) {
-                    if (first == 255) first = i;
-                    last = i;
-                }
-            } while (++i < 54);
+                if (*p_new++ != *p_old++) { changed = 1; break; }
+            } while (--i);
         }
 
-        if (first != 255) {
-            // Repintar solo el rango [first, last]
-            char saved = sb_left_part[last + 1];
-            sb_left_part[last + 1] = 0;
-            print_str64(INFO_LINE, first, sb_left_part + first, ATTR_STATUS);
-            sb_left_part[last + 1] = saved;
+        if (changed) {
+            print_str64(INFO_LINE, 0, sb_left_part, ATTR_STATUS);
             memcpy(sb_last_status, sb_left_part, 55);
             force_status_redraw = 0;
         }
@@ -1943,20 +2110,9 @@ uint8_t esp_init(void)
 
 // Forward declaration
 void force_disconnect(void);
-void force_disconnect_wifi(void);  // disconnect + reset to WiFi state
 
 // Time synchronization function
 // OPT L2: sync_time() eliminada - inlined en call site
-
-// Helper: Force disconnect and reset state to WiFi OK
-void force_disconnect_wifi(void)
-{
-    // FIX-M2: force_disconnect() ya pone STATE_WIFI_OK.
-    // Esta función existe como alias semántico para callers que quieren
-    // indicar "conexión perdida, volver a estado WiFi".
-    // Si WiFi realmente cayó, debería ponerse STATE_DISCONNECTED aquí.
-    force_disconnect();
-}
 
 // Force-close any active TCP connection.
 // FIX ChatGPT audit: CENTRALIZED session reset - ALL disconnection paths MUST use this
@@ -2028,6 +2184,15 @@ void force_disconnect(void)
 extern void irc_send_cmd_internal(const char *cmd, const char *p1, const char *p2);
 
 // Envía "CMD param\r\n"
+// Unified PONG: "PONG <server> :<token>\r\n"
+void irc_send_pong(const char *token) __z88dk_fastcall
+{
+    uart_send_string(S_PONG);
+    uart_send_string(irc_server);
+    uart_send_string(" :");
+    uart_send_line(token);
+}
+
 void irc_send_cmd1(const char *cmd, const char *p1) __z88dk_callee
 {
     irc_send_cmd_internal(cmd, p1, NULL);
@@ -2039,10 +2204,19 @@ void irc_send_cmd2(const char *cmd, const char *p1, const char *p2) __z88dk_call
     irc_send_cmd_internal(cmd, p1, p2);
 }
 
+// Envía "PRIVMSG NickServ :IDENTIFY <pass>\r\n"
+void send_identify(const char *pass) __z88dk_fastcall
+{
+    uart_send_string(S_PRIVMSG);
+    uart_send_string(S_NICKSERV);
+    uart_send_string(S_IDENTIFY_CMD);
+    uart_send_line(pass);
+}
+
 // Enviar ISON con hasta 3 nicks de amigos (una sola vez por sesión IRC).
 void irc_check_friends_online(void)
 {
-    static char ison_buf[(IRC_NICK_SIZE * 3u) + 2u];
+    static char ison_buf[(IRC_NICK_SIZE * MAX_FRIENDS) + MAX_FRIENDS];
     uint8_t i, any = 0;
     char *d = ison_buf;
 
@@ -2152,11 +2326,8 @@ void apply_theme(void)
     if (current_theme < 1 || current_theme > 3) current_theme = 1;
     t = &themes[current_theme - 1];
     
-    // 1. Cargar variables de color (20 bytes contiguos, mismo layout que Theme)
-    // SAFETY-H2: depende de que ATTR_BANNER..BORDER_COLOR (spectalk.c:205-224)
-    // estén declarados contiguos sin padding. SDCC/Z80 no añade padding a uint8_t.
-    // Si se reordena CUALQUIER variable del bloque 205-224, este memcpy corrompe.
-    memcpy(&ATTR_BANNER, &t->banner, 20);
+    // Copia segura: theme_attrs[] es array contiguo, layout coincide con Theme
+    memcpy(theme_attrs, &t->banner, 20);
 
     // 2. Aplicar cambios físicos a la pantalla
     set_border(BORDER_COLOR); 
@@ -2426,8 +2597,8 @@ static void cfg_parse_buf(void) {
 uint8_t config_load(void) {
     uint16_t n;
     
-    n = cfg_try_read("/SYS/CONFIG/SPECTALK.CFG");
-    if (!n) n = cfg_try_read("/SYS/SPECTALK.CFG");
+    n = cfg_try_read(K_CFG_PRI);
+    if (!n) n = cfg_try_read(K_CFG_ALT);
     if (!n) return 0;
     
     cfg_parse_buf();
@@ -2441,6 +2612,7 @@ void main(void)
 {
     uint8_t c;
     uint8_t cfg_ok;
+    uint8_t can_autoconnect;
     
     cfg_ok = config_load();  // Load settings before theme/screen init
     apply_theme();
@@ -2485,14 +2657,20 @@ void main(void)
     set_attr_sys();
     main_hline();
     main_print("Type !help or !about for more info.");
+
+    // Autoconnect only if ALL conditions are met
+    can_autoconnect = autoconnect && cfg_ok && irc_server[0]
+                      && irc_nick[0]
+                      && connection_state >= STATE_WIFI_OK;
+
     if (cfg_ok) {
         main_puts("Config loaded.");
         if (irc_server[0]) {
-            if (autoconnect) {
+            if (can_autoconnect) {
                 main_puts(" Autoconnecting");
-                if (irc_nick[0]) { main_puts2(S_AS_SP, irc_nick); }
+                main_puts2(S_AS_SP, irc_nick);
                 main_putc(' '); main_puts(S_DOTS3);
-            } else {
+            } else if (!autoconnect) {
                 main_puts(" /server to connect");
                 if (irc_nick[0]) { main_puts2(S_AS_SP, irc_nick); }
             }
@@ -2502,30 +2680,41 @@ void main(void)
         main_print("Tip: /nick Name then /server host");
     }
     main_newline();
-    
+
     current_attr = ATTR_MAIN_BG;
-    
+
     draw_status_bar();
     redraw_input_full();
-    
+
     {
         uint8_t prev_caps_mode = caps_lock_mode;
         uint8_t prev_shift_held = 0;
         uint8_t sntp_timer = 0;
-        uint8_t autoconnect_delay = autoconnect ? 200 : 0;  // ~4 sec delay
+        uint8_t autoconnect_delay = can_autoconnect ? 200 : 0;  // ~4 sec delay
 
         // FIX: Ocultar cursor durante autoconnect countdown
         if (autoconnect_delay) { cursor_visible = 0; redraw_input_full(); }
 
         // FIX: muestrear SHIFT 1 vez por frame y reutilizarlo
         uint8_t shift_held = 0;
-        
+
+        // Sync frame counter before entering main loop
+        last_frames_lo = *(volatile uint8_t *)23672;
+        tick_accum = 0;
+
         while (1) {
             HALT(); // 50 Hz Sync
             
-            tick_counter++;
-            if (tick_counter >= 50) {
-                tick_counter = 0;
+            // Read system FRAMES (23672) low byte and compute elapsed frames.
+            // This correctly accounts for frames lost during long processing.
+            {
+            uint8_t now_lo = *(volatile uint8_t *)23672;
+            uint8_t elapsed = now_lo - last_frames_lo;  // wraps correctly (uint8)
+            last_frames_lo = now_lo;
+            tick_accum += elapsed;
+            }
+            while (tick_accum >= 50) {
+                tick_accum -= 50;
                 time_second++;
 
                 // Away auto-reply global cooldown (1 tick per second)
@@ -2571,7 +2760,7 @@ void main(void)
             }
             
             // 1. TAREAS DE BAJA FRECUENCIA
-            if (sntp_init_sent | names_pending) {
+            if (sntp_init_sent || names_pending) {
                 if (sntp_init_sent && !sntp_queried) {
                     if (!sntp_waiting) {
                         if (++sntp_timer >= 100) {
@@ -2614,12 +2803,7 @@ void main(void)
                         // No response to PING - connection is dead
                         ui_err("Connection timeout (no response)");
                         force_disconnect();
-                        // connection_state y reset_all_channels ya se hacen en force_disconnect()
                         draw_status_bar();
-                        keepalive_ping_sent = 0;
-                        keepalive_timeout = 0;
-                        server_silence_frames = 0;
-                        lagmeter_counter = 0;
                     }
                 } else if (server_silence_frames >= KEEPALIVE_SILENCE_FRAMES) {
                     // No server activity for too long - send PING to check
@@ -2703,9 +2887,67 @@ void main(void)
             c = read_key();
 
             // D2: SHIFT+5/6/7/8 => cursor keys via lookup table
-            if (c >= '5' && c <= '8' && (shift_held || prev_shift_held)) {
+            if (c >= '5' && c <= '8' && shift_held) {
                 static const uint8_t shift_keys[] = {KEY_LEFT, KEY_DOWN, KEY_UP, KEY_RIGHT};
                 c = shift_keys[c - '5'];
+            }
+
+            // Channel switcher overlay (non-blocking, state-based)
+            if (sw_active) {
+                // Rebuild map BEFORE key handling to avoid stale sw_map
+                if (sw_dirty) switcher_render();
+
+                // Track EDIT key release to prevent instant cancel
+                if (!sw_released && in_inkey() == 0) sw_released = 1;
+
+                if (c) {
+                    sw_timeout = 0;  // reset auto-close on any key
+
+                    if (c == KEY_LEFT) {
+                        sw_sel = sw_sel ? sw_sel - 1 : sw_count - 1;  // wrap
+                        sw_dirty = 1;
+                    } else if (c == KEY_RIGHT) {
+                        sw_sel = (sw_sel < sw_count - 1) ? sw_sel + 1 : 0;  // wrap
+                        sw_dirty = 1;
+                    } else if (c == KEY_ENTER) {
+                        switch_to_channel(sw_map[sw_sel]);
+                        switcher_close();
+                    } else if (c == 7 && sw_released) {
+                        switcher_close();
+                    } else if (c >= '0' && c <= '9') {
+                        // Direct slot jump: find slot in active map
+                        uint8_t slot = c - '0';
+                        uint8_t k;
+                        for (k = 0; k < sw_count; k++) {
+                            if (sw_map[k] == slot) {
+                                switch_to_channel(slot);
+                                switcher_close();
+                                break;
+                            }
+                        }
+                    }
+                } else if (sw_active) {
+                    // No key this frame — auto-close after ~10s (500 frames)
+                    if (++sw_timeout >= 1000) switcher_close();
+
+                    // Live refresh: detect flag CHANGES via snapshot
+                    {
+                        uint8_t k;
+                        for (k = 0; k < sw_count; k++) {
+                            uint8_t f = channels[sw_map[k]].flags;
+                            if ((f & (CH_FLAG_UNREAD | CH_FLAG_MENTION)) != (sw_flags_snap[k] & (CH_FLAG_UNREAD | CH_FLAG_MENTION))) {
+                                sw_dirty = 1;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if (sw_dirty) switcher_render();
+                c = 0;  // consume all keys while switcher is open
+            } else if (c == 7 && !pagination_active && search_mode == SEARCH_NONE && !autoconnect_delay) {
+                switcher_open();
+                c = 0;
             }
 
             if (c != 0 && !pagination_active && search_mode == SEARCH_NONE && !autoconnect_delay) {

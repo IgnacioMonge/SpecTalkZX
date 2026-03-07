@@ -36,6 +36,9 @@ EXTERN __bss_compiler_tail
     inc de              ; DE = start + 1
     dec bc              ; BC = size - 1
     ldir
+    ; Invalidar cache de fila screen/attr
+    ld a, 0xFF
+    ld (cache_row_y), a
 
 SECTION code_user
 
@@ -54,6 +57,7 @@ SCREEN_HEIGHT   EQU 24          ; Physical screen height in rows
 ; RING_BUFFER_SIZE=2048, RING_BUFFER_MASK=0x07FF
 RING_SIZE       EQU 2048        ; == RING_BUFFER_SIZE  (spectalk.h:85)
 RING_MASK       EQU 0x07FF      ; == RING_BUFFER_MASK  (spectalk.h:86)
+RX_LINE_MAX     EQU 510         ; == RX_LINE_SIZE - 2  (spectalk.h:103)
 
 ; =============================================================================
 ; PUBLIC FUNCTIONS (visible from C)
@@ -104,12 +108,14 @@ EXTERN _g_ps64_attr
 EXTERN _input_cache_char
 EXTERN _input_cache_attr
 EXTERN _ay_uart_send
-EXTERN _BORDER_COLOR
-EXTERN _ATTR_BANNER
-EXTERN _ATTR_MAIN_BG
-EXTERN _ATTR_MSG_CHAN
-EXTERN _ATTR_STATUS
-EXTERN _ATTR_INPUT_BG
+EXTERN _theme_attrs
+; theme_attrs[] offsets (must match spectalk.h #defines)
+TA_BANNER   EQU 0
+TA_STATUS   EQU 1
+TA_MSG_CHAN  EQU 2
+TA_MAIN_BG  EQU 5
+TA_INPUT_BG EQU 7
+TA_BORDER   EQU 19
 EXTERN _current_attr
 EXTERN _irc_params
 EXTERN _irc_param_count
@@ -156,6 +162,13 @@ DEFC RB_MASK_H = 0x07   ; High byte mask for 2048 (0x0800)
 ; =============================================================================
 SECTION bss_user
 glyph_buffer: defs 8    ; Buffer temporal para glifo descomprimido
+plf_left_buf: defs 8    ; Buffer temporal para nibbles izquierdos (print_line64_fast)
+plf_str_ptr:  defs 2    ; String pointer temporal (print_line64_fast)
+plf_attr_val: defs 1    ; Atributo a escribir (print_line64_fast)
+plf_y_val:    defs 1    ; Fila Y (print_line64_fast)
+cache_scr_base: defs 2  ; Screen base addr cacheada (print_str64_char)
+cache_atr_base: defs 2  ; Attr base addr cacheada (print_str64_char)
+cache_row_y:   defs 1   ; Fila Y del cache (0xFF = inválido)
 
 SECTION code_user
 
@@ -187,7 +200,7 @@ beep_loop:
     or 0x08
     ld b, a
 
-    ld a, (_BORDER_COLOR)
+    ld a, (_theme_attrs + TA_BORDER)
     and 0x07
     or b
 
@@ -435,8 +448,7 @@ trln_loop:
     ; 5. CRÍTICO: Chequear desbordamiento ANTES de escribir (HARDENED)
     ld hl, (_rx_pos)
     push hl             ; Guardar rx_pos para paso 6
-    ; ¡¡DUPLICADO DE C!! Si cambias, actualiza spectalk.h RX_LINE_SIZE
-    ld de, 510          ; RX_LINE_SIZE - 2 (espacio para \0)
+    ld de, RX_LINE_MAX  ; == RX_LINE_SIZE - 2 (espacio para \0)
     or a
     sbc hl, de
     jr nc, trln_overflow_pop ; Si rx_pos >= 510, descartar
@@ -645,6 +657,28 @@ unpack_glyph:
     ; Nota: BC no necesita preservarse aquí (el caller declara que BC se clobbera).
     ; Calculate offset: (char - 32) * 3
     sub 32
+    jr nz, unpack_not_space
+    ; --- Space short-circuit: fill glyph_buffer with 0x00 (~50 t-states) ---
+    ld hl, glyph_buffer
+    xor a
+    ld (hl), a
+    inc hl
+    ld (hl), a
+    inc hl
+    ld (hl), a
+    inc hl
+    ld (hl), a
+    inc hl
+    ld (hl), a
+    inc hl
+    ld (hl), a
+    inc hl
+    ld (hl), a
+    inc hl
+    ld (hl), a
+    ld hl, glyph_buffer
+    ret
+unpack_not_space:
     ld l, a
     ld h, 0
     ld c, l
@@ -892,6 +926,61 @@ cz_done:
 ; =============================================================================
 
 ; -----------------------------------------------------------------------------
+; Cache helpers: devuelven base de fila screen/attr usando cache si válido.
+; Input: (none, usa _g_ps64_y y cache_row_y)
+; Output: HL = base addr
+; Destroys: AF, DE (solo si cache miss)
+; -----------------------------------------------------------------------------
+p64_get_scr_base:
+    ld a, (cache_row_y)
+    ld hl, _g_ps64_y
+    cp (hl)
+    jr nz, p64_scr_miss
+    ld hl, (cache_scr_base)
+    ret
+p64_scr_miss:
+    ld a, (hl)             ; A = g_ps64_y
+    add a, a
+    ld l, a
+    ld h, 0
+    ld de, _screen_row_base
+    add hl, de
+    ld a, (hl)
+    inc hl
+    ld h, (hl)
+    ld l, a                ; HL = screen row base
+    ld (cache_scr_base), hl
+    ; Actualizar cache_row_y y calcular attr base también
+    ld a, (_g_ps64_y)
+    ld (cache_row_y), a
+    push hl                ; Guardar screen base
+    add a, a
+    ld l, a
+    ld h, 0
+    ld de, _attr_row_base
+    add hl, de
+    ld a, (hl)
+    inc hl
+    ld h, (hl)
+    ld l, a
+    ld (cache_atr_base), hl
+    pop hl                 ; Devolver screen base
+    ret
+
+p64_get_atr_base:
+    ld a, (cache_row_y)
+    ld hl, _g_ps64_y
+    cp (hl)
+    jr nz, p64_atr_miss
+    ld hl, (cache_atr_base)
+    ret
+p64_atr_miss:
+    ; Cache miss en attr pero no en screen: recalcular ambos
+    call p64_get_scr_base  ; Esto cachea ambos
+    ld hl, (cache_atr_base)
+    ret
+
+; -----------------------------------------------------------------------------
 ; void print_str64_char(uint8_t ch) __z88dk_fastcall
 ; Draw a 4-pixel character usando fuente 64 columnas
 ; Input: L = ASCII character
@@ -910,21 +999,50 @@ p64_use_space:
 
 p64_calc_font:
     ; A contains validated character (32-127)
+    ; --- Space short-circuit: borrado directo sin unpack_glyph ---
+    cp 32
+    jr nz, p64_not_space
+
+    ; Obtener screen base (cache o lookup)
+    call p64_get_scr_base   ; HL = screen row base
+    ld a, (_g_ps64_col)
+    ld b, a
+    srl a
+    ld e, a
+    ld d, 0
+    add hl, de              ; HL = dirección pantalla
+
+    bit 0, b
+    jr nz, p64_space_right
+
+    ; Espacio lado izquierdo: AND 0x0F en 8 scanlines
+    ld b, 8
+p64_space_left:
+    ld a, (hl)
+    and 0x0F
+    ld (hl), a
+    inc h
+    djnz p64_space_left
+    jr p64_set_attr
+
+p64_space_right:
+    ; Espacio lado derecho: AND 0xF0 en 8 scanlines
+    ld b, 8
+p64_space_right_loop:
+    ld a, (hl)
+    and 0xF0
+    ld (hl), a
+    inc h
+    djnz p64_space_right_loop
+    jr p64_set_attr
+
+p64_not_space:
     ; Descomprimir glifo a glyph_buffer
     call unpack_glyph       ; Input: A = char, Output: HL = glyph_buffer
     push hl                 ; Guardar puntero fuente descomprimida
 
-    ; Calcular dirección screen (sin IX)
-    ld a, (_g_ps64_y)
-    add a, a
-    ld l, a
-    ld h, 0
-    ld de, _screen_row_base
-    add hl, de
-    ld a, (hl)
-    inc hl
-    ld h, (hl)
-    ld l, a                 ; HL = base de fila
+    ; Obtener screen base (cache o lookup)
+    call p64_get_scr_base   ; HL = screen row base
 
     ; Sumar col/2
     ld a, (_g_ps64_col)
@@ -981,17 +1099,8 @@ p64_right_loop:
     djnz p64_right_loop
 
 p64_set_attr:
-    ; Calcular dirección atributo usando tabla precalculada
-    ld a, (_g_ps64_y)
-    add a, a            ; y*2 (offset en tabla de words)
-    ld l, a
-    ld h, 0
-    ld bc, _attr_row_base
-    add hl, bc
-    ld a, (hl)
-    inc hl
-    ld h, (hl)
-    ld l, a             ; HL = base attrs de fila
+    ; Obtener attr base (cache o lookup)
+    call p64_get_atr_base   ; HL = attr row base
 
     ld a, (_g_ps64_col)
     srl a
@@ -1010,55 +1119,153 @@ p64_set_attr:
 ; void print_line64_fast(uint8_t y, const char *s, uint8_t attr)
 ; Stack layout (con push ix):
 ;   [IX+4]=y, [IX+5,6]=s (pointer), [IX+7]=attr
+;
+; Optimized: procesa pares de columnas, calcula screen addr 1 vez,
+; escribe bytes completos (sin AND/OR de preservación), attr fill al final.
 ; -----------------------------------------------------------------------------
 _print_line64_fast:
     push ix
     ld ix, 0
     add ix, sp
 
-    ; y
-    ld a, (ix+4)
-    ld (_g_ps64_y), a
+    ; --- Calcular screen_row_base[y] una sola vez ---
+    ld a, (ix+4)           ; y
+    add a, a
+    ld l, a
+    ld h, 0
+    ld bc, _screen_row_base
+    add hl, bc
+    ld c, (hl)
+    inc hl
+    ld b, (hl)             ; BC = screen base addr de la fila
 
-    ; attr
+    ; Guardar attr y string pointer
     ld a, (ix+7)
-    ld (_g_ps64_attr), a
-
-    ; start pointer -> DE
+    ld (plf_attr_val), a   ; attr para después
     ld e, (ix+5)
-    ld d, (ix+6)
+    ld d, (ix+6)           ; DE = string pointer
 
-    ; col = 0
-    xor a
-    ld (_g_ps64_col), a
+    ; También guardar y para attr fill al final
+    ld a, (ix+4)
+    ld (plf_y_val), a
 
-    ld b, 64
-pl64_loop:
-    ; Read next char (sin avanzar si ya es '\0')
+    push bc                ; Guardar screen base en stack
+    pop hl                 ; HL = screen addr (col 0, scanline 0)
+
+    ld b, 32               ; 32 pares de columnas (= 64 cols)
+
+plf_pair_loop:
+    push bc                ; Guardar contador de pares
+    push hl                ; Guardar screen addr del byte actual
+
+    ; --- Leer char izquierdo ---
     ld a, (de)
     or a
-    jr z, pl64_space
-    inc de
-    jr pl64_have
-
-pl64_space:
+    jr z, plf_left_pad     ; NUL: no avanzar puntero, usar espacio
+    inc de                 ; Avanzar puntero (char válido o inválido)
+    cp 32
+    jr c, plf_left_space   ; char < 32: tratar como espacio (puntero ya avanzó)
+    cp 128
+    jr c, plf_left_ok      ; char 32-127: OK
+plf_left_space:
     ld a, 32
+    jr plf_left_ok
+plf_left_pad:
+    ld a, 32
+plf_left_ok:
+    ; Guardar string pointer antes de unpack_glyph (destruye DE)
+    ex de, hl
+    ld (plf_str_ptr), hl
+    ex de, hl              ; A sigue teniendo el char
+    call unpack_glyph      ; HL = glyph_buffer, destruye AF/BC/DE
+    ; Copiar nibbles altos a plf_left_buf
+    ld hl, glyph_buffer
+    ld de, plf_left_buf
+    ld b, 8
+plf_save_left:
+    ld a, (hl)
+    and 0xF0               ; Solo nibble alto (lado izquierdo)
+    ld (de), a
+    inc hl
+    inc de
+    djnz plf_save_left
 
-pl64_have:
+    ; --- Leer char derecho ---
+    ld hl, (plf_str_ptr)
+    ex de, hl              ; DE = string pointer
+    ld a, (de)
+    or a
+    jr z, plf_right_pad    ; NUL: no avanzar puntero, usar espacio
+    inc de                 ; Avanzar puntero
+    cp 32
+    jr c, plf_right_space  ; char < 32: tratar como espacio
+    cp 128
+    jr c, plf_right_ok     ; char 32-127: OK
+plf_right_space:
+    ld a, 32
+    jr plf_right_ok
+plf_right_pad:
+    ld a, 32
+plf_right_ok:
+    ex de, hl
+    ld (plf_str_ptr), hl
+    ex de, hl              ; A sigue teniendo el char
+    call unpack_glyph      ; HL = glyph_buffer, destruye AF/BC/DE
+
+    ; --- Combinar y escribir 8 scanlines ---
+    pop hl                 ; HL = screen addr
+    push hl                ; Re-guardar para avanzar después
+
+    ld de, glyph_buffer
+    ld ix, plf_left_buf
+    ld b, 8
+plf_write_loop:
+    ld a, (ix+0)           ; Nibble alto del char izquierdo
+    ld c, a
+    ld a, (de)             ; Byte del char derecho
+    and 0x0F               ; Solo nibble bajo (lado derecho)
+    or c                   ; Combinar: left_high | right_low
+    ld (hl), a             ; Escribir byte completo a pantalla
+    inc ix
+    inc de
+    inc h                  ; Siguiente scanline
+    djnz plf_write_loop
+
+    ld hl, (plf_str_ptr)
+    ex de, hl              ; DE = string pointer para siguiente iteración
+    pop hl                 ; Recuperar screen addr
+    inc hl                 ; Siguiente byte (siguiente par de columnas)
+
+    pop bc                 ; Recuperar contador de pares
+    djnz plf_pair_loop
+
+    ; --- Attr fill: escribir 32 atributos de golpe ---
+    ld a, (plf_y_val)
+    add a, a
     ld l, a
+    ld h, 0
+    ld bc, _attr_row_base
+    add hl, bc
+    ld c, (hl)
+    inc hl
+    ld b, (hl)
+    ; BC = attr base addr
+    ld h, b
+    ld l, c                ; HL = attr addr
+    ld a, (plf_attr_val)
+    ld b, 32
+plf_attr_fill:
+    ld (hl), a
+    inc hl
+    djnz plf_attr_fill
 
-    ; _print_str64_char clobbera BC/DE, preservarlos para el bucle/puntero
-    push bc
-    push de
-    call _print_str64_char
-    pop de
-    pop bc
-
-    ; col++
-    ld hl, _g_ps64_col
-    inc (hl)
-
-    djnz pl64_loop
+    ; Actualizar _g_ps64_col y _g_ps64_y para consistencia
+    ld a, 64
+    ld (_g_ps64_col), a
+    ld a, (plf_y_val)
+    ld (_g_ps64_y), a
+    ld a, (plf_attr_val)
+    ld (_g_ps64_attr), a
 
     pop ix
     ret
@@ -1068,14 +1275,13 @@ pl64_have:
 ; void redraw_input_asm(void)
 ; Redibuja las 2 líneas de INPUT usando line_buffer y line_len
 ; Incluye prompt "> " y rellena con espacios
-; Usa variables globales: _line_buffer, _line_len, _ATTR_INPUT, _ATTR_PROMPT
+; Usa variables globales: _line_buffer, _line_len, theme_attrs[6]=INPUT, [8]=PROMPT
 ; Mucho más rápido que el loop C equivalente
 ; -----------------------------------------------------------------------------
 PUBLIC _redraw_input_asm
 EXTERN _line_buffer
 EXTERN _line_len
-EXTERN _ATTR_INPUT
-EXTERN _ATTR_PROMPT
+; _ATTR_INPUT = _theme_attrs + 6, _ATTR_PROMPT = _theme_attrs + 8
 
 DEFC INPUT_ROW_1 = 22
 DEFC INPUT_ROW_2 = 23
@@ -1088,7 +1294,7 @@ _redraw_input_asm:
     ld (_g_ps64_col), a
     
     ; Prompt ">" con ATTR_PROMPT
-    ld a, (_ATTR_PROMPT)
+    ld a, (_theme_attrs + 8)  ; ATTR_PROMPT
     ld (_g_ps64_attr), a
     ld l, '>'
     call _print_str64_char
@@ -1102,7 +1308,7 @@ _redraw_input_asm:
     inc (hl)
     
     ; Cambiar a ATTR_INPUT para el texto
-    ld a, (_ATTR_INPUT)
+    ld a, (_theme_attrs + 6)  ; ATTR_INPUT
     ld (_g_ps64_attr), a
     
     ; DE = puntero a line_buffer
@@ -1168,12 +1374,13 @@ ind_pattern_medium:   defb 0x00, 0x00, 0x18, 0x3C, 0x3C, 0x18, 0x00, 0x00  ; ~6p
 ind_pattern_small:    defb 0x00, 0x00, 0x00, 0x18, 0x18, 0x00, 0x00, 0x00  ; ~4px dot
 
 _draw_indicator:
+    push iy
     push ix
     ld ix, 0
     add ix, sp
 
-    ld a, (ix+4)            ; y
-    ld c, (ix+6)            ; attr
+    ld a, (ix+6)            ; y
+    ld c, (ix+8)            ; attr (byte-packed: y=+6, phys_x=+7, attr=+8)
 
     ; Calcular dirección screen
     ld l, a
@@ -1187,7 +1394,7 @@ _draw_indicator:
     ld h, (hl)
     ld l, a                 ; HL = base de fila
 
-    ld e, (ix+5)            ; phys_x
+    ld e, (ix+7)            ; phys_x (byte-packed)
     ld d, 0
     add hl, de              ; HL = dirección exacta pixel
     push hl                 ; Save screen address for later
@@ -1230,7 +1437,7 @@ di_pattern_loop:
 
     ; Calcular dirección atributos
     pop hl                  ; Discard (we recalculate - cleaner)
-    ld a, (ix+4)            ; y
+    ld a, (ix+6)            ; y
     ld l, a
     ld h, 0
     add hl, hl
@@ -1241,13 +1448,14 @@ di_pattern_loop:
     ld de, 0x5800
     add hl, de
 
-    ld e, (ix+5)            ; phys_x
+    ld e, (ix+7)            ; phys_x (byte-packed)
     ld d, 0
     add hl, de
 
     ld (hl), c              ; attr
 
     pop ix
+    pop iy
     ret
 
 ; =============================================================================
@@ -1700,9 +1908,12 @@ strip_done:
 ; Retorna: Carry set si es dígito
 strip_is_digit:
     cp '0'
-    ret c                   ; < '0' -> no es dígito (carry clear)
+    jr c, sid_false         ; < '0' -> no es dígito
     cp '9' + 1
     ccf                     ; > '9' -> carry clear, else carry set
+    ret
+sid_false:
+    or a                    ; clear carry
     ret
 
 ; =============================================================================
@@ -1734,43 +1945,43 @@ _reapply_screen_attributes:
     push iy
 
     ; 1. Borde
-    ld a, (_BORDER_COLOR)
+    ld a, (_theme_attrs + TA_BORDER)
     out (0xFE), a
 
     ; 2. Banner (0x5800)
     ld hl, 0x5800
     ld bc, 32
-    ld a, (_ATTR_BANNER)
+    ld a, (_theme_attrs + TA_BANNER)
     call _fast_fill_attr
 
     ; 3. Separador Superior (0x5820)
     ld hl, 0x5820
     ld bc, 32
-    ld a, (_ATTR_MAIN_BG)
+    ld a, (_theme_attrs + TA_MAIN_BG)
     call _fast_fill_attr
 
     ; 4. Área Chat (0x5840 - 18 líneas)
     ld hl, 0x5840
     ld bc, 576
-    ld a, (_ATTR_MAIN_BG)
+    ld a, (_theme_attrs + TA_MAIN_BG)
     call _fast_fill_attr
 
     ; 5. Separador Inferior (0x5A80)
     ld hl, 0x5A80
     ld bc, 32
-    ld a, (_ATTR_MAIN_BG)
+    ld a, (_theme_attrs + TA_MAIN_BG)
     call _fast_fill_attr
 
     ; 6. Barra Estado (0x5AA0)
     ld hl, 0x5AA0
     ld bc, 32
-    ld a, (_ATTR_STATUS)
+    ld a, (_theme_attrs + TA_STATUS)
     call _fast_fill_attr
 
     ; 7. Input (0x5AC0)
     ld hl, 0x5AC0
     ld bc, 64
-    ld a, (_ATTR_INPUT_BG)
+    ld a, (_theme_attrs + TA_INPUT_BG)
     call _fast_fill_attr
 
     ; 8. AVISAR A TODOS LOS SISTEMAS DE REPINTADO
@@ -1982,6 +2193,10 @@ _main_newline:
     push ix
     push iy
 
+    ; Invalidar cache de fila (la fila va a cambiar)
+    ld a, 0xFF
+    ld (cache_row_y), a
+
     ; main_col = 0
     xor a
     ld (_main_col), a
@@ -2025,36 +2240,84 @@ mn_inc_line_do:
     ld (_main_line), a
 
 mn_indent:
-    ; if (wrap_indent > 0) print spaces and set main_col = wrap_indent
+    ; if (wrap_indent > 0) clear indent zone directly and set main_col
     ld a, (_wrap_indent)
     or a
     jr z, mn_ret
 
-    ld b, a            ; B = count
-    ld c, 0            ; C = col
-    ld hl, _g_ps64_col ; HL -> g_ps64_col
+    ; Guardar wrap_indent para después
+    ld c, a             ; C = wrap_indent (num cols)
 
-    ; g_ps64_y = main_line
+    ; --- Calcular screen addr de la fila ---
     ld a, (_main_line)
-    ld (_g_ps64_y), a
+    add a, a
+    ld l, a
+    ld h, 0
+    ld de, _screen_row_base
+    add hl, de
+    ld a, (hl)
+    inc hl
+    ld h, (hl)
+    ld l, a             ; HL = screen base de la fila
 
-    ; g_ps64_attr = current_attr
+    ; Bytes a borrar = (wrap_indent + 1) / 2  (redondeo arriba)
+    ld a, c
+    inc a
+    srl a               ; A = bytes a borrar
+    ld b, a             ; B = byte count
+
+    ; Borrar 8 scanlines por cada byte
+    push hl             ; Guardar screen base
+    push bc             ; Guardar byte count + wrap_indent en C
+mn_indent_scanline:
+    push hl             ; Guardar inicio de scanline
+    push bc             ; Guardar counters
+    xor a
+mn_indent_byte:
+    ld (hl), a
+    inc hl
+    djnz mn_indent_byte
+    pop bc              ; Restaurar counters
+    pop hl              ; Restaurar inicio de scanline
+    inc h               ; Siguiente scanline
+    ld a, h
+    and 0x07
+    jr nz, mn_indent_scanline
+
+    pop bc              ; Restaurar byte count (B) + wrap_indent (C)
+    pop hl              ; (descartar screen base)
+
+    ; --- Escribir atributos ---
+    ld a, (_main_line)
+    add a, a
+    ld l, a
+    ld h, 0
+    ld de, _attr_row_base
+    add hl, de
+    ld a, (hl)
+    inc hl
+    ld h, (hl)
+    ld l, a             ; HL = attr base de la fila
+
     ld a, (_current_attr)
-    ld (_g_ps64_attr), a
+    ld b, c             ; B = wrap_indent (num cols)
+    inc b
+    srl b               ; B = ceil(wrap_indent/2) = attrs a escribir
+    jr z, mn_indent_attr_done
+mn_indent_attr:
+    ld (hl), a
+    inc hl
+    djnz mn_indent_attr
+mn_indent_attr_done:
 
-mn_indent_loop:
-    ld (hl), c          ; g_ps64_col = c
-    push hl             ; preserve HL BEFORE clobbering L
-    push bc             ; preserve BC (clobbered by _print_str64_char)
-    ld l, ' '           ; L = space char for __z88dk_fastcall
-    call _print_str64_char
-    pop bc
-    pop hl              ; restore correct pointer to _g_ps64_col
-    inc c
-    djnz mn_indent_loop
-
+    ; Actualizar main_col y g_ps64_col/y/attr para consistencia
     ld a, (_wrap_indent)
     ld (_main_col), a
+    ld (_g_ps64_col), a
+    ld a, (_main_line)
+    ld (_g_ps64_y), a
+    ld a, (_current_attr)
+    ld (_g_ps64_attr), a
 
 mn_ret:
     pop iy
@@ -2295,7 +2558,7 @@ EXTERN _wrap_indent
 EXTERN _current_attr
 EXTERN _time_hour
 EXTERN _time_minute
-EXTERN _ATTR_MSG_TIME
+; _ATTR_MSG_TIME = _theme_attrs + 12
 EXTERN _last_ts_hour
 EXTERN _last_ts_minute
 
@@ -2354,7 +2617,7 @@ mptp_do:
     push af
 
     ; current_attr = ATTR_MSG_TIME
-    ld a, (_ATTR_MSG_TIME)
+    ld a, (_theme_attrs + 12) ; ATTR_MSG_TIME
     ld (_current_attr), a
 
     ; print HH
@@ -3272,7 +3535,8 @@ EXTERN _sntp_queried
 EXTERN _time_hour
 EXTERN _time_minute
 EXTERN _time_second
-EXTERN _tick_counter
+EXTERN _last_frames_lo
+EXTERN _tick_accum
 EXTERN _draw_status_bar
 
 _sntp_process_response:
@@ -3420,9 +3684,11 @@ spr_scan:
     cp 60
     jr nc, spr_invalid      ; invalid second
 
-    ; tick_counter = 0, sntp_waiting = 0, sntp_queried = 1
+    ; Sync frame ticker to current FRAMES, sntp_waiting = 0, sntp_queried = 1
+    ld a, (23672)           ; FRAMES low byte
+    ld (_last_frames_lo), a
     xor a
-    ld (_tick_counter), a
+    ld (_tick_accum), a     ; Reset frame accumulator
     ld (_sntp_waiting), a
     ld a, 1
     ld (_sntp_queried), a
@@ -3799,35 +4065,30 @@ PUBLIC _set_attr_chan
 PUBLIC _set_attr_nick
 PUBLIC _set_attr_join
 EXTERN _current_attr
-EXTERN _ATTR_MSG_SERVER  ; ATTR_MSG_SYS = ATTR_MSG_SERVER
-EXTERN _ATTR_ERROR
-EXTERN _ATTR_MSG_PRIV
-EXTERN _ATTR_MSG_CHAN
-EXTERN _ATTR_MSG_NICK
-EXTERN _ATTR_MSG_JOIN
+; theme_attrs offsets: 9=SERVER/SYS 15=ERROR 4=PRIV 2=CHAN 11=NICK 10=JOIN
 
 _set_attr_sys:
-    ld a, (_ATTR_MSG_SERVER)
+    ld a, (_theme_attrs + 9)  ; ATTR_MSG_SERVER
     jr set_attr_common
 
 _set_attr_err:
-    ld a, (_ATTR_ERROR)
+    ld a, (_theme_attrs + 15) ; ATTR_ERROR
     jr set_attr_common
 
 _set_attr_priv:
-    ld a, (_ATTR_MSG_PRIV)
+    ld a, (_theme_attrs + 4)  ; ATTR_MSG_PRIV
     jr set_attr_common
 
 _set_attr_chan:
-    ld a, (_ATTR_MSG_CHAN)
+    ld a, (_theme_attrs + TA_MSG_CHAN)
     jr set_attr_common
 
 _set_attr_nick:
-    ld a, (_ATTR_MSG_NICK)
+    ld a, (_theme_attrs + 11) ; ATTR_MSG_NICK
     jr set_attr_common
 
 _set_attr_join:
-    ld a, (_ATTR_MSG_JOIN)
+    ld a, (_theme_attrs + 10) ; ATTR_MSG_JOIN
     ; fall through to set_attr_common
 
 set_attr_common:
@@ -3947,7 +4208,7 @@ ik_keytable:
     defb  12,  8,  9, 11, 10       ; row 4 (DELETE,RIGHT,TAB,UP,DOWN)
     defb 'P','O','I','U','Y'       ; row 5
     defb  13, 'L','K','J','H'      ; row 6
-    defb  32,0xFF,'M','N','B'      ; row 7
+    defb   3,0xFF,'M','N','B'      ; row 7 (3=BREAK=CS+SPACE)
 
     ; SYM shifted (offset 80-119)
     defb 0xFF, ':','`','?','/'      ; row 0
