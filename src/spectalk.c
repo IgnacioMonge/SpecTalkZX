@@ -964,52 +964,19 @@ void print_char64(uint8_t y, uint8_t col, uint8_t c, uint8_t attr) __z88dk_calle
     print_str64_char(c);
 }
 
-// ============================================================
-// ASM-OPTIMIZED PRINT STRING (64-column mode)
-// ============================================================
-
+// Pure C implementation — no inline ASM avoids __z88dk_callee + frame pointer
+// conflict that caused crash without --max-allocs-per-node200000.
 void print_str64(uint8_t y, uint8_t col, const char *s, uint8_t attr) __z88dk_callee
 {
     g_ps64_y = y;
     g_ps64_col = col;
     g_ps64_attr = attr;
-    g_ps64_str = s;     // Usamos una variable global temporal para el puntero
-
-    // NOTE-M5: labels _pstr_loop/_pstr_skip/_pstr_end are global scope in sdasz80.
-    // Safe as long as no other ASM defines them. Do NOT duplicate these names.
-    __asm
-    push ix
-
-    ld hl, (_g_ps64_str) ; HL = Puntero al string
-
-_pstr_loop:
-    ld a, (hl)          ; Leer carácter
-    or a                ; ¿Es 0 (fin de string)?
-    jr z, _pstr_end     ; Si es 0, salir
-    
-    push hl             ; Guardar puntero string (print_char lo podría alterar)
-    
-    ; Chequear límite de screen (col < 64)
-    ld a, (_g_ps64_col)
-    cp #64
-    jr nc, _pstr_skip   ; Si col >= 64, no dibujar, pero seguir avanzando string
-    
-    ; Llamar a print_str64_char (Fastcall: argumento en L)
-    ld l, (hl)          ; Cargar carácter en L
-    call _print_str64_char
-    
-    ; Incrementar columna global
-    ld hl, #_g_ps64_col
-    inc (hl)
-    
-_pstr_skip:
-    pop hl              ; Recuperar puntero string
-    inc hl              ; Siguiente carácter del string
-    jr _pstr_loop
-
-_pstr_end:
-    pop ix
-    __endasm;
+    while (*s) {
+        if (g_ps64_col < 64)
+            print_str64_char(*s);
+        g_ps64_col++;
+        s++;
+    }
 }
 
 // Scroll seguro: Solo mueve lines de la 3 a la 19. No toca banners.

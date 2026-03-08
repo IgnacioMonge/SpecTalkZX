@@ -44,6 +44,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Problem**: If a channel was removed (kick/part) while the switcher was open, key handling on the next frame used stale `sw_map[]` data because the dirty-rebuild check ran after key processing
 - **Solution**: Moved `if (sw_dirty) switcher_render()` to run before key handling, ensuring the map is always current
 
+#### Switcher Bar Crash on EDIT Key
+- **Problem**: Pressing EDIT to open the channel switcher caused an immediate crash to BASIC with "J Invalid I/O device" error under certain compilation conditions
+- **Root cause**: `print_str64()` used `__z88dk_callee` calling convention with inline ASM containing `push ix`/`pop ix`. Without aggressive SDCC optimization (`--max-allocs-per-node`), SDCC generates IX-based frame pointer code whose prologue/epilogue conflicted with the inline ASM's IX save/restore, corrupting the return stack
+- **Solution**: Rewrote `print_str64()` as pure C loop (no inline ASM) — SDCC now handles callee convention and frame pointer management internally without conflict. `--max-allocs-per-node200000` moved to release builds only
+
 ### Technical Notes
 - New ASM label: `sid_false` in `strip_is_digit` (2 bytes added)
 - `pkt_cmd` normalization adds 3 conditional subtracts (~18 bytes)

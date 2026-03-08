@@ -237,8 +237,8 @@ info: $(TAP)
 	$(call HR)
 
 release:
-	@$(MAKE) BUILD_PROFILE=RELEASE EXTRA_CFLAGS=--max-allocs-per-node200000 all
+	@$(MAKE) BUILD_PROFILE=RELEASE EXTRA_CFLAGS="--max-allocs-per-node200000" all
 release-ay:
-	@$(MAKE) BUILD_PROFILE=RELEASE EXTRA_CFLAGS=--max-allocs-per-node200000 AY_UART=1 all
+	@$(MAKE) BUILD_PROFILE=RELEASE EXTRA_CFLAGS="--max-allocs-per-node200000" AY_UART=1 all
 RELEASE:
 	@$(MAKE) release
