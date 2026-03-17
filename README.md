@@ -59,7 +59,9 @@ SpecTalk ZX is a fully-featured IRC client for the ZX Spectrum, bringing modern 
 - **Dual UART drivers**: Hardware UART (115200 baud) and AY bit-bang (9600 baud)
 - **esxDOS detection**: Safe divMMC detection at startup; works without SD card using defaults
 
-[![SpecTalkZX](images/snap1.png)](images/snap1.png)
+<a href="images/snap1.png"><img src="images/snap1.png" width="600" alt="SpecTalkZX - Live IRC chat"></a>
+
+<a href="images/boot.png"><img src="images/boot.png" width="600" alt="Boot screen"></a>
 
 ---
 
@@ -118,7 +120,7 @@ SpecTalk ZX is a fully-featured IRC client for the ZX Spectrum, bringing modern 
 
 5. **Start chatting!** Type your message and press ENTER
 
-[![Theme 1](images/theme1.png)](images/theme1.png) [![Theme 2](images/theme2.png)](images/theme2.png) [![Theme 3](images/theme3.png)](images/theme3.png)
+<a href="images/theme1.png"><img src="images/theme1.png" width="280" alt="Theme 1 - Default"></a> <a href="images/theme2.png"><img src="images/theme2.png" width="280" alt="Theme 2 - Terminal"></a> <a href="images/theme3.png"><img src="images/theme3.png" width="280" alt="Theme 3 - Commander"></a>
 
 ---
 
@@ -289,6 +291,8 @@ ignores=Troll1,Troll2
 ### Viewing Current Configuration
 
 Use `!config` or `!cfg` to display all current configuration values. Use `/save` to persist changes to the SD card.
+
+<a href="images/config.png"><img src="images/config.png" width="600" alt="Configuration display"></a>
 
 ---
 
