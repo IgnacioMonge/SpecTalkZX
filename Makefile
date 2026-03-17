@@ -19,7 +19,7 @@ TARGET  = +zx
 # Project
 # ------------------------------------------------------------
 OUTPUT  = SpecTalkZX
-TAP     = $(OUTPUT).tap
+TAP     = $(BUILD_DIR)/$(OUTPUT).tap
 MAP     = $(OUTPUT).map
 BUILD_DIR = build
 LOG     = $(BUILD_DIR)/build.log
@@ -37,11 +37,12 @@ AY_UART     ?= 0
 ZORG        = 24000
 STACK_SIZE  = 512
 
-EXTRA_CFLAGS ?= 
+EXTRA_CFLAGS ?=
 BUILD_PROFILE ?= NORMAL
 CFLAGS = -vn -SO3 -startup=31 -compiler=sdcc -clib=sdcc_iy \
          -zorg=$(ZORG) --opt-code-size --fomit-frame-pointer \
          -DST_UART_AY=$(AY_UART)  -Cc--Werror \
+         -custom-copt-rules=src/spectalk_copt.rul \
          -pragma-define:CLIB_MALLOC_HEAP_SIZE=0 \
          -pragma-define:CLIB_STDIO_HEAP_SIZE=0 \
          -pragma-define:CRT_STACK_SIZE=$(STACK_SIZE) \
@@ -100,18 +101,6 @@ endef
 define ERR
 	@printf "$(C_RED)[ERR]$(C_RESET) %s\n" "$(1)"
 endef
-
-# ------------------------------------------------------------
-# Spinner (POSIX sh)
-# - zcc output redirected to build.log so spinner is visible
-# - hides cursor while spinning
-# ------------------------------------------------------------
-\
-\
-define RUN_SPINNER
-	@sh -c 'i=0; printf "\033[?25l"; spin() { while :; do case $$((i % 4)) in 0) c="|" ;; 1) c="/" ;; 2) c="-" ;; 3) c="\\" ;; esac; i=$$((i+1)); printf "\033[?25l\r\033[K$(C_YEL)%s$(C_RESET) %s" "$(2)" "$$c"; sleep 0.12; done }; spin & spid=$$!; trap "kill $$spid 2>/dev/null; wait $$spid 2>/dev/null; printf \"\r\033[K\033[?25h\"; exit 130" INT TERM; ( $(1) ); rc=$$?; kill $$spid 2>/dev/null; wait $$spid 2>/dev/null; printf "\r\033[K\033[?25h"; if [ "$$rc" = "0" ]; then printf "$(C_GRN)%s$(C_RESET)\n" "$(3)"; else printf "$(C_RED)%s$(C_RESET)\n" "$(4)"; fi; exit "$$rc"'
-endef
-
 
 
 # ------------------------------------------------------------
@@ -176,7 +165,7 @@ check:
 clean:
 	$(call STEP,1/3,Cleaning)
 	@echo "Cleaning build artifacts..."
-	@rm -f "$(OUTPUT)" "$(TAP)" "$(MAP)" "$(LOG)" *.o *.bin *.sym 2>/dev/null || true
+	@rm -f "$(OUTPUT)" "$(OUTPUT).tap" "$(TAP)" "$(MAP)" "$(LOG)" "$(BUILD_DIR)/SPECTALK.DAT" *.o *.bin *.sym 2>/dev/null || true
 	$(call OK,Clean complete.)
 	$(call HR)
 
@@ -192,6 +181,8 @@ $(TAP): $(C_SOURCES) $(ASM_SOURCES)
 	@if [ "$(BUILD_PROFILE)" = "RELEASE" ]; then printf "$(C_BOLD)$(C_YEL)Build profile: RELEASE$(C_RESET)\n"; fi
 	@echo "Log: $(LOG)"
 	@$(BUILD_CMD) 2>&1 | tee "$(LOG)" || (printf "$(C_RED)[FAILED]$(C_RESET) Compilation errors (see $(LOG)):\n" && tail -20 "$(LOG)" && exit 1)
+	@mv $(OUTPUT).tap $(TAP)
+	@cp src/SPECTALK.DAT $(BUILD_DIR)/
 	$(call OK,Build complete.)
 	$(call HR)
 
@@ -216,7 +207,7 @@ trim: $(TAP) $(MAP)
 	  full=$$(wc -c < "$$bin"); \
 	  saved=$$((full - trim)); \
 	  head -c $$trim "$$bin" > $(BUILD_DIR)/trimmed.bin; \
-	  z88dk-appmake +zx -b $(BUILD_DIR)/trimmed.bin --org $(ZORG) -o $(TAP) 2>/dev/null; \
+	  z88dk-appmake +zx -b $(BUILD_DIR)/trimmed.bin --org $(ZORG) --blockname SpecTalkZX --usraddr $(ZORG) -o $(TAP) 2>/dev/null; \
 	  rm -f $(BUILD_DIR)/trimmed.bin; \
 	  printf "$(C_GRN)[OK]$(C_RESET) BSS trimmed: %d -> %d bytes (-%d bytes of zeros)\n" "$$full" "$$trim" "$$saved"; \
 	'

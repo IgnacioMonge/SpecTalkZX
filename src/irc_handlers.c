@@ -24,7 +24,7 @@ static char *pkt_cmd;
 static uint16_t last_cmd_id;
 
 // Empty string sentinel to keep parser globals valid even on malformed lines.
-static char pkt_empty[] = "";
+static char pkt_empty[1];
 
 // =============================================================================
 
@@ -56,10 +56,11 @@ static void print_reason_and_newline(void)
 static uint8_t is_tracked_friend(const char *nick) __z88dk_fastcall
 {
     uint8_t i;
+    char *fn;
     if (!nick || !*nick) return 0;
 
-    for (i = 0; i < MAX_FRIENDS; i++) {
-        if (friend_nicks[i][0] && st_stricmp(friend_nicks[i], nick) == 0) return 1;
+    for (i = 0, fn = friend_nicks[0]; i < MAX_FRIENDS; i++, fn += IRC_NICK_SIZE) {
+        if (*fn && st_stricmp(fn, nick) == 0) return 1;
     }
     return 0;
 }
@@ -68,7 +69,7 @@ static uint8_t is_tracked_friend(const char *nick) __z88dk_fastcall
 #define channel_dec_users(i) do { if (channels[i].user_count > 0) channels[i].user_count--; } while(0)
 
 // Helper: Respuesta CTCP optimizada
-static void send_ctcp_reply(const char *target, const char *tag, const char *data)
+static void send_ctcp_reply(const char *target, const char *tag, const char *data) __z88dk_callee
 {
     uart_send_string(S_NOTICE);
     uart_send_string(target);
@@ -100,10 +101,11 @@ static void h_nick(void)
     }
 
     uint8_t i;
-    for (i = 1; i < MAX_CHANNELS; i++) {
-        if ((channels[i].flags & (CH_FLAG_ACTIVE | CH_FLAG_QUERY)) == (CH_FLAG_ACTIVE | CH_FLAG_QUERY)) {
-            if (st_stricmp(channels[i].name, pkt_usr) == 0) {
-                st_copy_n(channels[i].name, new_nick, sizeof(channels[0].name));
+    ChannelInfo *ch;
+    for (i = 1, ch = &channels[1]; i < MAX_CHANNELS; i++, ch++) {
+        if ((ch->flags & (CH_FLAG_ACTIVE | CH_FLAG_QUERY)) == (CH_FLAG_ACTIVE | CH_FLAG_QUERY)) {
+            if (st_stricmp(ch->name, pkt_usr) == 0) {
+                st_copy_n(ch->name, new_nick, sizeof(channels[0].name));
                 
                 if (current_channel_idx == i) {
                     main_print_time_prefix();
@@ -151,10 +153,10 @@ static void h_mode(void)
 
     // --- MODE de usuario ---
     if (irc_nick[0] && st_stricmp(target, irc_nick) == 0) {
-        const char *modes = pkt_txt;
-
-        // FIX: algunos servidores envían MODE nick +i sin trailing ':' (modo en param 1)
-        if (!modes || !*modes) modes = irc_param(1);
+        // FIX: pkt_txt puede apuntar al target (troceado por tokenize_params)
+        // cuando no hay ':' trailing. Usar irc_param(1) primero.
+        const char *modes = irc_param(1);
+        if (!modes || !*modes) modes = pkt_txt;
 
         if (modes && *modes) {
             if (*modes == ':') modes++;
@@ -193,6 +195,7 @@ static void h_privmsg_notice(void)
 {
     char *target = pkt_par;
     if (!target || !*target || !pkt_txt || !*pkt_txt) return;
+    badge_flash_on();
 
     uint8_t is_notice = (pkt_cmd[0] == 'N');
     uint8_t is_server = is_notice && strchr(pkt_usr, '.') != NULL;
@@ -498,7 +501,7 @@ static void h_part(void)
 
 static void h_quit(void)
 {
-    if (show_traffic) {
+    if (show_traffic && current_channel_idx > 0) {
         print_departure(" quit");
     }
 
@@ -517,11 +520,13 @@ static void h_quit(void)
     // (al hacer /names o cuando otro usuario hace JOIN). Limitación aceptable
     // para evitar mantener listas de miembros por canal (prohibitivo en 48K).
     {
-        uint8_t i, joined_cnt = 0, target_idx = 0;
-        for (i = 1; i < MAX_CHANNELS && joined_cnt < 2; i++) {
-            uint8_t f = channels[i].flags;
+        uint8_t joined_cnt = 0, target_idx = 0;
+        ChannelInfo *ch = &channels[1];
+        uint8_t i;
+        for (i = 1; i < MAX_CHANNELS && joined_cnt < 2; i++, ch++) {
+            uint8_t f = ch->flags;
             if ((f & CH_FLAG_ACTIVE) && !(f & CH_FLAG_QUERY)) {
-                char c = channels[i].name[0];
+                char c = ch->name[0];
                 if (c == '#' || c == '&') { joined_cnt++; target_idx = i; }
             }
         }
@@ -676,6 +681,19 @@ static void h_numeric_305_306(void)
     }
 }
 
+// 324 RPL_CHANNELMODEIS: :server 324 nick #channel +modes
+static void h_numeric_324(void)
+{
+    const char *chan = irc_param(1);
+    const char *modes = irc_param(2);
+    if (!chan || !modes || !*modes) return;
+    int8_t idx = find_channel(chan);
+    if (idx >= 0) {
+        st_copy_n(channels[idx].mode, modes, sizeof(channels[0].mode));
+        if ((uint8_t)idx == current_channel_idx) draw_status_bar();
+    }
+}
+
 static void h_numeric_332(void)
 {
     if (*pkt_txt) {
@@ -762,6 +780,8 @@ static void h_numeric_366(void)
     
     // Finalizar paginación de /names
     if (show_names_list && pagination_active) {
+        // Disable pagination BEFORE summary to avoid spurious "Any key: more"
+        pagination_active = 0;
         set_attr_sys();
         if (pagination_count > 0) {
             char buf[8];
@@ -769,7 +789,6 @@ static void h_numeric_366(void)
             main_puts2("-- ", buf);
             main_print(search_data_lost ? " (incomplete) --" : " listed --");
         }
-        pagination_active = 0;
         pagination_count = 0;
         cursor_visible = 1;
         redraw_input_full();
@@ -800,17 +819,21 @@ static void h_end_of_list(void)
     if (search_mode == SEARCH_NONE) return;
 
     uint8_t data_lost = search_data_lost;
-    
+
+    // Disable pagination BEFORE printing summary to avoid
+    // triggering "Any key: more" when there's nothing more to show
+    pagination_active = 0;
+
     set_attr_sys();
     if (pagination_count > 0) {
-        main_print(data_lost ? "-- Done (incomplete) --" : "-- Done --");
+        main_print(data_lost ? "Done (incomplete)" : "Done");
     } else if (search_header_rcvd == 1 || search_mode == SEARCH_USER) {
         main_print("-- No matches --");
     } else {
         set_attr_err();
         main_print("Search denied");
     }
-    
+
     cancel_search_state();
 }
 
@@ -847,13 +870,11 @@ static void h_numeric_322_352(void)
         search_render_index();
         main_puts(chan);
 
-        // Align attribute cell boundary (64-col: 2 chars per attribute cell)
-        // If channel length is odd, add one padding space so following " (" starts on next cell.
-        len = st_strlen(chan);
-        if (len & 1) { main_putc(' '); }
+        // Align to even column so attr change falls on cell boundary
+        if (main_col & 1) main_putc(' ');
 
         set_attr_chan();
-        main_puts2(" (", users);
+        main_puts2(S_SP_PAREN, users);
         main_putc(')');
 
         if (*pkt_txt) {
@@ -888,6 +909,9 @@ static void h_numeric_322_352(void)
 
         search_render_index();
         main_puts(nick);
+
+        // Align to even column so attr change falls on cell boundary
+        if (main_col & 1) main_putc(' ');
 
         set_attr_chan();
         main_puts2(" [", user);
@@ -930,20 +954,16 @@ static void h_numeric_303(void)
 
 static void h_numeric_5(void)
 {
-    // Busca "NETWORK=" en pkt_par — safe scan (no read past '\0')
-    const char *p = pkt_par;
+    // Busca "NETWORK=" en los params tokenizados (no en pkt_par raw)
+    uint8_t pi;
     const char *net = NULL;
-    while (*p) {
-        if (*p == 'N') {
-            // Short-circuit chain: stops at first '\0' hit
-            const char *q = p + 1;
-            if (*q++ == 'E' && *q++ == 'T' && *q++ == 'W' &&
-                *q++ == 'O' && *q++ == 'R' && *q++ == 'K' && *q == '=') {
-                net = q + 1;
-                break;
-            }
+    for (pi = 1; pi < irc_param_count; pi++) {
+        const char *p = irc_param(pi);
+        if (p[0] == 'N' && p[1] == 'E' && p[2] == 'T' && p[3] == 'W' &&
+            p[4] == 'O' && p[5] == 'R' && p[6] == 'K' && p[7] == '=') {
+            net = p + 8;
+            break;
         }
-        p++;
     }
     if (net) {
         const char *end = net;
@@ -1115,6 +1135,7 @@ static const CmdEntry CMD_TABLE[] = {
     { 305, h_numeric_305_306 },
     { 306, h_numeric_305_306 },
     { 321, h_numeric_321 },
+    { 324, h_numeric_324 },
     { 332, h_numeric_332 },
     { 376, h_numeric_376 },
     { 401, h_numeric_401 },
@@ -1204,11 +1225,7 @@ void parse_irc_message(char *line) __z88dk_fastcall
             cmd_id = str_to_u16(pkt_cmd);
         } else if (pkt_cmd[0] && pkt_cmd[1]) {
             // FIX: Normalizar a mayúsculas para compatibilidad con bouncers/gateways
-            // que envían comandos en minúsculas (ej: "privmsg" en vez de "PRIVMSG")
-            // FIX: Normalizar pkt_cmd in-place para que handlers puedan comparar
-            if (pkt_cmd[0] >= 'a' && pkt_cmd[0] <= 'z') pkt_cmd[0] -= 32;
-            if (pkt_cmd[1] >= 'a' && pkt_cmd[1] <= 'z') pkt_cmd[1] -= 32;
-            if (pkt_cmd[2] >= 'a' && pkt_cmd[2] <= 'z') pkt_cmd[2] -= 32;
+            { uint8_t j; for (j = 0; j < 3; j++) if (pkt_cmd[j] >= 'a' && pkt_cmd[j] <= 'z') pkt_cmd[j] -= 32; }
             cmd_id = ((uint16_t)pkt_cmd[0] << 8) | pkt_cmd[1];
         } else {
             h_default_cmd();
@@ -1236,8 +1253,6 @@ void process_irc_data(void)
     uint16_t bytes_this_call = 0;
     uint8_t lines_this_call = 0;
     uint8_t max_lines;
-    static uint8_t idle_skip = 0;  // OPT: Throttle polling cuando idle
-
     uint16_t backlog;
 
     if (connection_state == STATE_WIFI_OK && sntp_waiting) {
@@ -1251,27 +1266,20 @@ void process_irc_data(void)
 
     if (connection_state < STATE_TCP_CONNECTED) return;
 
-    // OPT: Skip drain cada 2 frames cuando buffer está vacío (ahorro CPU en idle)
-    backlog = (uint16_t)(rb_head - rb_tail) & RING_BUFFER_MASK;
-    if (backlog < 64 && rx_pos == 0) {  // Buffer casi vacío
-        idle_skip++;
-        if (idle_skip < 2) return;  // Skip 1 de cada 2 frames cuando idle
-        idle_skip = 0;
-    } else {
-        idle_skip = 0;  // Reset cuando hay datos
-    }
+    // Drain UART first, then measure real backlog
+    uart_drain_to_buffer();
 
-    // Fusión total: un solo paso fija drain_limit y max_lines
+    backlog = (uint16_t)(rb_head - rb_tail) & RING_BUFFER_MASK;
+
+    // Early-out when nothing to process
+    if (backlog == 0 && rx_pos == 0) return;
+
+    // Scale parse budget to real backlog
     if (backlog > 1024)      { max_lines = 32; }
     else if (backlog > 512)  { max_lines = 24; }
     else if (backlog > 256)  { max_lines = 16; }
     else if (backlog > 128)  { max_lines = 10; }
     else                     { max_lines = 6;  }
-
-    uart_drain_to_buffer();
-
-    // FIX: early-out barato cuando no hay nada que procesar
-    if (rx_pos == 0 && rb_head == rb_tail) return;
 
     // FIX P0-2: Variable para detectar CLOSED sin actuar dentro del bucle
     uint8_t closed_detected = 0;
@@ -1285,10 +1293,11 @@ void process_irc_data(void)
         if (disconnecting_in_progress) continue;
 
         // FIX P0-1: Verificar longitud antes de acceder a índices fijos
-        // "CLOSED" tiene 6 caracteres, necesitamos rx_last_len >= 6
+        // "CLOSED" via 16-bit reads (Z80 little-endian: 'C','L' = 0x4C43)
         if (rx_last_len >= 6 &&
-            rx_line[0] == 'C' && rx_line[1] == 'L' && rx_line[2] == 'O' &&
-            rx_line[3] == 'S' && rx_line[4] == 'E' && rx_line[5] == 'D') {
+            *(uint16_t*)(rx_line) == 0x4C43 &&
+            *(uint16_t*)(rx_line+2) == 0x534F &&
+            *(uint16_t*)(rx_line+4) == 0x4445) {
             // FIX P0-2: Solo marcar, no actuar dentro del bucle
             if (!closed_reported) {
                 closed_detected = 1;
@@ -1304,11 +1313,7 @@ void process_irc_data(void)
         lines_this_call++;
 
         {
-            uint16_t current_budget = RX_TICK_PARSE_BYTE_BUDGET;
-            if (pagination_active) {
-                current_budget = RX_TICK_PARSE_BYTE_BUDGET * 8;
-            }
-
+            uint16_t current_budget = pagination_active ? (RX_TICK_PARSE_BYTE_BUDGET * 8) : RX_TICK_PARSE_BYTE_BUDGET;
             bytes_this_call += (rx_last_len + 1);
             if (bytes_this_call >= current_budget) break;  // FIX P0-2: break en vez de return
         }

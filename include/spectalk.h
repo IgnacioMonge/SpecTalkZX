@@ -35,12 +35,12 @@
 #endif
 
 // Theme helper (defined in spectalk.c)
-const char *theme_get_name(uint8_t theme_id);
+const char *theme_get_name(uint8_t theme_id) __z88dk_fastcall;
 
 // =============================================================================
 // VERSION
 // =============================================================================
-#define VERSION "1.3.4"
+#define VERSION "1.3.5"
 
 // =============================================================================
 // SCREEN LAYOUT CONSTANTS
@@ -49,8 +49,8 @@ const char *theme_get_name(uint8_t theme_id);
 #define SCREEN_PHYS     32
 
 #define TOP_BANNER_LINE   0
-#define MAIN_START        2
-#define MAIN_LINES        18
+#define MAIN_START        3
+#define MAIN_LINES        17
 #define MAIN_END          (MAIN_START + MAIN_LINES - 1)
 #define INFO_LINE         21
 #define INPUT_START       22
@@ -181,6 +181,8 @@ extern void set_border(uint8_t color) __z88dk_fastcall;
 
 extern void mention_beep(void);
 extern void check_caps_toggle(void);
+void badge_flash_on(void);
+void badge_flash_off(void);
 extern uint8_t key_shift_held(void);
 extern void input_cache_invalidate(void);
 extern void print_str64_char(uint8_t ch) __z88dk_fastcall;
@@ -234,6 +236,7 @@ extern uint8_t autoaway_minutes;
 extern uint16_t autoaway_counter;
 extern uint8_t autoaway_active;
 extern uint8_t beep_enabled;
+extern uint8_t has_esxdos;
 extern uint8_t show_traffic;
 extern int8_t sntp_tz;
 extern char irc_pass[IRC_PASS_SIZE];
@@ -260,6 +263,7 @@ extern uint8_t wrap_indent;  // Indentación para líneas que continúan
 // Channels
 extern ChannelInfo channels[];
 extern uint8_t current_channel_idx;
+extern ChannelInfo *cur_chan_ptr;
 extern uint8_t channel_count;
 
 // Navigation history
@@ -353,7 +357,7 @@ extern uint16_t search_index;
 // Search functions
 void cancel_search_state(void);
 void start_pagination(void);
-void start_search_command(uint8_t type, const char *arg);
+void start_search_command(uint8_t type, const char *arg) __z88dk_callee;
 
 // Timestamps
 extern uint8_t show_timestamps;
@@ -368,6 +372,7 @@ extern uint8_t irc_param_count;
 extern char line_buffer[LINE_BUFFER_SIZE];
 extern uint8_t line_len;
 extern uint8_t cursor_pos;
+extern char temp_input[LINE_BUFFER_SIZE];
 // tx_buffer eliminado - se usa uart_send_string directo
 
 // RX line buffer
@@ -384,7 +389,6 @@ extern uint8_t uart_drain_limit;
 extern volatile uint8_t g_ps64_y;
 extern volatile uint8_t g_ps64_col;
 extern volatile uint8_t g_ps64_attr;
-// g_ps64_str solo se usa internamente en spectalk.c, no necesita extern
 
 // Caps lock
 extern uint8_t caps_lock_mode;
@@ -408,7 +412,6 @@ extern const char S_NICKSERV[];
 extern const char S_APPNAME[];
 extern const char S_APPDESC[];
 extern const char S_COPYRIGHT[];
-extern const char S_LICENSE[];
 extern const char S_MAXWIN[];
 extern const char S_SWITCHTO[];
 extern const char S_PRIVMSG[];
@@ -456,6 +459,7 @@ extern const char S_JOINED_SP[];    // D10: " joined "
 extern const char S_AWAY_CMD[];     // D10: "AWAY"
 extern const char S_NICK_CMD[];     // D10: "NICK"
 extern const char S_SMART[];        // D10: "smart"
+extern const char S_AUTOAWAY[];     // D11: "Auto-away"
 
 // =============================================================================
 // UI MACROS
@@ -469,10 +473,11 @@ void ui_usage(const char *a) __z88dk_fastcall;
 #define SYS_MSG(s)    ui_sys(s)
 #define SYS_PUTS(s)   do { set_attr_sys(); main_puts(s); } while(0)
 
-// Compatibility macros
-#define irc_channel (channels[current_channel_idx].name)
-#define chan_mode (channels[current_channel_idx].mode)
-#define chan_user_count (channels[current_channel_idx].user_count)
+// Compatibility macros (cur_chan_ptr avoids idx*32 multiply per access)
+#define irc_channel (cur_chan_ptr->name)
+#define chan_mode (cur_chan_ptr->mode)
+#define chan_user_count (cur_chan_ptr->user_count)
+#define chan_flags (cur_chan_ptr->flags)
 
 // =============================================================================
 // FUNCTION DECLARATIONS - UI (spectalk.c)
@@ -488,13 +493,15 @@ void main_hline(void);
 void utf8_to_ascii(char *s) __z88dk_fastcall;  // UTF-8 → ASCII conversion
 void print_char64(uint8_t y, uint8_t col, uint8_t c, uint8_t attr) __z88dk_callee;
 void print_str64(uint8_t y, uint8_t col, const char *s, uint8_t attr) __z88dk_callee;
+void print_big_str(uint8_t y, uint8_t col, const char *s, uint8_t attr) __z88dk_callee;
 void draw_status_bar(void);
 void clear_main(void);
+extern void scroll_main_zone(void);
 void redraw_input_full(void);
 void reapply_screen_attributes(void);
 void cls_fast(void);
 void draw_status_bar_real(void);
-void fast_u8_to_str(char *buf, uint8_t val);
+void fast_u8_to_str(char *buf, uint8_t val) __z88dk_callee;
 
 // =============================================================================
 // FUNCTION DECLARATIONS - CHANNEL MANAGEMENT (spectalk.c)
@@ -507,8 +514,8 @@ int8_t add_query(const char *nick) __z88dk_fastcall;
 void remove_channel(uint8_t idx) __z88dk_fastcall;
 void switch_to_channel(uint8_t idx) __z88dk_fastcall;
 // Channel switcher is state-based (internal to spectalk.c)
-void nav_push(uint8_t idx);
-void nav_fix_on_delete(uint8_t deleted_idx);
+void nav_push(uint8_t idx) __z88dk_fastcall;
+void nav_fix_on_delete(uint8_t deleted_idx) __z88dk_fastcall;
 
 // =============================================================================
 // FUNCTION DECLARATIONS - IGNORE LIST (spectalk.c)
@@ -533,8 +540,8 @@ void uart_send_crlf(void) __z88dk_fastcall;
 void uart_send_line(const char *s) __z88dk_fastcall;
 
 // AT response helpers (spectalk.c)
-uint8_t wait_for_response(const char *expected, uint16_t max_frames);
-uint8_t wait_for_prompt_char(uint8_t prompt_ch, uint16_t max_frames);
+uint8_t wait_for_response(const char *expected, uint16_t max_frames) __z88dk_callee;
+uint8_t wait_for_prompt_char(uint8_t prompt_ch, uint16_t max_frames) __z88dk_callee;
 uint8_t esp_at_cmd(const char *cmd) __z88dk_fastcall;
 
 // =============================================================================
@@ -575,7 +582,8 @@ void draw_banner(void);
 // Configuration file (esxDOS)
 uint8_t config_load(void);
 
-// esxDOS file I/O (ASM in spectalk_asm.asm)
+// esxDOS detection and file I/O (ASM in spectalk_asm.asm)
+extern uint8_t esx_detect(void);
 extern void esx_fopen(const char *path) __z88dk_fastcall;
 extern void esx_fcreate(const char *path) __z88dk_fastcall;
 extern void esx_fread(void);

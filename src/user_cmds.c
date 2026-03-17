@@ -43,27 +43,21 @@ static const char K_TOPIC[]    = "TOPIC";
 static const char K_CFG_PRI[]  = "/SYS/CONFIG/SPECTALK.CFG";
 static const char K_CFG_ALT[]  = "/SYS/SPECTALK.CFG";
 static const char K_TZ[]       = "tz=";
+// K_BIGST removed (big mode eliminated)
 
 // =============================================================================
 // INTERNAL HELPERS
 // =============================================================================
 
-static void sys_puts_print(const char *label, const char *value) {
+static void sys_puts_print(const char *label, const char *value) __z88dk_callee {
     set_attr_sys(); main_puts(label); main_print(value);
 }
 
 
-// Drain UART and respond to server PINGs, discarding everything else.
-// Used in blocking UI screens (help) to prevent server timeout.
-static void drain_and_pong(void) {
-    uart_drain_to_buffer();
-    while (try_read_line_nodrain()) {
-        if (rx_last_len >= 5 && rx_line[0] == 'P' && rx_line[1] == 'I' &&
-            rx_line[2] == 'N' && rx_line[3] == 'G' && rx_line[4] == ' ') {
-            irc_send_pong(rx_line + 5);
-        }
-    }
-}
+// Help overlay state (state-based, non-blocking — main loop keeps running)
+// Non-static: ASM main_puts checks this to suppress output during help
+uint8_t help_active;
+static uint8_t help_page;       // current page (0-based)
 
 // NIVELES DE VALIDACIÓN JERÁRQUICA
 #define LVL_TCP  1  // Conectado a Internet (Socket abierto)
@@ -85,7 +79,7 @@ static uint8_t check_status(uint8_t level) __z88dk_fastcall
     if (level <= LVL_IRC) return 1;
 
     // Nivel 3: Contexto de Canal (Necesario para KICK, ME, etc.)
-    if (current_channel_idx == 0 || !(channels[current_channel_idx].flags & CH_FLAG_ACTIVE)) {
+    if (current_channel_idx == 0 || !(chan_flags & CH_FLAG_ACTIVE)) {
         set_attr_err();
         main_print(S_NOWIN); // "No window..."
         return 0;
@@ -95,7 +89,7 @@ static uint8_t check_status(uint8_t level) __z88dk_fastcall
 }
 
 
-static uint8_t ensure_args(const char *args, const char *usage)
+static uint8_t ensure_args(const char *args, const char *usage) __z88dk_callee
 {
     if (!args || !*args) {
         ui_usage(usage);
@@ -151,7 +145,7 @@ wcr_ok:
 // FIX-H6: redundant externs removed - already in spectalk.h with correct types
 
 // OPT M2: Helper para imprimir uint8 sin leading zero (usado por !config y !autoaway)
-static void puts_u8_nolz(uint8_t v) {
+static void puts_u8_nolz(uint8_t v) __z88dk_fastcall {
     char buf[4];
     fast_u8_to_str(buf, v);
     if (buf[0] != '0') main_putc(buf[0]);
@@ -301,6 +295,7 @@ do_connect:
         char *line; 
         uint8_t loop_done = 0;
         uint16_t silence_frames = 0;
+        uint16_t total_frames = 0;
 
         const char *abort_msg = 0;
         uint8_t abort_disc = 1;
@@ -373,8 +368,7 @@ do_connect:
                     if (ping_ptr) {
                         char *params = ping_ptr + 4;
                         while (*params == ' ') params++;
-                        if (*params == ':') params++;
-                        irc_send_pong(params);
+                        uart_send_string(S_PONG); uart_send_line(params);
                         rx_pos = 0; continue;
                     }
                 }
@@ -392,7 +386,7 @@ do_connect:
                 }
 
                 // FIX P0-1: Verificar longitud antes de acceder a índices
-                if (rx_last_len >= 3 && line[0] == 'C' && line[1] == 'L' && line[2] == 'O') {  // CLOSED
+                if (rx_last_len >= 3 && rx_line[0] == 'C' && rx_line[1] == 'L' && rx_line[2] == 'O') {  // CLOSED
                     abort_msg = "Connection lost";
                     abort_disc = 1;
                     goto join_fail;
@@ -401,11 +395,18 @@ do_connect:
                 rx_pos = 0;
             } else {
                 silence_frames++;
-                if (silence_frames > 1500) { 
+                if (silence_frames > 1500) {
                     abort_msg = S_TIMEOUT;
                     abort_disc = 1;
                     goto join_fail;
                 }
+            }
+            // Absolute timeout (~60s) prevents infinite hang if server
+            // keeps sending data (throttle NOTICEs) without completing registration
+            if (++total_frames > 3000) {
+                abort_msg = S_TIMEOUT;
+                abort_disc = 1;
+                goto join_fail;
             }
         }
 
@@ -949,7 +950,7 @@ static void cmd_kick(const char *args) __z88dk_fastcall
     if (!ensure_args(args, "kick nick [reason]")) return;
     if (!check_status(LVL_CHAN)) return;
 
-    if (channels[current_channel_idx].flags & CH_FLAG_QUERY) {
+    if (chan_flags & CH_FLAG_QUERY) {
         ui_err("Not in a channel");
         return;
     }
@@ -1040,15 +1041,7 @@ static void sys_status(const char *args) __z88dk_fastcall
 }
 
 
-static void sys_about(const char *args) __z88dk_fastcall
-{
-    (void)args;
-    set_attr_sys();
-    main_print(S_APPNAME);
-    main_print(S_APPDESC);
-    main_print(S_COPYRIGHT);
-    main_print(S_LICENSE);
-}
+static void sys_about(const char *args) __z88dk_fastcall;
 
 // !config - Muestra la configuración actual
 static void sys_config(const char *args) __z88dk_fastcall
@@ -1075,11 +1068,11 @@ static void sys_config(const char *args) __z88dk_fastcall
     main_puts("friends=");
     {
         uint8_t i, count = 0;
-        for (i = 0; i < MAX_FRIENDS; i++) {
-            if (friend_nicks[i][0]) {
+        char *fn;
+        for (i = 0, fn = friend_nicks[0]; i < MAX_FRIENDS; i++, fn += IRC_NICK_SIZE) {
+            if (*fn) {
                 if (count++) main_puts(S_COMMA_SP);
-                // NOTE: main_print() adds newline; for inline list we must use main_puts().
-                main_puts(friend_nicks[i]);
+                main_puts(fn);
             }
         }
         if (count == 0) main_puts(S_NOTSET);
@@ -1171,7 +1164,7 @@ static void cmd_autoaway(const char *args) __z88dk_fastcall
     if (!args || !*args) {
         // Mostrar estado
         set_attr_sys();
-        main_puts("Auto-away: ");
+        main_puts(S_AUTOAWAY); main_puts(S_COLON_SP);
         if (autoaway_minutes) {
             puts_u8_nolz(autoaway_minutes);
             main_print(S_MIN);
@@ -1188,27 +1181,27 @@ static void cmd_autoaway(const char *args) __z88dk_fastcall
         autoaway_minutes = 0;
         autoaway_counter = 0;
         autoaway_active = 0;
-        ui_sys("Auto-away disabled");
+        sys_puts_print(S_AUTOAWAY, " disabled");
         return;
     }
 
     // Parsear minutos (1-60)
-    mins = (uint8_t)str_to_u16(p);
-    if (mins < 1 || mins > 60) {
+    { uint16_t raw = str_to_u16(p);
+    if (raw < 1 || raw > 60) {
         ui_err(S_RANGE_MINUTES);
         return;
     }
 
+    mins = (uint8_t)raw; }
     autoaway_minutes = mins;
     autoaway_counter = 0;
-    set_attr_sys();
-    main_puts("Auto-away set to ");
+    set_attr_sys(); main_puts(S_AUTOAWAY); main_puts(" set to ");
     puts_u8_nolz(mins);
     main_print(S_MIN);
 }
 
 // OPT H4: Helper para comandos toggle con argumento directo opcional
-static void set_or_toggle_flag(uint8_t *flag, const char *label, const char *args) {
+static void set_or_toggle_flag(uint8_t *flag, const char *label, const char *args) __z88dk_callee {
     if (args && *args) {
         if (args[0] == '0' && (!args[1] || args[1] == ' ')) *flag = 0;
         else if (args[0] == '1' && (!args[1] || args[1] == ' ')) *flag = 1;
@@ -1272,9 +1265,10 @@ static void cmd_tz(const char *args) __z88dk_fastcall
         uint8_t neg = 0;
         if (*p == '-') { neg = 1; p++; }
         else if (*p == '+') p++;
-        tz = (int8_t)str_to_u16(p);
+        { uint16_t raw = str_to_u16(p);
+        if (raw > 12) { ui_err("Range: -12 to +12"); return; }
+        tz = (int8_t)raw; }
         if (neg) tz = -tz;
-        if (tz < -12 || tz > 12) { ui_err("Range: -12 to +12"); return; }
         sntp_tz = tz;
         cmd_tz(NULL);
     }
@@ -1283,27 +1277,28 @@ static void cmd_tz(const char *args) __z88dk_fastcall
 static void cmd_friend(const char *args) __z88dk_fastcall
 {
     uint8_t i;
+    char *fn;
     if (!args || !*args) {
         set_attr_sys();
         main_puts("Friends:");
-        for (i = 0; i < MAX_FRIENDS; i++)
-            if (friend_nicks[i][0]) { main_putc(' '); main_puts(friend_nicks[i]); }
+        for (i = 0, fn = friend_nicks[0]; i < MAX_FRIENDS; i++, fn += IRC_NICK_SIZE)
+            if (*fn) { main_putc(' '); main_puts(fn); }
         main_newline();
         return;
     }
     // Truncar en primer espacio (igual que cmd_ignore)
     { char *sp = strchr(args, ' '); if (sp) *sp = 0; }
     // Toggle: remove if exists, add if not
-    for (i = 0; i < MAX_FRIENDS; i++) {
-        if (friend_nicks[i][0] && st_stricmp(friend_nicks[i], args) == 0) {
-            friend_nicks[i][0] = '\0';
+    for (i = 0, fn = friend_nicks[0]; i < MAX_FRIENDS; i++, fn += IRC_NICK_SIZE) {
+        if (*fn && st_stricmp(fn, args) == 0) {
+            *fn = '\0';
             SYS_PUTS("- "); main_print(args);
             return;
         }
     }
-    for (i = 0; i < MAX_FRIENDS; i++) {
-        if (!friend_nicks[i][0]) {
-            st_copy_n(friend_nicks[i], args, IRC_NICK_SIZE);
+    for (i = 0, fn = friend_nicks[0]; i < MAX_FRIENDS; i++, fn += IRC_NICK_SIZE) {
+        if (!*fn) {
+            st_copy_n(fn, args, IRC_NICK_SIZE);
             SYS_PUTS("+ "); main_print(args);
             return;
         }
@@ -1312,14 +1307,14 @@ static void cmd_friend(const char *args) __z88dk_fastcall
 }
 
 // Append string to buffer, return new position
-static char *cfg_put(char *p, const char *s) {
+static char *cfg_put(char *p, const char *s) __z88dk_callee {
     while (*s) *p++ = *s++;
     return p;
 }
 
 // Write "key=val1,val2,...\r\n" from array of strings
 static char *cfg_put_csv(char *p, const char *key,
-                         const char *list, uint8_t elem_size, uint8_t count) {
+                         const char *list, uint8_t elem_size, uint8_t count) __z88dk_callee {
     uint8_t i, any = 0;
     for (i = 0; i < count; i++) {
         const char *s = list + i * elem_size;
@@ -1335,7 +1330,7 @@ static char *cfg_put_csv(char *p, const char *key,
 // Write key=value\r\n to buffer. Returns new position.
 // NOTE-M11: (uint16_t)val <= 9 trick: treats small integers cast to pointer
 // as literal digits 0-9. Safe on Z80 (addrs 0-9 are ROM, never valid string ptrs).
-static char *cfg_kv(char *p, const char *key, const char *val) {
+static char *cfg_kv(char *p, const char *key, const char *val) __z88dk_callee {
     p = cfg_put(p, key);
     if ((uint16_t)val <= 9) {
         *p++ = '0' + (uint8_t)(uint16_t)val;
@@ -1353,6 +1348,7 @@ static void cmd_save(const char *args) __z88dk_fastcall
     char tmp[4];
 
     (void)args;
+    if (!has_esxdos) { ui_err("No esxDOS"); return; }
 
     p = cfg_put(p, "; SpecTalkZX config\r\n");
 
@@ -1368,7 +1364,6 @@ static void cmd_save(const char *args) __z88dk_fastcall
     p = cfg_kv(p, K_TRAFFIC, (const char *)(uint16_t)show_traffic);
     p = cfg_kv(p, K_TS, (const char *)(uint16_t)show_timestamps);
     p = cfg_kv(p, K_AUTOCONN, (const char *)(uint16_t)autoconnect);
-
     // Autoaway (only if set)
     if (autoaway_minutes) {
         fast_u8_to_str(tmp, autoaway_minutes); tmp[2] = '\0';
@@ -1397,6 +1392,13 @@ static void cmd_save(const char *args) __z88dk_fastcall
     esx_count = (uint16_t)(p - (char *)ring_buffer);
     esx_fwrite();
     esx_fclose();
+    input_cache_invalidate();  // esxDOS corrupts Printer Buffer (input_cache lives there)
+
+    // FIX: ring_buffer was used as temp space — reset to prevent
+    // process_irc_data() from parsing config data as IRC messages
+    rb_head = 0;
+    rb_tail = 0;
+    rx_pos = 0;
 
     SYS_PUTS("Saving config... OK (");
     {
@@ -1418,18 +1420,19 @@ static void cmd_save(const char *args) __z88dk_fastcall
 
 // Wrappers
 static void cmd_close_wrapper(const char *a) __z88dk_fastcall {
+    uint8_t f;
     (void)a;
     if (current_channel_idx == 0) {
         ui_err("Can't close Server");
         return;
     }
-    if (!(channels[current_channel_idx].flags & CH_FLAG_ACTIVE)) {
+    f = chan_flags;
+    if (!(f & CH_FLAG_ACTIVE)) {
         ui_err("No window to close");
         return;
     }
-    if (channels[current_channel_idx].flags & CH_FLAG_QUERY) {
-        sys_puts_print("Closed query with ", channels[current_channel_idx].name);
-        // remove_channel() YA llama a draw_status_bar()
+    if (f & CH_FLAG_QUERY) {
+        sys_puts_print("Closed query with ", irc_channel);
         remove_channel(current_channel_idx);
     } else {
         cmd_part("");
@@ -1498,24 +1501,14 @@ static void sys_help(const char *args) __z88dk_fastcall;
 
 #define CMD_IDX_NONE  ((uint8_t)0xFF)
 #define SYS_CMDS_COUNT 6
-#define CMD_HELP_BASE  ((uint8_t)55)
 
-// One pool: command names/aliases first, then help strings in command order.
-// Indices 0-54: original commands (help..friend)
+// Command names/aliases pool (help strings moved to /SYS/SPECTALK.HLP)
 static const char cmd_pool[] =
     "help\0h\0status\0s\0init\0i\0config\0cfg\0theme\0about\0server\0connec"
     "t\0nick\0pass\0id\0join\0j\0part\0p\0msg\0m\0query\0q\0close\0quit\0me"
     "\0away\0autoaway\0aa\0raw\0whois\0wi\0who\0list\0ls\0names\0topic\0sea"
     "rch\0ignore\0kick\0k\0channels\0w\0beep\0traffic\0timestamps\0ts\0clear\0cls\0"
     "save\0sv\0autoconnect\0ac\0tz\0friend\0"
-    // --- help strings (one per command, same order as USER_COMMANDS) ---
-    "Help\0Status info\0Reset WiFi\0Show config\0Theme 1|2|3\0About\0"
-    "Connect host\0Set nick\0Set pass\0Identify\0Join #chan\0Leave chan\0Se"
-    "nd msg\0Open query\0Close win\0Quit IRC\0Action /me\0Set away\0Auto-aw"
-    "ay min\0Raw IRC cmd\0Whois nick\0Who #chan\0List chans\0Names #chan\0T"
-    "opic\0Search\0Ignore nick\0Kick nick\0Windows\0Toggle beep\0Toggle traf"
-    "fic\0Toggle timestamps\0Clear screen\0Save config\0Toggle autoconn\0"
-    "Set timezone\0Add/rm friend\0"
 ;
 
 static const PackedCmd USER_COMMANDS[] = {
@@ -1570,62 +1563,93 @@ static const char *pool_nth(uint8_t idx) __z88dk_fastcall
     return p;
 }
 
+static const char K_DAT[] = "SPECTALK.DAT";
+
+// Render one help page. Briefly loads SPECTALK.DAT into ring_buffer,
+// renders, then releases ring_buffer for normal IRC use.
+static void help_render_page(void)
+{
+    char *p;
+    uint8_t row, lines, skip;
+
+    // Read help text from SPECTALK.DAT (seek past binary header)
+    esx_fopen(K_DAT);
+    if (!esx_handle) { help_active = 0; return; }
+    esx_buf = (uint16_t)(char *)ring_buffer;
+    esx_count = RING_BUFFER_SIZE - 2;
+    esx_fread();
+    { uint16_t n = esx_result; if (n > RING_BUFFER_SIZE - 2) n = RING_BUFFER_SIZE - 2; ((char *)ring_buffer)[n] = '\0'; }
+    esx_fclose();
+    input_cache_invalidate();  // esxDOS corrupts Printer Buffer (input_cache lives there)
+
+    // Skip binary header (font + themes), then to current page
+    p = (char *)ring_buffer + 373;
+    for (skip = 0; skip < help_page; skip++) {
+        lines = 0;
+        while (*p && lines < 13) {
+            while (*p && *p != '\n' && *p != '\r') p++;
+            if (*p == '\r') p++;
+            if (*p == '\n') p++;
+            lines++;
+        }
+        if (!*p) { help_page = 0; p = (char *)ring_buffer + 373; break; }
+    }
+
+    // Render page
+    clear_main();
+    print_str64(MAIN_START, 2, "HELP", ATTR_MSG_TOPIC);
+    memset((void *)(screen_row_base[MAIN_START + 1] + 256), 0xFF, 16);
+    memset((void *)(0x5800 + (MAIN_START + 1) * 32), ATTR_MSG_TOPIC, 16);
+
+    row = 2; lines = 0;
+    while (*p && lines < 13) {
+        char *ls = p;
+        char *tab;
+        while (*p && *p != '\n' && *p != '\r') p++;
+        { char sv = *p; *p = '\0';
+          tab = ls;
+          while (*tab && *tab != '\t') tab++;
+          if (*tab == '\t') {
+              *tab = '\0';
+              print_str64(MAIN_START + row, 2, ls, ATTR_MSG_NICK);
+              print_str64(MAIN_START + row, 18, tab + 1, ATTR_MSG_CHAN);
+              *tab = '\t';
+          } else {
+              print_str64(MAIN_START + row, 2, ls, ATTR_MSG_CHAN);
+          }
+          *p = sv;
+        }
+        if (*p == '\r') p++;
+        if (*p == '\n') p++;
+        row++; lines++;
+    }
+
+    memset((void *)(screen_row_base[MAIN_START + row] + 256), 0xFF, 16);
+    memset((void *)(0x5800 + (MAIN_START + row) * 32), ATTR_MSG_TOPIC, 16);
+    print_str64(MAIN_START + 16, 2, "ANY: next  BREAK: exit", ATTR_MSG_TIME);
+
+    // Release ring_buffer: flush so main loop's uart_drain_to_buffer works
+    rb_head = rb_tail = 0;
+    rx_pos = 0;
+}
+
 static void sys_help(const char *args) __z88dk_fastcall
 {
     (void)args;
-    uint8_t page = 0;
-    uint8_t total_pages = (USER_COMMANDS_COUNT + 11u) / 12u;
-    uint8_t key, start, end, row, i;
-    const PackedCmd *cmd;
+    if (!has_esxdos) { ui_err("No esxDOS"); return; }
+    help_page = 0;
+    help_active = 1;
+    cursor_visible = 0;
+    help_render_page();
+}
 
-    start = 0;
-
-    while (1) {
-        end = start + 12u;
-        if (end > USER_COMMANDS_COUNT) end = USER_COMMANDS_COUNT;
-
-        clear_main();
-        print_str64(MAIN_START, 10, "=== HELP ===", ATTR_MSG_TOPIC);
-
-        row = 2;
-        for (i = start; i < end; i++) {
-            cmd = &USER_COMMANDS[i];
-
-            print_char64(MAIN_START + row, 2, (i < SYS_CMDS_COUNT) ? '!' : '/', ATTR_MSG_NICK);
-            print_str64(MAIN_START + row, 3, pool_nth(cmd->name_idx), ATTR_MSG_NICK);
-
-            // Help strings are stored after command strings, in USER_COMMANDS order.
-            print_str64(MAIN_START + row, 18, pool_nth((uint8_t)(CMD_HELP_BASE + i)), ATTR_MSG_CHAN);
-            row++;
-        }
-
-        if (end == USER_COMMANDS_COUNT) {
-            print_str64(MAIN_START + row, 2, "/0-9", ATTR_MSG_NICK);
-            print_str64(MAIN_START + row, 18, "Switch window", ATTR_MSG_CHAN);
-            row++;
-            print_str64(MAIN_START + row, 2, "nick:msg", ATTR_MSG_NICK);
-            print_str64(MAIN_START + row, 18, "Quick message", ATTR_MSG_CHAN);
-        }
-
-        print_str64(MAIN_START + 15, 10, "Page", ATTR_MSG_TIME);
-        {
-            char pg[5] = {' ', (char)('0' + page + 1), '/', (char)('0' + total_pages), 0};
-            print_str64(MAIN_START + 15, 14, pg, ATTR_MSG_TIME);
-        }
-        print_str64(MAIN_START + 15, 19, "ANY:next BREAK:exit", ATTR_MSG_TIME);
-
-        while (in_inkey()) { HALT(); uart_drain_to_buffer(); }
-        while (!(key = in_inkey())) { HALT(); drain_and_pong(); }
-        while (in_inkey()) { HALT(); uart_drain_to_buffer(); }
-
-        if (key == 3) break;  // BREAK = CS+SPACE
-
-        page++;
-        start += 12u;
-        if (page >= total_pages) { page = 0; start = 0; }
-    }
-
-    clear_main();
+static void sys_about(const char *args) __z88dk_fastcall
+{
+    (void)args;
+    set_attr_sys();
+    main_print(S_APPNAME);
+    main_print(S_APPDESC);
+    main_print(S_COPYRIGHT);
 }
 
 void parse_user_input(char *line) __z88dk_fastcall
@@ -1655,7 +1679,7 @@ void parse_user_input(char *line) __z88dk_fastcall
         // Check for "nick: message" format first (works from any window)
         {
             char *colon = strchr(line, ':');
-            if (colon && colon != line) {
+            if (colon && colon != line && line[0] >= 'A') {
                 char *sp = strchr(line, ' ');
                 if (!sp || sp > colon) {
                     *colon = 0;
@@ -1693,38 +1717,38 @@ void parse_user_input(char *line) __z88dk_fastcall
 
     args = strchr(cmd_str, ' ');
     if (args) {
-        *args = '\0';
-        args++;
+        *args++ = '\0';
         while (*args == ' ') args++;
     }
 
-    if (cmd_str[0] >= '0' && cmd_str[0] <= '9' && cmd_str[1] == 0) {
-        uint8_t idx = (uint8_t)(cmd_str[0] - '0');
+    {
+        uint8_t c0 = cmd_str[0];
+    if (c0 >= '0' && c0 <= '9' && cmd_str[1] == 0) {
+        uint8_t idx = c0 - '0';
 
         if (idx < MAX_CHANNELS && (channels[idx].flags & CH_FLAG_ACTIVE)) {
-            // GEMINI OPT 3: Pre-calcular nombre para evitar ternarios (SDCC los odia)
             const char *chn_name = (idx == 0) ? S_SERVER : channels[idx].name;
+            const char *msg = S_ALREADY_IN;
 
-            if (idx == current_channel_idx) {
-                sys_puts_print(S_ALREADY_IN, chn_name);
-            } else {
+            if (idx != current_channel_idx) {
                 switch_to_channel(idx);
-                sys_puts_print(S_SWITCHTO, chn_name);
+                msg = S_SWITCHTO;
             }
+            sys_puts_print(msg, chn_name);
         } else {
             set_attr_err();
             main_puts("No window ");
-            main_putc(cmd_str[0]);
+            main_putc(c0);
             main_newline();
         }
         return;
-    }
+    }}
 
     {
+        uint8_t cmds_left = is_sys ? SYS_CMDS_COUNT : (USER_COMMANDS_COUNT - SYS_CMDS_COUNT);
         const PackedCmd *cmd = is_sys ? USER_COMMANDS : (USER_COMMANDS + SYS_CMDS_COUNT);
-        const PackedCmd *end = is_sys ? (USER_COMMANDS + SYS_CMDS_COUNT) : (USER_COMMANDS + USER_COMMANDS_COUNT);
 
-        for (; cmd < end; cmd++) {
+        for (; cmds_left != 0; cmds_left--, cmd++) {
             if (st_stricmp(cmd_str, pool_nth(cmd->name_idx)) == 0 ||
                 (cmd->alias_idx != CMD_IDX_NONE && st_stricmp(cmd_str, pool_nth(cmd->alias_idx)) == 0)) {
                 cmd->fn(args);

@@ -33,97 +33,19 @@
 #error "RX_LINE_SIZE must be 512 (sync with spectalk_asm.asm:421)"
 #endif
 
-// OPT-01: Definición de themes[] movida aquí desde themes.h para evitar duplicación
-const Theme themes[THEME_COUNT] = {
-    // THEME 1: DEFAULT (Blue/Cyan)
-    {
-        "Default",
-        (PAPER_BLUE  | INK_WHITE | BRIGHT),    // banner
-        (PAPER_WHITE | INK_BLUE),              // status
-        (PAPER_BLACK | INK_WHITE),             // msg_chan (blanco sin brillo)
-        (PAPER_BLACK | INK_YELLOW | BRIGHT),   // msg_self
-        (PAPER_BLACK | INK_GREEN | BRIGHT),    // msg_priv
-        (PAPER_BLACK | INK_WHITE),             // main_bg
-        (PAPER_CYAN  | INK_BLUE),              // input
-        (PAPER_CYAN  | INK_BLACK),             // input_bg
-        (PAPER_CYAN  | INK_BLUE),              // prompt
-        (PAPER_BLACK | INK_WHITE),             // msg_server
-        (PAPER_BLACK | INK_MAGENTA),           // msg_join
-        (PAPER_BLACK | INK_MAGENTA | BRIGHT),  // msg_nick
-        (PAPER_BLACK | INK_CYAN | BRIGHT),     // msg_time
-        (PAPER_BLACK | INK_YELLOW | BRIGHT),   // msg_topic
-        (PAPER_BLACK | INK_CYAN),              // msg_motd
-        (PAPER_BLACK | INK_RED | BRIGHT),      // error
-        (PAPER_WHITE | INK_RED),               // ind_red
-        (PAPER_WHITE | INK_YELLOW),            // ind_yellow
-        (PAPER_WHITE | INK_GREEN),             // ind_green
-        INK_BLACK,                             // border
-        // Badge triángulos: PAPER=izq, INK=der (triángulo apunta a la derecha)
-        // Azul(banner)→Rojo→Amarillo→Verde→Azul(banner)
-        { (PAPER_BLUE | INK_RED | BRIGHT), (PAPER_RED | INK_YELLOW | BRIGHT), (PAPER_YELLOW | INK_GREEN | BRIGHT), (PAPER_GREEN | INK_BLUE | BRIGHT) },
-        4                                      // badge_count
-    },
-    // THEME 2: TERMINAL (Green Monochrome)
-    {
-        "The Terminal",
-        (PAPER_GREEN | INK_BLACK | BRIGHT),    // banner
-        (PAPER_GREEN | INK_BLACK),             // status
-        (PAPER_BLACK | INK_GREEN),             // msg_chan
-        (PAPER_BLACK | INK_GREEN | BRIGHT),    // msg_self
-        (PAPER_BLACK | INK_GREEN | BRIGHT),    // msg_priv
-        (PAPER_BLACK | INK_GREEN),             // main_bg
-        (PAPER_BLACK | INK_GREEN | BRIGHT),    // input
-        (PAPER_BLACK | INK_GREEN | BRIGHT),    // input_bg
-        (PAPER_BLACK | INK_GREEN | BRIGHT),    // prompt
-        (PAPER_BLACK | INK_GREEN),             // msg_server
-        (PAPER_BLACK | INK_GREEN),             // msg_join
-        (PAPER_BLACK | INK_GREEN | BRIGHT),    // msg_nick
-        (PAPER_BLACK | INK_GREEN),             // msg_time
-        (PAPER_BLACK | INK_GREEN | BRIGHT),    // msg_topic
-        (PAPER_BLACK | INK_GREEN),             // msg_motd
-        (PAPER_BLACK | INK_GREEN | BRIGHT),    // error
-        (PAPER_GREEN | INK_RED),               // ind_red
-        (PAPER_GREEN | INK_YELLOW),            // ind_yellow
-        (PAPER_GREEN | INK_BLACK),             // ind_green
-        INK_BLACK,                             // border
-        // Badge: 4 celdas alternando bright
-        { (PAPER_GREEN | INK_BLACK | BRIGHT), (PAPER_BLACK | INK_GREEN), (PAPER_GREEN | INK_BLACK), (PAPER_BLACK | INK_GREEN | BRIGHT) },
-        4                                      // badge_count
-    },
-    // THEME 3: COLORFUL (The Commander - Blue)
-    {
-        "The Commander",
-        (PAPER_RED   | INK_WHITE | BRIGHT),    // banner
-        (PAPER_CYAN  | INK_BLACK),             // status
-        (PAPER_BLUE  | INK_CYAN),              // msg_chan
-        (PAPER_BLUE  | INK_YELLOW),            // msg_self
-        (PAPER_BLUE  | INK_GREEN),             // msg_priv
-        (PAPER_BLUE  | INK_WHITE),             // main_bg
-        (PAPER_WHITE | INK_BLUE),              // input
-        (PAPER_WHITE | INK_BLUE),              // input_bg
-        (PAPER_WHITE | INK_BLUE),              // prompt
-        (PAPER_BLUE  | INK_WHITE),             // msg_server
-        (PAPER_BLUE  | INK_MAGENTA),           // msg_join
-        (PAPER_BLUE  | INK_YELLOW),            // msg_nick
-        (PAPER_BLUE  | INK_WHITE),             // msg_time
-        (PAPER_BLUE  | INK_YELLOW),            // msg_topic
-        (PAPER_BLUE  | INK_CYAN),              // msg_motd
-        (PAPER_BLUE  | INK_RED),               // error
-        (PAPER_CYAN  | INK_RED),               // ind_red
-        (PAPER_CYAN  | INK_YELLOW),            // ind_yellow
-        (PAPER_CYAN  | INK_GREEN),             // ind_green
-        INK_BLUE,                              // border
-        // Badge: Rojo(banner,bright)→Negro→Azul→Cyan→Blanco
-        { (PAPER_RED | INK_BLACK | BRIGHT), (PAPER_BLACK | INK_BLUE), (PAPER_BLUE | INK_CYAN), (PAPER_CYAN | INK_WHITE) },
-        4                                      // badge_count
-    }
-};
+// Theme data loaded from SPECTALK.DAT at startup (in ASM bss_user, contiguous with font)
+extern uint8_t theme_raw[75];
 
-const char *theme_get_name(uint8_t theme_id)
+// Theme names (kept in ROM — only used by cmd_theme display)
+static const char theme_name_pool[] = "Default\0The Terminal\0The Commander";
+
+const char *theme_get_name(uint8_t theme_id) __z88dk_fastcall
 {
-    if ((uint8_t)(theme_id - 1) > 2)
-        theme_id = 1;
-    return themes[theme_id - 1].name;
+    const char *p = theme_name_pool;
+    uint8_t n;
+    if ((uint8_t)(theme_id - 1) > 2) theme_id = 1;
+    for (n = theme_id - 1; n; n--) { while (*p++) {} }
+    return p;
 }
 // Forward declaration for internal function
 void draw_status_bar_real(void);
@@ -144,7 +66,6 @@ const char S_NICKSERV[] = "NickServ";
 const char S_APPNAME[] = "SpecTalk ZX v" VERSION;
 const char S_APPDESC[] = "IRC Client for ZX Spectrum";
 const char S_COPYRIGHT[] = "(C) 2026 M. Ignacio Monge Garcia";
-const char S_LICENSE[] = "Licensed under GNU GPL v2.0";
 const char S_MAXWIN[] = "Max windows reached (10).";
 const char S_SWITCHTO[] = "Switched to ";
 const char S_PRIVMSG[] = "PRIVMSG ";
@@ -197,6 +118,7 @@ const char S_JOINED_SP[] = " joined ";            // D10: dedup (2 uses)
 const char S_AWAY_CMD[] = "AWAY";                 // D10: dedup (2 uses)
 const char S_NICK_CMD[] = "NICK";                 // D10: dedup (2 uses)
 const char S_SMART[] = "smart";                   // D10: dedup (2 uses)
+const char S_AUTOAWAY[] = "Auto-away";            // D11: dedup (5 uses)
 
 // =============================================================================
 // THEME SYSTEM - Global attributes set by apply_theme()
@@ -215,31 +137,32 @@ uint8_t theme_attrs[20];
 
 // Dirty flags for deferred UI updates
 uint8_t status_bar_dirty = 1;
-uint8_t counting_new_users = 0;  // Flag: next 353 should reset count
-uint16_t names_count_acc = 0;    // Temp accumulator for NAMES user count
-uint8_t show_names_list = 0;     // Flag: show 353 user list (for /names command)
-uint8_t names_was_manual = 0;    // Flag: NAMES fue iniciado por /names (no por JOIN)
+uint8_t counting_new_users;      // Flag: next 353 should reset count
+uint16_t names_count_acc;        // Temp accumulator for NAMES user count
+uint8_t show_names_list;         // Flag: show 353 user list (for /names command)
+uint8_t names_was_manual;        // Flag: NAMES fue iniciado por /names (no por JOIN)
 
 // Activity indicator for inactive channels
-uint8_t other_channel_activity = 0;  // Set when msg arrives on non-active channel
-uint8_t irc_is_away = 0;
-char away_message[32] = "";  // OPT-04: Reducido de 64 a 32 bytes
-uint8_t away_reply_cd = 0;   // Global cooldown (seconds) for away auto-replies
+uint8_t other_channel_activity;      // Set when msg arrives on non-active channel
+uint8_t irc_is_away;
+// away_message mapped to UDG area 0xFFB2 via ASM defc
+uint8_t away_reply_cd;       // Global cooldown (seconds) for away auto-replies
 
 // Auto-away system
-uint8_t autoaway_minutes = 0;    // 0 = disabled, 1-60 = minutes until auto-away
-uint16_t autoaway_counter = 0;   // Seconds of inactivity
-uint8_t autoaway_active = 0;     // 1 = current away is auto-away (not manual)
+uint8_t autoaway_minutes;        // 0 = disabled, 1-60 = minutes until auto-away
+uint16_t autoaway_counter;       // Seconds of inactivity
+uint8_t autoaway_active;         // 1 = current away is auto-away (not manual)
 
 // NAMES reply state machine (robust user counting with timeout)
-uint8_t names_pending = 0;
-uint16_t names_timeout_frames = 0;
-char names_target_channel[NAMES_TARGET_CHANNEL_SIZE];
+uint8_t names_pending;
+uint16_t names_timeout_frames;
+// names_target_channel mapped to UDG area 0xFFD2 via ASM defc
 
 // User preferences (toggle with commands)
 uint8_t beep_enabled = 1;   // 0 = silent mode
 uint8_t show_traffic = 1;     // 0 = hide JOIN/QUIT messages
 uint8_t show_timestamps = 1; // 0=off, 1=always, 2=on-change
+// big_status removed (big mode eliminated)
 uint8_t last_ts_hour = 0xFF;   // Last printed timestamp hour (0xFF = force print)
 uint8_t last_ts_minute = 0xFF; // Last printed timestamp minute
 int8_t sntp_tz = 1;         // SNTP timezone offset (-12..+12), default CET
@@ -249,32 +172,32 @@ int8_t sntp_tz = 1;         // SNTP timezone offset (-12..+12), default CET
 #define KEEPALIVE_SILENCE_FRAMES 9000
 #define KEEPALIVE_TIMEOUT_FRAMES 1500
 #define LAGMETER_INTERVAL_FRAMES 3000  // 60 segundos entre PINGs de medición
-uint16_t server_silence_frames = 0;  // Frames since last server activity
-uint8_t  keepalive_ping_sent = 0;    // 1 = waiting for PONG
-uint16_t keepalive_timeout = 0;      // Timeout counter after PING sent
-uint16_t lagmeter_counter = 0;       // Counter for periodic lag measurement
-uint8_t ping_latency = 0;            // 0=good, 1=medium, 2=high
+uint16_t server_silence_frames;      // Frames since last server activity
+uint8_t  keepalive_ping_sent;        // 1 = waiting for PONG
+uint16_t keepalive_timeout;          // Timeout counter after PING sent
+uint16_t lagmeter_counter;           // Counter for periodic lag measurement
+uint8_t ping_latency;               // 0=good, 1=medium, 2=high
 
 // Pagination for long LIST/WHO results
-uint8_t pagination_active = 0;
-uint16_t pagination_count = 0;
-uint8_t pagination_lines = 0;  // Líneas impresas desde última pausa
-uint8_t pagination_timeout = 0;  // Frames sin datos válidos → safety timeout
-uint8_t search_data_lost = 0;    // Flag: se perdieron datos durante listado
-uint8_t buffer_pressure = 0;   // 1 = buffer >75% (indicator shows empty circle)
+uint8_t pagination_active;
+uint16_t pagination_count;
+uint8_t pagination_lines;        // Líneas impresas desde última pausa
+uint8_t pagination_timeout;      // Frames sin datos válidos → safety timeout
+uint8_t search_data_lost;        // Flag: se perdieron datos durante listado
+uint8_t buffer_pressure;         // 1 = buffer >75% (indicator shows empty circle)
 
 // Flush state for search commands (simple drain-based approach)
 // States: 0=idle, 1=draining, 2=command sent
-uint8_t search_flush_state = 0;
-static uint8_t search_flush_stable = 0;  // Frames con buffer vacío consecutivos
-static uint8_t search_pending_type = 0;  // Tipo de comando pendiente
-uint8_t search_header_rcvd = 0;          // Flag: recibimos 321/352 header (no rate-limited)
+uint8_t search_flush_state;
+static uint8_t search_flush_stable;      // Frames con buffer vacío consecutivos
+static uint8_t search_pending_type;      // Tipo de comando pendiente
+uint8_t search_header_rcvd;              // Flag: recibimos 321/352 header (no rate-limited)
 // NOTA: Usamos search_pattern[] para almacenar el argumento pendiente (ahorra 32 bytes)
 
 // SEARCH state
-uint8_t search_mode = SEARCH_NONE;
+uint8_t search_mode;
 char    search_pattern[SEARCH_PATTERN_SIZE];  // También usado como argumento pendiente durante drenaje
-uint16_t search_index = 0;
+uint16_t search_index;
 
 void draw_status_bar(void)
 {
@@ -290,11 +213,9 @@ void clear_main(void)
 }
 
 
-// Input cell cache
-uint8_t input_cache_char[INPUT_LINES][SCREEN_COLS];
-uint8_t input_cache_attr[INPUT_LINES][32];
+// Input cell cache (mapped to Printer Buffer 0x5B00 via ASM defc)
 
-static void put_char64_input_cached(uint8_t y, uint8_t col, char ch, uint8_t attr)
+static void put_char64_input_cached(uint8_t y, uint8_t col, char ch, uint8_t attr) __z88dk_callee
 {
     if (y < INPUT_START || y > INPUT_END || col >= SCREEN_COLS) {
         print_char64(y, col, ch, attr);
@@ -324,14 +245,14 @@ static void put_char64_input_cached(uint8_t y, uint8_t col, char ch, uint8_t att
 
 // Ring buffer: single-producer/single-consumer, thread-safe en Z80 sin IRQ
 uint8_t ring_buffer[RING_BUFFER_SIZE];
-uint16_t rb_head = 0;
-uint16_t rb_tail = 0;
+uint16_t rb_head;
+uint16_t rb_tail;
 
 // Line parser state
 char rx_line[RX_LINE_SIZE];
-uint16_t rx_pos = 0;
-uint16_t rx_last_len = 0;
-uint8_t rx_overflow = 0;  // Flag for ASM access (0 or 1)
+uint16_t rx_pos;
+uint16_t rx_last_len;
+uint8_t rx_overflow;             // Flag for ASM access (0 or 1)
 
 // TIMEOUT_* values are defined in spectalk.h (single source of truth)
 
@@ -366,7 +287,7 @@ void flush_all_rx_buffers(void)
     // 3. Limpiar buffer de línea parcial
     rx_line[0] = 0;
     rx_pos = 0;
-    rx_overflow = 1;  // Descartar hasta próximo \n
+    rx_overflow = 0;  // FIX: buffer is fully empty, next byte starts a clean line
 }
 
 
@@ -375,57 +296,45 @@ void flush_all_rx_buffers(void)
 // =============================================================================
 // GLOBAL bufferS
 // =============================================================================
-char line_buffer[LINE_BUFFER_SIZE];
-uint8_t line_len = 0;
-uint8_t cursor_pos = 0;
+// line_buffer mapped to CHANS workspace 0x5CB6 via ASM defc
+uint8_t line_len;
+uint8_t cursor_pos;
 
 // CAPS LOCK state (from BitStream)
-uint8_t caps_lock_mode = 0;
-uint8_t caps_latch = 0;
+uint8_t caps_lock_mode;
+uint8_t caps_latch;
 
 // =============================================================================
 // IRC STATE
 // =============================================================================
-char irc_server[IRC_SERVER_SIZE] = "";
+char irc_server[IRC_SERVER_SIZE];
 char irc_port[IRC_PORT_SIZE] = "6667";
-char irc_nick[IRC_NICK_SIZE] = "";
-char irc_pass[IRC_PASS_SIZE] = "";
-char nickserv_pass[IRC_PASS_SIZE] = "";
-uint8_t autoconnect = 0;
-char friend_nicks[MAX_FRIENDS][IRC_NICK_SIZE] = { {0} };
-uint8_t friends_ison_sent = 0;
-char user_mode[USER_MODE_SIZE] = "";
-char network_name[NETWORK_NAME_SIZE] = "";
-uint8_t connection_state = STATE_DISCONNECTED;
+char irc_nick[IRC_NICK_SIZE];
+char irc_pass[IRC_PASS_SIZE];
+char nickserv_pass[IRC_PASS_SIZE];
+uint8_t autoconnect;
+uint8_t has_esxdos;
+// friend_nicks mapped to UDG area 0xFF58 via ASM defc
+uint8_t friends_ison_sent;
+char user_mode[USER_MODE_SIZE];
+char network_name[NETWORK_NAME_SIZE];
+uint8_t connection_state;
 
 // =============================================================================
 // MULTI-WINDOW SUPPORT
 // =============================================================================
 ChannelInfo channels[MAX_CHANNELS];
-uint8_t current_channel_idx = 0;
-uint8_t channel_count = 0;
+uint8_t current_channel_idx;
+ChannelInfo *cur_chan_ptr = channels;
+uint8_t channel_count;
 
 uint8_t nav_history[NAV_HIST_SIZE];
-uint8_t nav_hist_ptr = 0;
+uint8_t nav_hist_ptr;
 
-void nav_push(uint8_t idx)
-{
-    if (nav_hist_ptr > 0 && nav_history[nav_hist_ptr - 1] == idx)
-        return;
-
-    if (nav_hist_ptr >= NAV_HIST_SIZE) {
-        uint8_t i;
-        for (i = 0; i < (uint8_t)(NAV_HIST_SIZE - 1); i++) {
-            nav_history[i] = nav_history[i + 1];
-        }
-        nav_hist_ptr--;
-    }
-
-    nav_history[nav_hist_ptr++] = idx;
-}
+// nav_push() moved to spectalk_asm.asm (OPT: 79 -> 55 bytes, LDIR shift)
 
 
-void nav_fix_on_delete(uint8_t deleted_idx) {
+void nav_fix_on_delete(uint8_t deleted_idx) __z88dk_fastcall {
     uint8_t i, j = 0;
     for (i = 0; i < nav_hist_ptr; i++) {
         uint8_t h = nav_history[i];
@@ -440,7 +349,7 @@ void nav_fix_on_delete(uint8_t deleted_idx) {
 // IGNORE LIST
 // =============================================================================
 char ignore_list[MAX_IGNORES][16];
-uint8_t ignore_count = 0;
+uint8_t ignore_count;
 
 // Add nick to ignore list, returns 1 on success
 uint8_t add_ignore(const char *nick) __z88dk_fastcall
@@ -486,23 +395,14 @@ int8_t find_channel(const char *name) __z88dk_fastcall
 
 // find_query is implemented in spectalk_asm.asm for size optimization
 
-int8_t find_empty_channel_slot(void)
-{
-    uint8_t i;
-    for (i = 1; i < MAX_CHANNELS; i++) {
-        if (!(channels[i].flags & CH_FLAG_ACTIVE)) {
-            return (int8_t)i;
-        }
-    }
-    return -1;
-}
+// find_empty_channel_slot() moved to spectalk_asm.asm (OPT: 46 -> 23 bytes)
 
 // Forward declarations for switcher live-update
 static uint8_t sw_active;
 static uint8_t sw_dirty;
 
 // Internal: add slot with given flags
-static int8_t add_slot_internal(const char *name, uint8_t flags)
+static int8_t add_slot_internal(const char *name, uint8_t flags) __z88dk_callee
 {
     int8_t idx = find_empty_channel_slot();
     if (idx < 0) return -1;
@@ -594,6 +494,7 @@ void remove_channel(uint8_t idx) __z88dk_fastcall
     } else if (current_channel_idx > idx) {
         current_channel_idx--;
     }
+    cur_chan_ptr = &channels[current_channel_idx];
 
     // 4. Limpiar historial (ajustar índices y eliminar el borrado)
     nav_fix_on_delete(idx);
@@ -609,6 +510,7 @@ void switch_to_channel(uint8_t idx) __z88dk_fastcall
     nav_push(current_channel_idx);
 
     current_channel_idx = idx;
+    cur_chan_ptr = &channels[idx];
 
     // Clear unread + mention when user switches in
     channels[idx].flags &= (uint8_t)~(CH_FLAG_UNREAD | CH_FLAG_MENTION);
@@ -645,10 +547,11 @@ static uint8_t sw_flags_snap[MAX_CHANNELS];  // flags snapshot for change detect
 static void switcher_close(void);
 
 // Compute tab width for a given channel slot index (always even)
-static uint8_t sw_tab_width(uint8_t slot)
+static uint8_t sw_tab_width(uint8_t slot) __z88dk_fastcall
 {
     // " N:name " = 1 + 1 + 1 + nlen + 1 = nlen + 4, rounded up to even
-    uint8_t tw = st_strlen(channels[slot].name) + 4;
+    const char *name = channels[slot].name;
+    uint8_t tw = st_strlen((*name == '#' || *name == '&') ? name + 1 : name) + 4;
     if (tw & 1) tw++;
     return tw;
 }
@@ -699,6 +602,7 @@ static void switcher_render(void)
 
     for (i = sw_first; i < sw_count; i++) {
         const char *name = channels[sw_map[i]].name;
+        if (*name == '#' || *name == '&') name++;
         uint8_t nlen = st_strlen(name);
         uint8_t need;
         tw = nlen + 4;
@@ -730,14 +634,14 @@ static void switcher_render(void)
     // matching the status bar's vertical alignment. No clear_line needed —
     // print_str64_char updates every nibble across all 8 scanlines, so no
     // old content persists, and there's no blank-then-repaint flicker.
-    print_str64(1, 0, buf, ATTR_STATUS);
+    print_str64(2, 0, buf, ATTR_STATUS);
 
     // Patch attributes: inverse=selected, BRIGHT=unread, FLASH=mention
     {
         uint8_t sel_attr = (ATTR_STATUS & 0xC0)
                          | ((ATTR_STATUS & 0x07) << 3)
                          | ((ATTR_STATUS >> 3) & 0x07);
-        uint8_t *attr_base = (uint8_t *)0x5820;
+        uint8_t *attr_base = (uint8_t *)0x5840;  // row 2 attrs
         uint8_t x0, attr, px, flags;
 
         pos = (sw_first > 0) ? 2 : 0;
@@ -799,7 +703,13 @@ static void switcher_open(void)
 static void switcher_close(void)
 {
     sw_active = 0;
-    clear_line(1, ATTR_MAIN_BG);
+    clear_line(2, ATTR_MAIN_BG);
+    // Redraw 1px separator (row 2, scanline 0)
+    {
+        uint8_t *p = (uint8_t *)0x4040;
+        uint8_t j;
+        for (j = 0; j < 32; j++) p[j] = 0xFF;
+    }
     last_frames_lo = *(volatile uint8_t *)23672;
 }
 
@@ -822,6 +732,7 @@ void reset_all_channels(void)
     st_copy_n(channels[0].name, S_SERVER, sizeof(channels[0].name));
 
     current_channel_idx = 0;
+    cur_chan_ptr = channels;
     channel_count = 1;
     other_channel_activity = 0;  // FIX: limpiar indicador de actividad
 }
@@ -837,7 +748,7 @@ void reset_all_channels(void)
 // IRC PARAMS TOKENIZER
 // =============================================================================
 char *irc_params[IRC_MAX_PARAMS];
-uint8_t irc_param_count = 0;
+uint8_t irc_param_count;
 
 // tokenize_params está implementada en ASM (spectalk_asm.asm)
 extern void tokenize_params(char *par, uint8_t max_params);
@@ -853,26 +764,26 @@ const char* irc_param(uint8_t idx) __z88dk_fastcall
 uint8_t cursor_visible = 1;  // cursor only visible when user can type
 
 // Connection state tracking (shared across modules)
-uint8_t closed_reported = 0;
-uint8_t disconnecting_in_progress = 0;  // FIX: Prevent reentrant disconnection
+uint8_t closed_reported;
+uint8_t disconnecting_in_progress;       // FIX: Prevent reentrant disconnection
 
 // TIME TRACKING (Optimized: No 32-bit math)
 // Eliminamos uptime_frames y time_sync_frames para ahorrar librería de división
-uint8_t time_hour = 0;
-uint8_t time_minute = 0;
-uint8_t time_second = 0;        // Nuevo: Segundos explícitos
-uint8_t sntp_init_sent = 0;     // Flag: SNTP init commands sent (not static - needs reset on disconnect)
-uint8_t sntp_waiting = 0;       // Flag: waiting for SNTP response
-uint8_t sntp_queried = 0;       // Flag: valid time received (stop retrying)
+uint8_t time_hour;
+uint8_t time_minute;
+uint8_t time_second;             // Nuevo: Segundos explícitos
+uint8_t sntp_init_sent;          // Flag: SNTP init commands sent (not static - needs reset on disconnect)
+uint8_t sntp_waiting;            // Flag: waiting for SNTP response
+uint8_t sntp_queried;            // Flag: valid time received (stop retrying)
 
 // Frame-accurate ticker using system variable FRAMES (23672)
-uint8_t last_frames_lo = 0;  // Last read of FRAMES low byte
-uint8_t tick_accum = 0;      // Frame accumulator (0-49 -> 1 second)
+uint8_t last_frames_lo;          // Last read of FRAMES low byte
+uint16_t tick_accum;             // Frame accumulator (0-49 -> 1 second)
 
 // SCREEN STATE
 uint8_t main_line = MAIN_START;
-uint8_t main_col = 0;
-uint8_t wrap_indent = 0;  // Indentación para líneas que continúan (wrap)
+uint8_t main_col;
+uint8_t wrap_indent;             // Indentación para líneas que continúan (wrap)
 uint8_t current_attr;  // Initialized in apply_theme()
 // COMMAND HISTORY
 #define HISTORY_SIZE    4
@@ -880,12 +791,12 @@ uint8_t current_attr;  // Initialized in apply_theme()
 #define HISTORY_LEN     96
 
 static char history[HISTORY_SIZE][HISTORY_LEN];
-static uint8_t hist_head = 0;
-static uint8_t hist_count = 0;
+static uint8_t hist_head;
+static uint8_t hist_count;
 static int8_t hist_pos = -1;
-static char temp_input[LINE_BUFFER_SIZE];
+// temp_input mapped to CHANS workspace 0x5D36 via ASM defc
 
-static void history_add(const char *cmd, uint8_t len)
+static void history_add(const char *cmd, uint8_t len) __z88dk_callee
 {
     uint8_t i;
     if (len == 0) return;
@@ -953,16 +864,9 @@ static void history_nav_down(void)
 volatile uint8_t g_ps64_y;
 volatile uint8_t g_ps64_col;
 volatile uint8_t g_ps64_attr;
-const char * volatile g_ps64_str;
 
 
-void print_char64(uint8_t y, uint8_t col, uint8_t c, uint8_t attr) __z88dk_callee
-{
-    g_ps64_y = y;
-    g_ps64_col = col;
-    g_ps64_attr = attr;
-    print_str64_char(c);
-}
+// print_char64() moved to spectalk_asm.asm (OPT: 33 -> 19 bytes)
 
 // Pure C implementation — no inline ASM avoids __z88dk_callee + frame pointer
 // conflict that caused crash without --max-allocs-per-node200000.
@@ -1056,7 +960,7 @@ extern void main_newline(void);
 // ============================================================
 
 // OPTIMIZACIÓN: Helper para evitar duplicar lógica de alineación de atributos
-static void ensure_attr_alignment(uint8_t target_attr)
+static void ensure_attr_alignment(uint8_t target_attr) __z88dk_fastcall
 {
     if (current_attr != target_attr) {
         if (main_col & 1) {
@@ -1098,15 +1002,20 @@ void main_run_u16(uint16_t val, uint8_t attr) __z88dk_callee
 
 void main_print(const char *s) __z88dk_fastcall
 {
+    // During help overlay, suppress IRC message output to prevent
+    // overwriting the help display. PING/PONG is handled by process_irc_data
+    // since ring_buffer is free between help pages.
+    if (help_active) return;
+
     // Fast path: Solo si estamos al inicio de la línea y el texto cabe en una línea
     // Para textos largos, usamos slow path que hace wrap automático
-    
+
     if (main_col == 0 && wrap_indent == 0) {
         // Verificar si el texto es corto (cabe en pantalla)
         const char *p = s;
         uint8_t len = 0;
         while (*p && len < SCREEN_COLS) { p++; len++; }
-        
+
         if (*p == '\0') {
             // Texto corto - usar fast path
             print_line64_fast(main_line, s, current_attr);
@@ -1115,7 +1024,7 @@ void main_print(const char *s) __z88dk_fastcall
         }
         // Texto largo - usar slow path para wrap
     }
-    
+
     // Slow path: Carácter a carácter (maneja wrap automático)
     main_puts(s);
     wrap_indent = 0;  // Resetear indentación antes del newline final
@@ -1209,7 +1118,7 @@ static void send_pending_search_command(void)
 // Inicia un comando de búsqueda con drenaje progresivo.
 // Fase 1: Vacía el buffer activamente hasta que quede estable (vacío X frames).
 // Fase 2: Envía el comando y procesa respuestas normalmente.
-void start_search_command(uint8_t type, const char *arg)
+void start_search_command(uint8_t type, const char *arg) __z88dk_callee
 {
     // 1. Cancelar búsqueda previa si la había
     cancel_search_state();
@@ -1236,18 +1145,32 @@ void start_search_command(uint8_t type, const char *arg)
 
 // STATUS BAR
 
+// Double-height string renderer (uses draw_big_char from ASM)
+extern void draw_big_char(uint8_t ch) __z88dk_fastcall;
+
+void print_big_str(uint8_t y, uint8_t col, const char *s, uint8_t attr) __z88dk_callee
+{
+    g_ps64_y = y;
+    g_ps64_attr = attr;
+    g_ps64_col = col;
+    while (*s) {
+        draw_big_char((uint8_t)*s++);
+        g_ps64_col++;
+    }
+}
+
 static void draw_clock(void)
 {
     static char time_part[8];
     char *p = time_part;
-    
+
     *p++ = '[';
     fast_u8_to_str(p, time_hour); p += 2;
     *p++ = ':';
     fast_u8_to_str(p, time_minute); p += 2;
     *p++ = ']';
     *p = 0;
-    
+
     print_str64(INFO_LINE, 54, time_part, ATTR_STATUS);
 }
 
@@ -1284,10 +1207,10 @@ extern void main_print_time_prefix(void);
 //   - Si dst >= limit al entrar, no escribe nada y retorna dst
 //   - NUNCA escribe \0 al final (el caller debe hacerlo si lo necesita)
 // EJEMPLO: sb_append(buf, "ABC", buf+2) escribe "AB", retorna buf+2
-extern char *sb_append(char *dst, const char *src, const char *limit);
+extern char *sb_append(char *dst, const char *src, const char *limit) __z88dk_callee;
 
 // Extraer nombre de red del hostname: chat.freenode.net → freenode
-static char *extract_network_short(char *hostname)
+static char *extract_network_short(char *hostname) __z88dk_fastcall
 {
     static char net_short[12];
     char *first_dot = strchr(hostname, '.');
@@ -1306,7 +1229,6 @@ static char *extract_network_short(char *hostname)
 
 // Variables estáticas para caché de repintado (estas SÍ deben ser estáticas para persistir)
 // OPT H6: Reducido de 64 a 57 (máximo usado: índice 56 + null)
-static char sb_last_status[57] = ""; 
 static char sb_left_part[57];  // Buffer estático (ahorra stack frame)
 uint8_t force_status_redraw = 1;
 
@@ -1322,8 +1244,6 @@ static void draw_connection_indicator(void)
         ind_attr = STATUS_RED;    // Sin WiFi
     }
 
-    // Llamar a rutina gráfica ASM 
-    // Coordenadas: INFO_LINE (21), Columna Física 31 (Extremo derecho)
     draw_indicator(INFO_LINE, 31, ind_attr);
 }
 
@@ -1333,7 +1253,7 @@ static void draw_connection_indicator(void)
 //   - NO verifica límites — el caller debe garantizar espacio
 //   - Retorna puntero a la siguiente posición libre
 // PRECONDICIÓN: p tiene al menos 2 bytes disponibles
-static char* sb_put_u8_2d(char *p, uint8_t v)
+static char* sb_put_u8_2d(char *p, uint8_t v) __z88dk_callee
 {
     // Mantiene exactamente la semántica actual: 0..19 (>=10 usa '1' y (v-10))
     if (v >= 10) {
@@ -1345,7 +1265,7 @@ static char* sb_put_u8_2d(char *p, uint8_t v)
     return p;
 }
 
-static const char* sb_pick_status(uint8_t prefer_server_full)
+static const char* sb_pick_status(uint8_t prefer_server_full) __z88dk_fastcall
 {
     // prefer_server_full=1: prioridad a irc_server (hostname completo)
     // prefer_server_full=0: prioridad a network_name, o short(irc_server)
@@ -1374,7 +1294,7 @@ extern char *u16_to_dec3(char *dst, uint16_t v);
 //   - Retorna puntero a siguiente posición libre
 // PRECONDICIÓN: p < central_limit (verificado internamente, retorna p si no)
 // POSTCONDICIÓN: El caller DEBE escribir ']' después si hay espacio
-static char *sb_format_channel(char *p, char *central_limit, uint8_t cur_flags)
+static char *sb_format_channel(char *p, char *central_limit, uint8_t cur_flags) __z88dk_callee
 {
     uint8_t space;
     char *chan, *modes, *net;
@@ -1460,7 +1380,7 @@ void draw_status_bar_real(void)
     char *p = sb_left_part;
     char *const limit_end = sb_left_part + 54;  // cols 54+ reserved for clock
 
-    uint8_t cur_flags = channels[current_channel_idx].flags;
+    uint8_t cur_flags = chan_flags;
     uint8_t is_query = (cur_flags & CH_FLAG_QUERY) && current_channel_idx != 0;
 
     uint8_t has_mention = 0;
@@ -1555,28 +1475,8 @@ void draw_status_bar_real(void)
     while (p < limit_end) *p++ = ' ';
     *p = 0;
 
-    // === DIFF-REDRAW: Detectar cambios y repintar línea completa ===
-    // Compara sb_left_part con sb_last_status. Si hay cualquier diferencia
-    // (o force_status_redraw), repinta toda la línea para evitar artefactos
-    // por píxeles/atributos perdidos entre redraws parciales.
-    {
-        uint8_t changed = force_status_redraw;
-
-        if (!changed) {
-            char *p_new = sb_left_part;
-            char *p_old = sb_last_status;
-            uint8_t i = 54;
-            do {
-                if (*p_new++ != *p_old++) { changed = 1; break; }
-            } while (--i);
-        }
-
-        if (changed) {
-            print_str64(INFO_LINE, 0, sb_left_part, ATTR_STATUS);
-            memcpy(sb_last_status, sb_left_part, 55);
-            force_status_redraw = 0;
-        }
-    }
+    print_str64(INFO_LINE, 0, sb_left_part, ATTR_STATUS);
+    force_status_redraw = 0;
 
     draw_clock();
     draw_connection_indicator();
@@ -1585,7 +1485,7 @@ void draw_status_bar_real(void)
 
 // INPUT AREA
 
-static void draw_cursor_underline(uint8_t y, uint8_t col)
+static void draw_cursor_underline(uint8_t y, uint8_t col) __z88dk_callee
 {
     uint8_t phys_x = col >> 1;
     uint8_t half = col & 1;
@@ -1621,7 +1521,7 @@ static void draw_cursor_underline(uint8_t y, uint8_t col)
     }
 }
 
-void refresh_cursor_char(uint8_t idx, uint8_t show_cursor)
+void refresh_cursor_char(uint8_t idx, uint8_t show_cursor) __z88dk_callee
 {
     uint8_t abs_pos = idx + 2;
     uint8_t row = INPUT_START + (abs_pos >> 6);
@@ -1656,7 +1556,7 @@ static void input_draw_prompt(void)
     print_str64(INPUT_START, 0, S_PROMPT, ATTR_PROMPT);
 }
 
-static void input_put_char_at(uint8_t abs_pos, char c)
+static void input_put_char_at(uint8_t abs_pos, char c) __z88dk_callee
 {
     // OPTIMIZADO: Divisiones por 64 -> Shifts/Masks
     uint8_t row = INPUT_START + (abs_pos >> 6);
@@ -1666,7 +1566,7 @@ static void input_put_char_at(uint8_t abs_pos, char c)
     put_char64_input_cached(row, col, c, ATTR_INPUT);
 }
 
-static void redraw_input_from(uint8_t start_pos)
+static void redraw_input_from(uint8_t start_pos) __z88dk_fastcall
 {
     uint8_t i;
     uint8_t abs_pos;
@@ -1724,7 +1624,7 @@ static void input_clear(void)
     redraw_input_full();
 }
 
-void fast_u8_to_str(char *buf, uint8_t val)
+void fast_u8_to_str(char *buf, uint8_t val) __z88dk_callee
 {
     char tens = '0';
     // Bucle simple: Ocupa menos bytes que los if/else de rangos
@@ -1809,7 +1709,7 @@ static void input_right(void)
 
 
 // Hide cursor during command execution (visual feedback)
-static void set_input_busy(uint8_t busy)
+static void set_input_busy(uint8_t busy) __z88dk_fastcall
 {
     if (busy) {
         // Hide cursor by redrawing character without underline
@@ -1829,9 +1729,9 @@ static void set_input_busy(uint8_t busy)
 }
 
 // KEYBOARD HANDLING
-uint8_t last_k = 0;
-uint8_t repeat_timer = 0;
-uint8_t debounce_zero = 0;
+uint8_t last_k;
+uint8_t repeat_timer;
+uint8_t debounce_zero;
 
 // read_key is implemented in spectalk_asm.asm for size optimization
 
@@ -1888,7 +1788,7 @@ static void sntp_query_time(void)
 // AT COMMAND HELPERS
 // try_read_line_nodrain() está implementada en spectalk_asm.asm para mejor rendimiento
 
-uint8_t wait_for_response(const char *expected, uint16_t max_frames)
+uint8_t wait_for_response(const char *expected, uint16_t max_frames) __z88dk_callee
 {
     uint16_t frames = 0;
     rx_pos = 0;
@@ -1921,7 +1821,7 @@ uint8_t wait_for_response(const char *expected, uint16_t max_frames)
 }
 
 // Wait for any of up to three expected substrings in a line, with standard error/FAIL/CLOSED handling.
-uint8_t wait_for_prompt_char(uint8_t prompt_ch, uint16_t max_frames)
+uint8_t wait_for_prompt_char(uint8_t prompt_ch, uint16_t max_frames) __z88dk_callee
 {
     uint16_t frames = 0;
     int16_t c;
@@ -1956,7 +1856,7 @@ uint8_t esp_at_cmd(const char *cmd) __z88dk_fastcall
 
 // Helper para comandos AT simples durante inicialización
 // Envía comando y espera OK o timeout corto
-static void esp_hard_cmd(const char *cmd) {
+static void esp_hard_cmd(const char *cmd) __z88dk_fastcall {
     uart_send_string(cmd);
     uart_send_crlf();
     // Reutilizamos wait_for_response para ahorrar bytes
@@ -2075,9 +1975,6 @@ uint8_t esp_init(void)
     return 0;  // ESP not responding
 }
 
-// Forward declaration
-void force_disconnect(void);
-
 // Time synchronization function
 // OPT L2: sync_time() eliminada - inlined en call site
 
@@ -2093,6 +1990,9 @@ void force_disconnect(void)
     disconnecting_in_progress = 1;
     
     if (connection_state >= STATE_TCP_CONNECTED) {
+        // No QUIT here: sending QUIT before reconnect triggers server-side
+        // throttle (many servers delay 001 for 30-120s after clean QUIT+reconnect).
+        // Ghost nick clears itself via server ping timeout (~120s).
         for (i = 0; i < 65; i++) { HALT(); flush_all_rx_buffers(); }
         
         ay_uart_send('+'); ay_uart_send('+'); ay_uart_send('+');
@@ -2156,7 +2056,7 @@ void irc_send_pong(const char *token) __z88dk_fastcall
 {
     uart_send_string(S_PONG);
     uart_send_string(irc_server);
-    uart_send_string(" :");
+    uart_send_string(S_SP_COLON);
     uart_send_line(token);
 }
 
@@ -2183,9 +2083,9 @@ void send_identify(const char *pass) __z88dk_fastcall
 // Enviar ISON con hasta 3 nicks de amigos (una sola vez por sesión IRC).
 void irc_check_friends_online(void)
 {
-    static char ison_buf[(IRC_NICK_SIZE * MAX_FRIENDS) + MAX_FRIENDS];
+    // Reuse rx_line as temp buffer (not receiving during send)
     uint8_t i, any = 0;
-    char *d = ison_buf;
+    char *d = rx_line;
 
     if (friends_ison_sent) return;
     if (connection_state < STATE_TCP_CONNECTED) return;
@@ -2201,9 +2101,9 @@ void irc_check_friends_online(void)
         any = 1;
     }
 
-    if (!any || !ison_buf[0]) return;
+    if (!any || !rx_line[0]) return;
     friends_ison_sent = 1;
-    irc_send_cmd1("ISON", ison_buf);
+    irc_send_cmd1("ISON", rx_line);
 }
 
 // OPT-P2-B: Shared nick-in-use retry logic (dedup h_numeric_433 + cmd_connect)
@@ -2287,14 +2187,14 @@ void irc_send_privmsg(const char *target, const char *msg) __z88dk_callee
 
 void apply_theme(void)
 {
-    const Theme *t;
-    
+    uint8_t *t;
+
     // Protección de rango
     if (current_theme < 1 || current_theme > 3) current_theme = 1;
-    t = &themes[current_theme - 1];
-    
-    // Copia segura: theme_attrs[] es array contiguo, layout coincide con Theme
-    memcpy(theme_attrs, &t->banner, 20);
+    t = theme_raw + (current_theme - 1) * 25;
+
+    // Copy 20 attribute bytes from theme_raw into theme_attrs[]
+    memcpy(theme_attrs, t, 20);
 
     // 2. Aplicar cambios físicos a la pantalla
     set_border(BORDER_COLOR); 
@@ -2304,7 +2204,7 @@ void apply_theme(void)
     
     // 3. RESTAURAR UI INMEDIATAMENTE (La solución)
     draw_banner();
-    
+
     // Forzamos el flag para que draw_status_bar_real repinte el texto
     force_status_redraw = 1; 
     
@@ -2317,30 +2217,62 @@ void apply_theme(void)
 // Declaración de función ASM (fastcall: count en L)
 extern void draw_badge_dither(uint8_t count) __z88dk_fastcall;
 
+static uint8_t badge_flashing;
+static uint8_t flash_timer;
+
+void badge_flash_on(void)
+{
+    uint8_t *t = theme_raw + (current_theme - 1) * 25;
+    if (t[21] != 0x40 || ((ATTR_BANNER >> 3) & 0x07)) return;
+    badge_flashing = 1;
+}
+
+void badge_flash_off(void)
+{
+    if (!badge_flashing) return;
+    badge_flashing = 0;
+    *(uint8_t *)(0x5800 + 30) = ATTR_BANNER | 0x40;
+    *(uint8_t *)(0x5800 + 31) = ATTR_BANNER | 0x40;
+    *(uint8_t *)(0x5820 + 30) = ATTR_BANNER & 0xBF;
+    *(uint8_t *)(0x5820 + 31) = ATTR_BANNER & 0xBF;
+}
+
 void draw_banner(void)
 {
-    const Theme *t = &themes[current_theme - 1];
-    uint8_t i;
-    uint8_t base_col;
-    
-    clear_line(TOP_BANNER_LINE, ATTR_BANNER);
-    // Título + versión juntos a la izquierda
-    print_str64(TOP_BANNER_LINE, 1, "SPECTALK ZX v" VERSION " - ", ATTR_BANNER);
-    print_str64(TOP_BANNER_LINE, 21, S_APPDESC, ATTR_BANNER);
-    
-    // Badge con triángulos
-    // badge_count==4: 4 celdas (phys cols 28-31)
-    // badge_count==2: 2 celdas (phys cols 30-31)
-    base_col = (t->badge_count == 4) ? 28 : 30;
-    
-    // 1. Aplicar atributos (PAPER=color_izq, INK=color_der para cada transición)
-    for (i = 0; i < t->badge_count; i++) {
-        uint8_t *attr = (uint8_t *)(0x5800 + TOP_BANNER_LINE * 32 + base_col + i);
-        *attr = t->badge[i];
+    uint8_t *t = theme_raw + (current_theme - 1) * 25;
+    uint8_t bp = (ATTR_BANNER >> 3) & 0x07;  // banner PAPER color
+
+    clear_line(0, ATTR_BANNER | 0x40);
+    clear_line(1, ATTR_BANNER & 0xBF);
+    print_big_str(0, 0, "SPECTALK ZX v" VERSION " - ", ATTR_BANNER);
+    print_big_str(0, 21, S_APPDESC, ATTR_BANNER);
+
+    if (t[21] != 0x40) {
+        // Dithered badge: attrs + dither for 5 cells (columns 27-31)
+        uint8_t b1 = t[21] | 0x40, b2 = t[22] | 0x40;
+        uint8_t b3 = t[23] | 0x40, b4 = t[24] | 0x40;
+        uint8_t sb = 0x40 | (bp << 3) | bp;
+
+        *(uint8_t *)(0x5800 + 27) = sb;
+        *(uint8_t *)(0x5800 + 28) = b1;
+        *(uint8_t *)(0x5800 + 29) = b2;
+        *(uint8_t *)(0x5800 + 30) = b3;
+        *(uint8_t *)(0x5800 + 31) = b4;
+
+        *(uint8_t *)(0x5820 + 27) = b1;
+        *(uint8_t *)(0x5820 + 28) = b2;
+        *(uint8_t *)(0x5820 + 29) = b3;
+        *(uint8_t *)(0x5820 + 30) = b4;
+        *(uint8_t *)(0x5820 + 31) = 0x40 | ((t[24] & 0x07) << 3) | ((t[20] >> 3) & 0x07);
+
+        draw_badge_dither(5);
+    } else {
+        // Text badge (no dither)
+        print_big_str(0, bp ? 58 : 61, bp ? "_ [] X" : "<<<", ATTR_BANNER);
     }
-    
-    // 2. Dibujar patrón de triángulos (ASM, fastcall)
-    draw_badge_dither(t->badge_count);
+
+    // 1px separator line below banner (row 2, scanline 0)
+    memset((uint8_t *)0x4040, 0xFF, 32);
 }
 
 void init_screen(void)
@@ -2408,9 +2340,10 @@ static uint16_t cfg_try_read(const char *path) __z88dk_fastcall {
     esx_count = RING_BUFFER_SIZE - 2;
     esx_fread();
     n = esx_result;
-    
+    if (n > RING_BUFFER_SIZE - 2) n = RING_BUFFER_SIZE - 2;
+
     esx_fclose();
-    
+
     ring_buffer[n] = '\0';
     return n;
 }
@@ -2430,11 +2363,13 @@ static char *csv_next_tok(char **pp) {
     while (*comma && *comma != ',') comma++;
     if (*comma) { *comma = '\0'; *pp = comma + 1; }
     else *pp = NULL;
+    // Trim trailing spaces
+    { char *e = comma; while (e > tok && e[-1] == ' ') e--; *e = '\0'; }
     return tok;
 }
 
 // Apply a key=value pair
-static void cfg_apply(char *key, char *val) {
+static void cfg_apply(char *key, char *val) __z88dk_callee {
     // 2-char dispatch: fast and tiny
     uint8_t k0 = key[0], k1 = key[1];
     uint8_t klen = st_strlen(key);
@@ -2563,11 +2498,13 @@ static void cfg_parse_buf(void) {
 
 uint8_t config_load(void) {
     uint16_t n;
-    
+
+    if (!has_esxdos) return 0;
+
     n = cfg_try_read(K_CFG_PRI);
     if (!n) n = cfg_try_read(K_CFG_ALT);
     if (!n) return 0;
-    
+
     cfg_parse_buf();
     return 1;
 }
@@ -2581,16 +2518,33 @@ void main(void)
     uint8_t cfg_ok;
     uint8_t can_autoconnect;
     
+    has_esxdos = esx_detect();
+
+    // Load font + themes from SPECTALK.DAT
+    // Layout: [298 font][75 themes][help text]
+    if (has_esxdos) {
+        extern uint8_t font_lut[];
+        esx_fopen(K_DAT);
+        if (esx_handle) {
+            esx_buf = (uint16_t)font_lut;
+            esx_count = 373;
+            esx_fread();
+            esx_fclose();
+        }
+    }
+
     cfg_ok = config_load();  // Load settings before theme/screen init
     apply_theme();
     init_screen();
-    
+
+    main_line = MAIN_START;
+    main_col = 0;
     set_attr_sys();
-    main_puts2(S_APPNAME, " - ");
+    main_print(S_APPNAME);
     main_print(S_APPDESC);
     main_print(S_COPYRIGHT);
     main_hline();
-    
+
     // --- Initialization ---
     {
         uint8_t retries = 2;
@@ -2704,8 +2658,9 @@ void main(void)
                 if (autoaway_minutes && connection_state == STATE_IRC_READY && !irc_is_away) {
                     if (autoaway_counter < 65000) autoaway_counter++;  // Prevenir overflow
                     if (autoaway_counter >= (uint16_t)autoaway_minutes * 60) {
-                        uart_send_line("AWAY :Auto-away");
-                        st_copy_n(away_message, "Auto-away", sizeof(away_message));
+                        uart_send_string("AWAY :");
+                        uart_send_line(S_AUTOAWAY);
+                        st_copy_n(away_message, S_AUTOAWAY, sizeof(away_message));
                         autoaway_active = 1;
                         irc_is_away = 1;  // Prevenir envío duplicado antes de recibir 306
                         autoaway_counter = 0;  // Reset para evitar re-trigger
@@ -2768,7 +2723,9 @@ void main(void)
                     // Waiting for PONG - check timeout
                     if (++keepalive_timeout >= KEEPALIVE_TIMEOUT_FRAMES) {
                         // No response to PING - connection is dead
-                        ui_err("Connection timeout (no response)");
+                        set_attr_err();
+                        main_puts(S_TIMEOUT);
+                        main_print(" (no response)");
                         force_disconnect();
                         draw_status_bar();
                     }
@@ -2853,10 +2810,36 @@ void main(void)
             
             c = read_key();
 
+            // Badge "<<<" blink: toggle INK green every 16 frames
+            if (badge_flashing && !(++flash_timer & 0x0F)) {
+                *(uint8_t *)(0x5800 + 30) ^= 0x04;
+                *(uint8_t *)(0x5800 + 31) ^= 0x04;
+                *(uint8_t *)(0x5820 + 30) ^= 0x04;
+                *(uint8_t *)(0x5820 + 31) ^= 0x04;
+            }
+
+            // Any keypress resets auto-away counter and badge flash
+            if (c) { autoaway_counter = 0; badge_flash_off(); }
+
             // D2: SHIFT+5/6/7/8 => cursor keys via lookup table
             if (c >= '5' && c <= '8' && shift_held) {
                 static const uint8_t shift_keys[] = {KEY_LEFT, KEY_DOWN, KEY_UP, KEY_RIGHT};
                 c = shift_keys[c - '5'];
+            }
+
+            // Help overlay (state-based, non-blocking)
+            if (help_active) {
+                if (c == 3) {  // BREAK
+                    help_active = 0;
+                    cursor_visible = 1;
+                    clear_main();
+                    redraw_input_full();
+                } else if (c) {
+                    help_page++;
+                    help_render_page();
+                    if (!help_active) { cursor_visible = 1; clear_main(); redraw_input_full(); }
+                }
+                c = 0;  // consume all keys while help is open
             }
 
             // Channel switcher overlay (non-blocking, state-based)
@@ -2922,11 +2905,7 @@ void main(void)
                     uint8_t c_lower = c | 32;
 
                     if (c_lower >= 'a' && c_lower <= 'z') {
-                        if (caps_lock_mode ^ shift_held) {
-                            c = c_lower & 0xDF;   // Uppercase
-                        } else {
-                            c = c_lower;          // Lowercase
-                        }
+                        c = c_lower ^ ((caps_lock_mode ^ shift_held) << 5);
                     }
 
                     input_add_char(c);
@@ -2944,10 +2923,13 @@ void main(void)
                      }
                 }
                 else if (c == KEY_BACKSPACE) input_backspace();
-                else if (c == KEY_LEFT) input_left();
-                else if (c == KEY_RIGHT) input_right();
-                else if (c == KEY_UP) { history_nav_up(); redraw_input_full(); }
-                else if (c == KEY_DOWN) { history_nav_down(); redraw_input_full(); }
+                else if ((c & 0xFE) == KEY_LEFT) {
+                    if (c == KEY_LEFT) input_left(); else input_right();
+                }
+                else if ((c & 0xFE) == KEY_DOWN) {
+                    if (c == KEY_UP) history_nav_up(); else history_nav_down();
+                    redraw_input_full();
+                }
             }
             
             process_irc_data();

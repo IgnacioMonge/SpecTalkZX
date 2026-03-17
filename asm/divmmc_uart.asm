@@ -139,8 +139,7 @@ uartInit_flush:
 ; _ay_uart_send
 ; -----------------------------------------------------------------------------
 _ay_uart_send:
-    ld a, l
-    push af
+    ; L = byte to send (fastcall), preserved until out (c), l at end
 
     ; Check receive flag update while sending
     ld bc, ZXUNO_ADDR
@@ -165,15 +164,13 @@ uartSend_wait_tx:
     and UART_BYTE_SENDING
     jr nz, uartSend_wait_tx
 
-    ld bc, ZXUNO_ADDR
+    ; OPT: dec b switches BC from ZXUNO_REG (FD3B) to ZXUNO_ADDR (FC3B)
+    dec b
     ld a, UART_DATA_REG
     out (c), a
 
-    ; OPTIMIZACIÓN: B=FC -> B=FD para escribir dato
     inc b
-    
-    pop af
-    out (c), a
+    out (c), l          ; OPT: direct from fastcall reg, no push/pop
     ret
 
 ; -----------------------------------------------------------------------------
@@ -196,18 +193,15 @@ _ay_uart_ready:
     inc b           ; OPTIMIZACIÓN
     
     in a, (c)
-    and UART_BYTE_RECIVED
-    jr z, uartReady_no
-
-    ld a, 1
+    ; OPT: rlca moves bit 7 (UART_BYTE_RECIVED) to bit 0, branchless
+    rlca
+    and 1
     ld (_is_recv), a
+    ld l, a
+    ret
 
 uartReady_yes:
     ld l, 1
-    ret
-
-uartReady_no:
-    ld l, 0
     ret
 
 ; -----------------------------------------------------------------------------

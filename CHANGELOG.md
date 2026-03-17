@@ -7,6 +7,136 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.5] - 2026-03-16 "Terminal Glow"
+
+### Added
+
+#### System RAM Hijacking + IM2 (+602 bytes BSS freed)
+- **IM2 interrupt mode**: Replaces IM1 to prevent divMMC automapper from triggering on every interrupt at 0x0038. Custom ISR at 0xFDFD increments FRAMES for HALT-based timing. Vector table at 0xFC00 (257 bytes, runtime). Previously, Printer Buffer and CHANS hijacking crashed under IM1 — divMMC's interrupt hook corrupted those areas
+- **Printer Buffer (0x5B00-0x5BBF, 192 bytes)**: `input_cache_char/attr` moved from BSS. esxDOS RST 8 still corrupts this area during file I/O — `input_cache_invalidate()` called after every esxDOS operation to force clean redraw. `irc_pass`, `nickserv_pass`, `network_name` kept in BSS (must survive esxDOS calls)
+- **CHANS workspace (0x5CB6-0x5DB5, 256 bytes)**: `line_buffer`, `temp_input` moved from BSS
+- **UDG area (0xFF58-0xFFF1, 154 bytes)**: `friend_nicks`, `away_message`, `names_target_channel` moved from BSS
+- All three regions zeroed by CRT init (3× LDIR). Safe: no ZX Printer, no ROM I/O, no UDGs used
+
+#### esxDOS Detection
+- Safe detection using ERR_SP trick — tries M_GETSETDRV via RST 8, catches ROM error if no divMMC
+- `has_esxdos` flag guards config_load() and cmd_save()
+- Without divMMC: program boots normally with defaults, `/save` shows "No esxDOS"
+
+#### Activity Indicator (Theme 2)
+- **Blinking `<<<`**: When a PRIVMSG is received, the `<<<` badge blinks by toggling INK green/black every 16 frames (~0.32s cycle)
+- Any keypress stops the blink and restores normal display
+- Zero CPU cost — just 4 XOR writes every 16th frame in the main loop
+
+#### Help Screen State-Based Rewrite
+- Help was a blocking loop that froze the main loop: PING/PONG not processed, clock stopped, keepalive inactive → server disconnected
+- Now state-based: renders page and returns to main loop. IRC processing continues between pages
+- Ring buffer occupied only during page read (~5ms SD access)
+
+### Changed
+
+#### Banner Redesign (NetManZX Style)
+- **Text aligned to column 0** (was column 1) — maximizes usable banner width
+- **Theme-dependent background**: Theme 1 & 2 black, Theme 3 red (was blue for all)
+- **Double-height font restored** for banner (`draw_big_char` + `print_big_str`)
+- **BRIGHT split**: Top row BRIGHT 1, bottom row BRIGHT 0 for text — depth effect
+- `draw_big_char` ASM: removed hardcoded attribute writing — `clear_line()` controls BRIGHT per theme
+
+#### Badge System Redesign
+- **Theme 1 (Default)**: 5-cell dithered rainbow (black→red→yellow→green→blue) with wrap transition
+- **Theme 2 (The Terminal)**: `<<<` text badge, green on black — minimalist terminal prompt
+- **Theme 3 (The Commander)**: `_ [] X` text badge, white on red — Norton Commander window buttons
+- Badge struct: `badge[5]` replaces `badge[4] + badge_count` (same 25-byte theme size)
+- Badge always BRIGHT on both rows, independent of text BRIGHT split
+
+### Fixed
+
+#### Reconnect Regression
+- Connecting to another server while connected hung at "Registering..."
+- **Root cause**: PONG format during registration — `irc_send_pong()` sends `PONG server :token` which some servers reject during registration
+- **Fix**: Registration loop reverted to v1.3.3.1 format (echo params directly)
+- Removed QUIT in `force_disconnect()` before `+++` — caused throttle on reconnect
+- Added absolute timeout (~60s) in registration loop to prevent indefinite hang
+
+#### Pagination at End of Listing
+- `pagination_active` set to 0 BEFORE printing summary, preventing spurious "Any key: more"
+
+#### Attribute Bleed in /search
+- Replaced `st_strlen` parity check with `main_col & 1` pad, fixing magenta/white ink mixing
+
+#### channel_flags_ptr Link-Time Bug
+- `ld de, EXTERN + constant` produced wrong addresses in z80asm. Changed to runtime evaluation
+
+#### Help Screen Output Leak (pre-existing)
+- **Problem**: IRC messages rendered on top of help pages in high-traffic channels
+- **Root cause**: `help_active` guard only in `main_print` (C) — `main_puts`, `main_putc`, `main_newline` (ASM) had no guard, and IRC handlers call these directly
+- **Fix**: Added `help_active` check to `main_puts`, `main_putc`, `main_newline` in ASM. Output suppressed during help; IRC processing (PING/PONG) continues normally
+
+#### TAP Loader
+- Added `--blockname SpecTalkZX` and `--usraddr` to appmake for proper loader name and autorun
+
+#### cmd_save Ring Buffer Corruption (Critical, Gemini audit)
+- `cmd_save()` used `ring_buffer` as temp but didn't reset `rb_head/rb_tail/rx_pos`
+- `process_irc_data()` would parse config data as IRC
+
+#### flush_all_rx_buffers rx_overflow (Gemini audit)
+- Changed `rx_overflow = 1` to `rx_overflow = 0` — empty buffer after flush means clean start
+
+#### process_irc_data drain order (ChatGPT audit)
+- Moved `uart_drain_to_buffer()` BEFORE measuring backlog — prevents jitter on bursty traffic
+
+#### esx_result clamp (ChatGPT audit)
+- Added bounds check before NUL terminator write in `cfg_try_read` and `help_render_page`
+
+### Optimized
+
+#### Code Size Reduction (8 optimization passes, -1,520 bytes)
+- **Phase 1**: String dedup (`S_SP_COLON`, `S_SP_PAREN`, `S_TIMEOUT`), tail call optimization, 24 jp→jr conversions. -42 bytes
+- **Phase 2**: copt subroutine factoring — `hl_mul32` (53 sites, -90B), `rx_pos_reset` (25 sites, -68B). -165 bytes
+- **Phase 3**: C functions rewritten in ASM — `find_empty_channel_slot` (-23B), `print_char64` (-14B), `nav_push` (-24B). -61 bytes
+- **Phase 4**: `sb_append` callee convention (-27B), KEY_UP/DOWN merge (-11B), XOR caps branchless, CLOSED 16-bit check. -45 bytes
+- **Phase 5**: Cache `cmd_str[0]` (-15B), 8-bit loop counter (-18B), `sys_puts_print` unify (-12B), EX DE,HL in CRT, OUT (C),L in UART. -59 bytes
+- **Phase 6**: copt `channel_flags_ptr` (-46B), C pointer caching in 5 functions (-53B), uppercase loop, `S_AUTOAWAY` dedup. -108 bytes
+- **Phase 7**: copt `a_sext_mul32` (9 sites), `l_mul32` (12 sites), IX prologue→`___sdcc_enter_ix` (24 sites), IX epilogue→`jp _leave_ix` (28 sites). -179 bytes
+- **Phase 8**: copt IX-relative load/store helpers — `ld_hl_ix4` (30 sites), `ld_hl_ixm2` (23 sites), `ld_hl_ix6` (18 sites), `ld_hl_ixm4` (14 sites), `st_hl_ix4` (11 sites), `st_hl_ixm2` (10 sites), `l_channel_flags_ptr` (5 sites). -300 bytes
+
+#### cur_chan_ptr Optimization (-140 bytes)
+- Cached `ChannelInfo *cur_chan_ptr` eliminates idx×32 multiplication at 25 call sites
+- Macros `irc_channel`, `chan_mode`, `chan_user_count`, `chan_flags` use `cur_chan_ptr->`
+
+#### SD Offload (-725 bytes ROM)
+- Font 64-col moved to SPECTALK.DAT (BSS + SD load at startup). -269 bytes
+- Theme data moved to SPECTALK.DAT. -91 bytes
+- Help text moved to SPECTALK.DAT (loaded on demand per page). -365 bytes
+
+#### Badge Rendering Performance
+- Dither 100% ASM (`draw_badge_dither` renders both rows in one call). -40 C pointer writes eliminated
+- Attribute writes unrolled — no C loops, values cached in locals
+- ~15,000 → ~4,000 cycles
+
+#### Inline Space Rendering in main_puts
+- Spaces (~25% of IRC text) now rendered inline: clear nibble + set attr directly
+- Skips full `print_str64_char` pipeline (unpack_glyph + pixel merge)
+- Cache-validated: falls back to full path on first char after newline/scroll
+- ~50 T-states per space vs ~650 for full path (~12x faster, ~2.7ms saved per line)
+
+#### Build System
+- `.tap` and `SPECTALK.DAT` now output to `build/` directory
+
+### Technical Notes
+- SPECTALK.DAT layout: `[10 LUT][288 glyphs][75 theme data][help text]` (1,077 bytes)
+- `draw_big_char` ASM: 15 instructions removed (attr writes now handled by clear_line)
+- copt rules: COPT-1 `hl_mul32`, COPT-2 `rx_pos_reset`, COPT-4 `channel_flags_ptr`, COPT-5 `a_sext_mul32`, COPT-6 `l_mul32`, COPT-7 IX prologue, COPT-8 IX epilogue, COPT-9 `l_channel_flags_ptr`, COPT-10..13 IX load helpers, COPT-14..15 IX store helpers
+- New ASM functions: `esx_detect`, `find_empty_channel_slot`, `nav_push`, `badge_flash_on/off`, `leave_ix`, `a_sext_mul32`, `l_mul32`, `l_channel_flags_ptr`, `ld_hl_ix4/ixm2/ix6/ixm4`, `st_hl_ix4/ixm2`
+- IM2: vector table at 0xFC00 (257B runtime), ISR template copied to 0xFDFD (12B runtime)
+- System RAM regions zeroed by extended CRT init (3× LDIR blocks)
+- `help_active` made non-static for ASM access; guards added to `main_puts`, `main_putc`, `main_newline`
+- esxDOS Printer Buffer corruption: `input_cache_invalidate()` after `esx_fclose` in `help_render_page` and `cmd_save`
+- Binary TAP size: 35,786 bytes (vs 37,166 baseline v1.3.4 = **-1,380 bytes, -3.7%**)
+- BSS_END: 0xF98E (vs 0xFEEE in v1.3.4 = **-1,376 bytes BSS**). Growth margin: 626 bytes. Stack: 334 bytes
+
+---
+
 ## [1.3.4] - 2026-03-07 "Solid Ground"
 
 ### Added

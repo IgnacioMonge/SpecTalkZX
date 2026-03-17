@@ -1,0 +1,138 @@
+;;
+;; SpecTalkZX custom copt rules
+;; Applied via -custom-copt-rules in Makefile
+;; copt: multi-pass (up to 16), matches backwards from current line, first-match wins.
+;;
+
+;; OPT-COPT-5: Sign-extend A and multiply by 32 (pass 1, before COPT-1)
+;; Catches ld l,a / rlca / sbc a,a / ld h,a / 5x add hl,hl as one block.
+;; Saves 4 bytes per site (9 -> 3 bytes call + 7 byte subroutine)
+%0ld%1l, a
+%0rlca
+%0sbc%1a, a
+%0ld%1h, a
+%0add%1hl, hl
+%0add%1hl, hl
+%0add%1hl, hl
+%0add%1hl, hl
+%0add%1hl, hl
+=
+	EXTERN _a_sext_mul32
+%0call%1_a_sext_mul32
+
+;; OPT-COPT-6: Unsigned L * 32 (pass 1, before COPT-1)
+;; Catches ld h,0x00 / 5x add hl,hl as one block.
+;; Saves 2 bytes per site (7 -> 3 bytes call + 5 byte subroutine)
+%0ld%1h,0x00
+%0add%1hl, hl
+%0add%1hl, hl
+%0add%1hl, hl
+%0add%1hl, hl
+%0add%1hl, hl
+=
+	EXTERN _l_mul32
+%0call%1_l_mul32
+
+;; OPT-COPT-1: Factor HL *= 32 into subroutine call (pass 1)
+;; Saves 2 bytes per site (5 bytes inline -> 3 bytes call)
+%0add%1hl, hl
+%0add%1hl, hl
+%0add%1hl, hl
+%0add%1hl, hl
+%0add%1hl, hl
+=
+	EXTERN _hl_mul32
+%0call%1_hl_mul32
+
+;; OPT-COPT-4: channels[L].flags pointer (pass 2)
+;; After COPT-1 converts 5x add -> call _hl_mul32, this catches the full
+;; channels[].flags access pattern and folds it into a single call.
+;; Saves 8 bytes per site (11 -> 3 bytes)
+	EXTERN _hl_mul32
+%0call%1_hl_mul32
+%0ld%1de,_channels
+%0add%1hl, de
+%0ld%1de,0x001e
+%0add%1hl, de
+=
+	EXTERN _channel_flags_ptr
+%0call%1_channel_flags_ptr
+
+;; OPT-COPT-9: channels[L].flags via _l_mul32 (pass 2)
+;; Same as COPT-4 but for the L*32 variant
+	EXTERN _l_mul32
+%0call%1_l_mul32
+%0ld%1de,_channels
+%0add%1hl, de
+%0ld%1de,0x001e
+%0add%1hl, de
+=
+	EXTERN _l_channel_flags_ptr
+%0call%1_l_channel_flags_ptr
+
+;; OPT-COPT-2: rx_pos = 0 -> call _rx_pos_reset (6 -> 3 bytes)
+%0ld%1hl,0x0000
+%0ld%1(_rx_pos),hl
+=
+	EXTERN _rx_pos_reset
+%0call%1_rx_pos_reset
+
+;; OPT-COPT-7: IX prologue -> call ___sdcc_enter_ix (8 -> 3 bytes)
+;; Reuses existing z88dk library function (already linked from 52 call sites)
+%0push%1ix
+%0ld%1ix,0
+%0add%1ix,sp
+=
+%0call%1___sdcc_enter_ix
+
+;; OPT-COPT-8: IX epilogue -> jp _leave_ix (5 -> 3 bytes)
+;; Tail-call: _leave_ix does ld sp,ix / pop ix / ret
+%0ld%1sp, ix
+%0pop%1ix
+%0ret
+=
+	EXTERN _leave_ix
+%0jp%1_leave_ix
+
+;; OPT-COPT-10: IX load HL from (ix+4/+5) — first param (6 -> 3 bytes)
+%0ld%1l,(ix+4)
+%0ld%1h,(ix+5)
+=
+	EXTERN _ld_hl_ix4
+%0call%1_ld_hl_ix4
+
+;; OPT-COPT-11: IX load HL from (ix-2/-1) — first local (6 -> 3 bytes)
+%0ld%1l,(ix-2)
+%0ld%1h,(ix-1)
+=
+	EXTERN _ld_hl_ixm2
+%0call%1_ld_hl_ixm2
+
+;; OPT-COPT-12: IX load HL from (ix+6/+7) — second param (6 -> 3 bytes)
+%0ld%1l,(ix+6)
+%0ld%1h,(ix+7)
+=
+	EXTERN _ld_hl_ix6
+%0call%1_ld_hl_ix6
+
+;; OPT-COPT-13: IX load HL from (ix-4/-3) — second local (6 -> 3 bytes)
+%0ld%1l,(ix-4)
+%0ld%1h,(ix-3)
+=
+	EXTERN _ld_hl_ixm4
+%0call%1_ld_hl_ixm4
+
+;; OPT-COPT-14: IX store HL to (ix+4/+5) (6 -> 3 bytes)
+%0ld%1(ix+4),l
+%0ld%1(ix+5),h
+=
+	EXTERN _st_hl_ix4
+%0call%1_st_hl_ix4
+
+;; OPT-COPT-15: IX store HL to (ix-2/-1) (6 -> 3 bytes)
+%0ld%1(ix-2),l
+%0ld%1(ix-1),h
+=
+	EXTERN _st_hl_ixm2
+%0call%1_st_hl_ixm2
+

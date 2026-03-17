@@ -8,7 +8,7 @@
 
 ![Platform](https://img.shields.io/badge/Platform-ZX%20Spectrum-blue)
 ![License](https://img.shields.io/badge/License-GPLv2-green)
-![Version](https://img.shields.io/badge/Version-1.3.4-orange)
+![Version](https://img.shields.io/badge/Version-1.3.5-orange)
 
 ---
 
@@ -23,9 +23,11 @@ SpecTalk ZX is a fully-featured IRC client for the ZX Spectrum, bringing modern 
 ### Display & Interface
 - **64-column display** with custom 4-pixel wide font for maximum text density
 - **Multi-window interface** supporting up to 10 simultaneous channels/queries
-- **3 color themes**: Default (blue), Terminal (green/black), Colorful (cyan)
-- **Activity indicators**: Visual markers for windows with unread messages
+- **3 color themes** with unique badge designs: Default (rainbow dither), Terminal (blinking `<<<`), Commander (`_ [] X`)
+- **Double-height banner** with BRIGHT split effect (NetManZX style)
+- **Activity indicators**: Visual markers for windows with unread messages, blinking badge on Theme 2
 - **Mention highlighting**: Windows with nick mentions displayed in highlight color
+- **Channel switcher bar**: Press EDIT for a visual tab overlay with live unread/mention indicators
 - **Connection indicator**: Three-state LED (🔴 No WiFi → 🟡 WiFi OK → 🟢 Connected)
 - **Real-time clock** synchronized via SNTP
 - **Optional timestamps** on all messages
@@ -47,11 +49,15 @@ SpecTalk ZX is a fully-featured IRC client for the ZX Spectrum, bringing modern 
 - **Keep-alive system**: Automatic PING to detect silent disconnections
 - **Ping latency**: Server response time measurement
 
-### Performance
+### Performance & Low-Level
+- **IM2 interrupt mode**: Custom interrupt handler prevents divMMC conflicts, enables system RAM hijacking
+- **System RAM hijacking**: Printer Buffer, CHANS workspace and UDG area repurposed for variables (+602 bytes BSS freed)
+- **15 custom peephole rules**: Subroutine factoring across 200+ call sites (-1,520 bytes code)
 - **Unity Build Architecture**: Entire client compiled as single unit for maximum optimization
 - **Ring Buffer**: 2KB buffer for reliable high-speed data reception
-- **Assembly-optimized**: Critical rendering paths written in Z80 assembly
+- **Assembly-optimized**: Critical rendering paths written in Z80 assembly, inline space rendering
 - **Dual UART drivers**: Hardware UART (115200 baud) and AY bit-bang (9600 baud)
+- **esxDOS detection**: Safe divMMC detection at startup; works without SD card using defaults
 
 [![SpecTalkZX](images/snap1.png)](images/snap1.png)
 
@@ -78,11 +84,16 @@ SpecTalk ZX is a fully-featured IRC client for the ZX Spectrum, bringing modern 
 
 ## Installation
 
-1. Download the appropriate TAP file for your hardware:
-   - `spectalk_divmmc.tap` for divMMC/divTIESUS (115200 baud)
-   - `spectalk_ay.tap` for AY interface (9600 baud)
-2. Load on your Spectrum via SD card, tape, or other method
-3. Configure WiFi credentials using [NetManZX](https://github.com/IgnacioMonge/NetManZX) or similar tool
+1. Download the release ZIP for your hardware (includes TAP + data file):
+   - `spectalk_divmmc.zip` for divMMC/divTIESUS (115200 baud)
+   - `spectalk_ay.zip` for AY interface (9600 baud)
+2. Extract and copy both files to your SD card:
+   - `SpecTalkZX.tap` — the program
+   - `SPECTALK.DAT` — font, themes and help data (must be in the same directory as the TAP)
+3. Load on your Spectrum via SD card, tape, or other method
+4. Configure WiFi credentials using [NetManZX](https://github.com/IgnacioMonge/NetManZX) or similar tool
+
+> **Important**: `SPECTALK.DAT` is required. Without it the 64-column font and help screens will not load.
 
 ---
 
