@@ -258,6 +258,12 @@ SpecTalk soporta hasta 10 ventanas simultáneas:
 - El indicador de actividad (●) muestra ventanas con mensajes sin leer
 - El indicador de mención (!) muestra ventanas donde te mencionaron (resaltado en color)
 
+La barra de cambio de canales en acción, mostrando los canales activos con indicadores de no leído:
+
+<p align="center">
+  <a href="images/switcher.png"><img src="images/switcher.png" width="600" alt="Barra de cambio de canales"></a>
+</p>
+
 ### Mensajes Privados
 - Los PMs entrantes crean automáticamente una ventana de consulta
 - Usa `/query nick` para abrir manualmente un chat privado

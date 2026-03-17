@@ -258,6 +258,12 @@ SpecTalk supports up to 10 simultaneous windows:
 - Activity indicator (●) shows windows with unread messages
 - Mention indicator (!) shows windows where your nick was mentioned (highlighted in color)
 
+The channel switcher bar in action, showing active channels with unread indicators:
+
+<p align="center">
+  <a href="images/switcher.png"><img src="images/switcher.png" width="600" alt="Channel switcher bar"></a>
+</p>
+
 ### Private Messages
 - Incoming PMs automatically create a query window
 - Use `/query nick` to manually open a private chat
