@@ -1,4 +1,6 @@
-![SpecTalk Banner](images/white_banner.png)
+<p align="center">
+  <a href="images/white_banner.png"><img src="images/white_banner.png" width="600" alt="SpecTalk Banner"></a>
+</p>
 
 # SpecTalk ZX
 
@@ -52,16 +54,24 @@ SpecTalk ZX es un cliente IRC completo para ZX Spectrum que trae la funcionalida
 ### Rendimiento y Bajo Nivel
 - **Modo de interrupción IM2**: Handler de interrupción propio que evita conflictos con divMMC y permite hijacking de RAM del sistema
 - **Hijacking de RAM del sistema**: Printer Buffer, workspace CHANS y zona UDG reutilizados para variables (+602 bytes BSS liberados)
-- **15 reglas peephole personalizadas**: Factorización en subrutinas en 200+ call sites (-1.520 bytes de código)
+- **14 reglas peephole personalizadas**: Factorización en subrutinas en 200+ call sites (-1.520 bytes de código)
 - **Arquitectura Unity Build**: Cliente completo compilado como unidad única para máxima optimización
 - **Ring Buffer**: Buffer de 2KB para recepción de datos fiable a alta velocidad
 - **Optimizado en ensamblador**: Rutas críticas de renderizado en Z80 assembly, renderizado inline de espacios
 - **Drivers UART duales**: UART hardware (115200 baud) y bit-bang AY (9600 baud)
 - **Detección esxDOS**: Detección segura de divMMC al arrancar; funciona sin tarjeta SD usando valores por defecto
 
-<a href="images/snap1.png"><img src="images/snap1.png" width="600" alt="SpecTalkZX - Chat IRC en vivo"></a>
+Sesión de chat en vivo en un canal IRC:
 
-<a href="images/boot.png"><img src="images/boot.png" width="600" alt="Pantalla de arranque"></a>
+<p align="center">
+  <a href="images/snap1.png"><img src="images/snap1.png" width="600" alt="SpecTalkZX - Chat IRC en vivo"></a>
+</p>
+
+Pantalla de arranque mostrando la inicialización del sistema y conexión WiFi:
+
+<p align="center">
+  <a href="images/boot.png"><img src="images/boot.png" width="600" alt="Pantalla de arranque"></a>
+</p>
 
 ---
 
@@ -120,7 +130,17 @@ SpecTalk ZX es un cliente IRC completo para ZX Spectrum que trae la funcionalida
 
 5. **¡A chatear!** Escribe tu mensaje y pulsa ENTER
 
-<a href="images/theme1.png"><img src="images/theme1.png" width="280" alt="Tema 1 - Default"></a> <a href="images/theme2.png"><img src="images/theme2.png" width="280" alt="Tema 2 - Terminal"></a> <a href="images/theme3.png"><img src="images/theme3.png" width="280" alt="Tema 3 - Commander"></a>
+Los tres temas de color disponibles:
+
+<p align="center">
+  <a href="images/theme1.png"><img src="images/theme1.png" width="250" alt="Tema 1 - Default"></a>
+  &nbsp;&nbsp;
+  <a href="images/theme2.png"><img src="images/theme2.png" width="250" alt="Tema 2 - Terminal"></a>
+  &nbsp;&nbsp;
+  <a href="images/theme3.png"><img src="images/theme3.png" width="250" alt="Tema 3 - Commander"></a>
+  <br>
+  <em>Default &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Terminal &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Commander</em>
+</p>
 
 ---
 
@@ -131,11 +151,10 @@ SpecTalk ZX es un cliente IRC completo para ZX Spectrum que trae la funcionalida
 | Tecla | Acción |
 |-------|--------|
 | **ENTER** | Enviar mensaje o ejecutar comando |
-| **EDIT** (Caps+1) | Limpiar línea de entrada / Cancelar búsqueda |
+| **EDIT** (Caps+1) | Abrir/cerrar barra de cambio de canales |
 | **DELETE** (Caps+0) | Borrar carácter (retroceso) |
 | **← / →** | Mover cursor en la línea de entrada |
 | **↑ / ↓** | Navegar historial de comandos |
-| **EDIT** (Caps+1) | Abrir/cerrar barra de cambio de canales |
 | **BREAK** (Caps+Space) | Salir de pantallas de ayuda |
 
 ### Comandos de Sistema (!)
@@ -157,9 +176,9 @@ Comandos locales que no requieren conexión al servidor.
 
 | Comando | Alias | Descripción |
 |---------|-------|-------------|
-| `/server host[:puerto]` | `/connect` | Conectar a servidor IRC (puerto por defecto: 6667) |
-| `/nick nombre` | — | Establecer o cambiar nickname |
-| `/pass contraseña` | — | Establecer contraseña del servidor (raramente necesaria) |
+| `/server host [puerto]` | `/connect` | Conectar a servidor IRC (puerto por defecto: 6667) |
+| `/nick [nombre]` | — | Ver actual o establecer nuevo nickname |
+| `/pass [contraseña]` | — | Ver, establecer o borrar (`none`) contraseña del servidor |
 | `/id [contraseña]` | — | Identificarse con NickServ (usa contraseña guardada si no se indica) |
 | `/quit [mensaje]` | — | Desconectar del servidor con mensaje opcional |
 
@@ -195,10 +214,10 @@ Comandos locales que no requieren conexión al servidor.
 | Comando | Alias | Descripción |
 |---------|-------|-------------|
 | `/search patrón` | — | Buscar canales (`#patrón`) o usuarios (`patrón`) |
-| `/list` | `/ls` | Descargar lista completa de canales (usar con precaución) |
+| `/list patrón` | `/ls` | Listar canales que coincidan con el patrón (lista completa deshabilitada) |
 | `/who patrón` | — | Buscar usuarios que coincidan con el patrón |
 | `/whois nick` | `/wi` | Obtener información sobre un usuario |
-| `/ignore [nick]` | — | Alternar ignorar para nick, o listar ignorados |
+| `/ignore [nick]` | — | Alternar ignorar nick (`-nick` para quitar), o listar ignorados |
 | `/raw comando` | — | Enviar comando IRC crudo al servidor |
 
 #### Estado Away
@@ -220,6 +239,7 @@ Comandos locales que no requieren conexión al servidor.
 | `/autoconnect` | `/ac` | Alternar auto-conexión al iniciar (on/off) |
 | `/tz [±N]` | — | Ver o establecer zona horaria (UTC -12 a +12) |
 | `/friend [nick]` | — | Listar amigos, o alternar añadir/quitar un amigo (máx 5) |
+| `/clear` | `/cls` | Limpiar el área de chat |
 | `/save` | `/sv` | Guardar configuración actual en tarjeta SD |
 
 ---
@@ -284,7 +304,7 @@ ignores=Troll1,Troll2
 | `autoaway` | Minutos auto-away | 0-60 (0=off) | 0 |
 | `beep` | Sonido en mención | 0 o 1 | 1 |
 | `traffic` | Mostrar mensajes QUIT/JOIN | 0 o 1 | 1 |
-| `tz` | Desplazamiento horario | -12 a +12 | 0 |
+| `tz` | Desplazamiento horario | -12 a +12 | 1 |
 | `friends` | Nicks de amigos a monitorizar (separados por coma, máx 5) | nick1,nick2,... | (ninguno) |
 | `ignores` | Nicks ignorados (separados por coma, máx 5) | nick1,nick2,... | (ninguno) |
 
@@ -292,25 +312,30 @@ ignores=Troll1,Troll2
 
 Usa `!config` o `!cfg` para mostrar todos los valores de configuración actuales. Usa `/save` para guardar los cambios en la tarjeta SD.
 
-<a href="images/config.png"><img src="images/config.png" width="600" alt="Pantalla de configuración"></a>
+Pantalla mostrando la configuración actual del cliente:
+
+<p align="center">
+  <a href="images/config.png"><img src="images/config.png" width="600" alt="Pantalla de configuración"></a>
+</p>
 
 ---
 
 ## Barra de Estado
 
-La barra de estado muestra:
+La barra de estado muestra la información de conexión en tiempo real:
 
 ```
-[●] 12:34 [#canal(42)] [nick] [+modos]
+[nick(+modos)] [idx/total:canal(@red)(+modos_canal)] [usuarios]    [HH:MM] [LED]
 ```
 
 | Elemento | Descripción |
 |----------|-------------|
-| **●** | Indicador de conexión: 🔴 Sin WiFi, 🟡 WiFi OK, 🟢 Conectado |
-| **12:34** | Hora actual (sincronizada por SNTP) |
-| **#canal(42)** | Nombre de ventana actual y número de usuarios |
-| **nick** | Tu nickname actual |
-| **+modos** | Tus modos de usuario (si los hay) |
+| **nick(+modos)** | Tu nickname actual y tus modos de usuario (si los hay) |
+| **idx/total:canal** | Índice de ventana, total de ventanas abiertas y nombre del canal |
+| **(@red)(+modos_canal)** | Red IRC y modos del canal (si los hay) |
+| **usuarios** | Número de usuarios en el canal actual |
+| **HH:MM** | Hora actual (sincronizada por SNTP) |
+| **LED** | Indicador de conexión: 🔴 Sin WiFi, 🟡 WiFi OK, 🟢 Conectado |
 
 Cuando estás away, el indicador cambia de un círculo sólido a un semicírculo.
 
@@ -349,7 +374,7 @@ El proyecto usa estrategia **Unity Build**: todos los fuentes C se compilan como
 | Los mensajes de un usuario no paran | Usa `/ignore nick` para bloquearlo |
 | No puedo identificarme con NickServ | Usa `/id contraseña` o configura `nickpass=` en el archivo de configuración |
 | Olvidé la configuración actual | Usa `!config` para ver todos los valores de configuración |
-| Demasiados mensajes de quit | Usa `/quits` para desactivarlos |
+| Demasiados mensajes de quit | Usa `/traffic` para desactivarlos |
 | No hay sonido en menciones | Usa `/beep` para activar el sonido |
 | Nick en uso al conectar | SpecTalk añade `_` automáticamente - usa `/nick` para cambiar después |
 | Los caracteres acentuados se ven mal | UTF-8 se convierte automáticamente a equivalentes ASCII |

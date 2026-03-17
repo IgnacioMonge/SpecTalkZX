@@ -1,4 +1,6 @@
-![SpecTalk Banner](images/white_banner.png)
+<p align="center">
+  <a href="images/white_banner.png"><img src="images/white_banner.png" width="600" alt="SpecTalk Banner"></a>
+</p>
 
 # SpecTalk ZX
 
@@ -52,16 +54,24 @@ SpecTalk ZX is a fully-featured IRC client for the ZX Spectrum, bringing modern 
 ### Performance & Low-Level
 - **IM2 interrupt mode**: Custom interrupt handler prevents divMMC conflicts, enables system RAM hijacking
 - **System RAM hijacking**: Printer Buffer, CHANS workspace and UDG area repurposed for variables (+602 bytes BSS freed)
-- **15 custom peephole rules**: Subroutine factoring across 200+ call sites (-1,520 bytes code)
+- **14 custom peephole rules**: Subroutine factoring across 200+ call sites (-1,520 bytes code)
 - **Unity Build Architecture**: Entire client compiled as single unit for maximum optimization
 - **Ring Buffer**: 2KB buffer for reliable high-speed data reception
 - **Assembly-optimized**: Critical rendering paths written in Z80 assembly, inline space rendering
 - **Dual UART drivers**: Hardware UART (115200 baud) and AY bit-bang (9600 baud)
 - **esxDOS detection**: Safe divMMC detection at startup; works without SD card using defaults
 
-<a href="images/snap1.png"><img src="images/snap1.png" width="600" alt="SpecTalkZX - Live IRC chat"></a>
+A live IRC session on Libera Chat, showing the 64-column display and multi-user conversation:
 
-<a href="images/boot.png"><img src="images/boot.png" width="600" alt="Boot screen"></a>
+<p align="center">
+  <a href="images/snap1.png"><img src="images/snap1.png" width="600" alt="SpecTalkZX - Live IRC chat"></a>
+</p>
+
+The boot sequence screen, displaying hardware detection and initialization progress:
+
+<p align="center">
+  <a href="images/boot.png"><img src="images/boot.png" width="600" alt="Boot screen"></a>
+</p>
 
 ---
 
@@ -120,7 +130,17 @@ SpecTalk ZX is a fully-featured IRC client for the ZX Spectrum, bringing modern 
 
 5. **Start chatting!** Type your message and press ENTER
 
-<a href="images/theme1.png"><img src="images/theme1.png" width="280" alt="Theme 1 - Default"></a> <a href="images/theme2.png"><img src="images/theme2.png" width="280" alt="Theme 2 - Terminal"></a> <a href="images/theme3.png"><img src="images/theme3.png" width="280" alt="Theme 3 - Commander"></a>
+The three built-in color themes, each with a unique badge design:
+
+<p align="center">
+  <a href="images/theme1.png"><img src="images/theme1.png" width="250" alt="Theme 1 - Default"></a>
+  &nbsp;&nbsp;
+  <a href="images/theme2.png"><img src="images/theme2.png" width="250" alt="Theme 2 - Terminal"></a>
+  &nbsp;&nbsp;
+  <a href="images/theme3.png"><img src="images/theme3.png" width="250" alt="Theme 3 - Commander"></a>
+  <br>
+  <em>Default &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Terminal &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Commander</em>
+</p>
 
 ---
 
@@ -131,11 +151,10 @@ SpecTalk ZX is a fully-featured IRC client for the ZX Spectrum, bringing modern 
 | Key | Action |
 |-----|--------|
 | **ENTER** | Send message or execute command |
-| **EDIT** (Caps+1) | Clear input line / Cancel search |
+| **EDIT** (Caps+1) | Open/close channel switcher bar |
 | **DELETE** (Caps+0) | Delete character (backspace) |
 | **← / →** | Move cursor within input line |
 | **↑ / ↓** | Navigate command history |
-| **EDIT** (Caps+1) | Open/close channel switcher bar |
 | **BREAK** (Caps+Space) | Exit help screens |
 
 ### System Commands (!)
@@ -157,9 +176,9 @@ Local commands that don't require server connection.
 
 | Command | Alias | Description |
 |---------|-------|-------------|
-| `/server host[:port]` | `/connect` | Connect to IRC server (default port: 6667) |
-| `/nick name` | — | Set or change nickname |
-| `/pass password` | — | Set server password (rarely needed) |
+| `/server host [port]` | `/connect` | Connect to IRC server (default port: 6667) |
+| `/nick [name]` | — | View current or set new nickname |
+| `/pass [password]` | — | View, set or clear (`none`) server password |
 | `/id [password]` | — | Identify with NickServ (uses saved password if none given) |
 | `/quit [message]` | — | Disconnect from server with optional message |
 
@@ -195,10 +214,10 @@ Local commands that don't require server connection.
 | Command | Alias | Description |
 |---------|-------|-------------|
 | `/search pattern` | — | Search channels (`#pattern`) or users (`pattern`) |
-| `/list` | `/ls` | Download full channel list (use with caution) |
+| `/list pattern` | `/ls` | List channels matching pattern (full list disabled) |
 | `/who pattern` | — | Search users matching pattern |
 | `/whois nick` | `/wi` | Get information about a user |
-| `/ignore [nick]` | — | Toggle ignore for nick, or list ignored users |
+| `/ignore [nick]` | — | Toggle ignore for nick (`-nick` to remove), or list ignored |
 | `/raw command` | — | Send raw IRC command to server |
 
 #### Away Status
@@ -220,6 +239,7 @@ Local commands that don't require server connection.
 | `/autoconnect` | `/ac` | Toggle auto-connect on startup (on/off) |
 | `/tz [±N]` | — | View or set timezone offset (UTC -12 to +12) |
 | `/friend [nick]` | — | List friends, or toggle add/remove a friend (max 5) |
+| `/clear` | `/cls` | Clear the chat area |
 | `/save` | `/sv` | Save current configuration to SD card |
 
 ---
@@ -284,7 +304,7 @@ ignores=Troll1,Troll2
 | `autoaway` | Auto-away minutes | 0-60 (0=off) | 0 |
 | `beep` | Sound on mention | 0 or 1 | 1 |
 | `traffic` | Show quit/join messages | 0 or 1 | 1 |
-| `tz` | Timezone offset | -12 to +12 | 0 |
+| `tz` | Timezone offset | -12 to +12 | 1 |
 | `friends` | Friend nicks to monitor (comma-separated, max 5) | nick1,nick2,... | (none) |
 | `ignores` | Ignored nicks (comma-separated, max 5) | nick1,nick2,... | (none) |
 
@@ -292,25 +312,31 @@ ignores=Troll1,Troll2
 
 Use `!config` or `!cfg` to display all current configuration values. Use `/save` to persist changes to the SD card.
 
-<a href="images/config.png"><img src="images/config.png" width="600" alt="Configuration display"></a>
+The configuration display showing all current settings at a glance:
+
+<p align="center">
+  <a href="images/config.png"><img src="images/config.png" width="600" alt="Configuration display"></a>
+</p>
 
 ---
 
 ## Status Bar
 
-The status bar shows:
+The status bar displays connection state, channel info, and clock in the following format:
 
 ```
-[●] 12:34 [#channel(42)] [nick] [+modes]
+[nick(+modes)] [idx/total:channel(@network)(+chanmodes)] [users]    [HH:MM] [LED]
 ```
 
 | Element | Description |
 |---------|-------------|
-| **●** | Connection indicator: 🔴 No WiFi, 🟡 WiFi OK, 🟢 Connected |
-| **12:34** | Current time (SNTP synchronized) |
-| **#channel(42)** | Current window name and user count |
-| **nick** | Your current nickname |
-| **+modes** | Your user modes (if any) |
+| **nick(+modes)** | Your current nickname and user modes (if any) |
+| **idx/total:channel** | Window index, total windows, and current channel name |
+| **@network** | Network name (if available) |
+| **+chanmodes** | Channel modes (if any) |
+| **users** | Number of users in the current channel |
+| **HH:MM** | Current time (SNTP synchronized), displayed at the right |
+| **LED** | Connection indicator at far right: 🔴 No WiFi, 🟡 WiFi OK, 🟢 Connected |
 
 When away, the indicator changes from a solid circle to a half-circle.
 
@@ -349,7 +375,7 @@ The project uses **Unity Build** strategy: all C sources are compiled as a singl
 | Messages from user won't stop | Use `/ignore nick` to block them |
 | Can't identify with NickServ | Use `/id password` or set `nickpass=` in config file |
 | Forgot current settings | Use `!config` to view all configuration values |
-| Too many quit messages | Use `/quits` to toggle them off |
+| Too many quit messages | Use `/traffic` to toggle them off |
 | No sound on mentions | Use `/beep` to toggle sound on |
 | Nick in use on connect | SpecTalk auto-adds `_` - use `/nick` to change after |
 | Accented characters look wrong | UTF-8 is auto-converted to ASCII equivalents |
