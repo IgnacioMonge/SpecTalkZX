@@ -769,14 +769,16 @@ static void h_numeric_366(void)
     // Commit user count to status bar:
     // - JOIN automático (names_was_manual=0): siempre actualizar
     // - /names manual (names_was_manual=1): solo si no hubo pérdida de datos ni cancelación
-    if (!names_was_manual && names_count_acc > 0) {
-        // JOIN automático - siempre confiable
-        chan_user_count = names_count_acc;
-    } else if (names_was_manual && !search_data_lost && names_count_acc > 0) {
-        // /names manual completado correctamente (sin cancelar, sin pérdida)
-        chan_user_count = names_count_acc;
+    // FIX BUG-10: write user_count to the channel named in 366, not current channel
+    if (names_count_acc > 0) {
+        uint8_t update = 0;
+        if (!names_was_manual) update = 1;
+        else if (!search_data_lost) update = 1;
+        if (update) {
+            int8_t ci = find_channel(msg_chan);
+            if (ci >= 0) channels[ci].user_count = names_count_acc;
+        }
     }
-    // Si names_was_manual=1 y search_data_lost=1 → cancelado o datos perdidos → no actualizar
     
     // Finalizar paginación de /names
     if (show_names_list && pagination_active) {
@@ -843,7 +845,6 @@ static void search_render_index(void) {
     set_attr_sys();
     main_putc(' ');
     main_run_u16(search_index, ATTR_MSG_SYS);
-    set_attr_sys();
     main_puts(S_DOT_SP);
     set_attr_nick();
 }
@@ -1149,6 +1150,7 @@ static const CmdEntry CMD_TABLE[] = {
     { 471, h_join_error },
     { 473, h_join_error },
     { 474, h_join_error },
+    { 477, h_join_error },
 
     // Resto de comandos de texto (menos frecuentes)
     { 0x504F, h_pong },           // PO (PONG)

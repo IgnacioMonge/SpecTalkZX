@@ -28,12 +28,17 @@ LOG     = $(BUILD_DIR)/build.log
 # Sources
 # ------------------------------------------------------------
 C_SOURCES    = src/main_build.c
-ASM_SOURCES  = asm/divmmc_uart.asm asm/spectalk_asm.asm
 
 # ------------------------------------------------------------
 # Build options
 # ------------------------------------------------------------
 AY_UART     ?= 0
+
+ifeq ($(AY_UART),1)
+ASM_SOURCES  = asm/ay_uart.asm asm/spectalk_asm.asm
+else
+ASM_SOURCES  = asm/divmmc_uart.asm asm/spectalk_asm.asm
+endif
 ZORG        = 24000
 STACK_SIZE  = 512
 
@@ -106,12 +111,13 @@ endef
 # ------------------------------------------------------------
 # Phony targets
 # ------------------------------------------------------------
-.PHONY: all check clean build trim info help ay divmmc AY DIVMMC release RELEASE
+.PHONY: all check clean bpe build trim info help ay divmmc AY DIVMMC release RELEASE
 
 # ------------------------------------------------------------
 # Default pipeline
 # ------------------------------------------------------------
-all: check clean build trim info
+all: check clean bpe build trim info
+nobpe: check clean build trim info
 
 # Convenience targets
 ay:
@@ -144,7 +150,7 @@ check:
 	$(call HR)
 	@printf "$(C_BOLD)$(C_CYNB)SpecTalkZX - Build Pipeline$(C_RESET)\n"
 	$(call HR)
-	$(call STEP,0/3,Checking toolchain and sources)
+	$(call STEP,0/4,Checking toolchain and sources)
 	@mkdir -p $(BUILD_DIR)
 	@sh -c '\
 		fail=0; \
@@ -163,10 +169,26 @@ check:
 # CLEAN phase
 # ------------------------------------------------------------
 clean:
-	$(call STEP,1/3,Cleaning)
+	$(call STEP,1/4,Cleaning)
 	@echo "Cleaning build artifacts..."
 	@rm -f "$(OUTPUT)" "$(OUTPUT).tap" "$(TAP)" "$(MAP)" "$(LOG)" "$(BUILD_DIR)/SPECTALK.DAT" *.o *.bin *.sym 2>/dev/null || true
+	@rm -rf "$(BUILD_DIR)/bpe_src" "$(BUILD_DIR)/bpe_final" "$(BUILD_DIR)/bpe_dict.bin" 2>/dev/null || true
 	$(call OK,Clean complete.)
+	$(call HR)
+
+# ------------------------------------------------------------
+# BPE phase - compress screen-only strings
+# Reads src/*.c (originals), generates build/bpe_final/*.c (compressed)
+# Also generates SPECTALK.DAT with BPE dict inserted
+# ------------------------------------------------------------
+bpe:
+	$(call STEP,2/4,BPE compression)
+	@mkdir -p $(BUILD_DIR)/bpe_originals
+	@cp src/spectalk.c src/irc_handlers.c src/user_cmds.c $(BUILD_DIR)/bpe_originals/
+	@cp include/spectalk.h $(BUILD_DIR)/bpe_originals/
+	@cp src/SPECTALK.DAT $(BUILD_DIR)/bpe_originals/
+	@python tools/bpe_build.py
+	$(call OK,BPE complete.)
 	$(call HR)
 
 # ------------------------------------------------------------
@@ -175,14 +197,21 @@ clean:
 build: $(TAP)
 
 $(TAP): $(C_SOURCES) $(ASM_SOURCES)
-	$(call STEP,2/3,Build)
+	$(call STEP,3/4,Build)
 	@echo "Compiling SpecTalkZX..."
 	@echo "UART mode: $(UART_DESC)"
 	@if [ "$(BUILD_PROFILE)" = "RELEASE" ]; then printf "$(C_BOLD)$(C_YEL)Build profile: RELEASE$(C_RESET)\n"; fi
 	@echo "Log: $(LOG)"
 	@$(BUILD_CMD) 2>&1 | tee "$(LOG)" || (printf "$(C_RED)[FAILED]$(C_RESET) Compilation errors (see $(LOG)):\n" && tail -20 "$(LOG)" && exit 1)
 	@mv $(OUTPUT).tap $(TAP)
-	@cp src/SPECTALK.DAT $(BUILD_DIR)/
+	@cp $(BUILD_DIR)/SPECTALK.DAT $(BUILD_DIR)/ 2>/dev/null || true
+	@if [ -d "$(BUILD_DIR)/bpe_originals" ]; then \
+		cp $(BUILD_DIR)/bpe_originals/spectalk.c src/; \
+		cp $(BUILD_DIR)/bpe_originals/irc_handlers.c src/; \
+		cp $(BUILD_DIR)/bpe_originals/user_cmds.c src/; \
+		cp $(BUILD_DIR)/bpe_originals/spectalk.h include/; \
+		cp $(BUILD_DIR)/bpe_originals/SPECTALK.DAT src/; \
+	fi
 	$(call OK,Build complete.)
 	$(call HR)
 

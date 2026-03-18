@@ -117,7 +117,7 @@ static uint8_t wait_for_connection_result(uint16_t max_frames) __z88dk_fastcall
             char c0 = rx_line[0];
 
             // FIX: "CONNECT" exacto (7 chars) o "ALREADY CONNECT", NO "WIFI CONNECTED"
-            if (c0 == 'C' && rx_line[1] == 'O' && rx_last_len == 7 && rx_line[7] == 0) goto wcr_ok;
+            if (c0 == 'C' && rx_line[1] == 'O' && rx_last_len == 7) goto wcr_ok;
             if (c0 == 'A' && rx_line[1] == 'L') goto wcr_ok;
             if (c0 == 'O' && rx_line[1] == 'K') goto wcr_ok;
 
@@ -175,6 +175,22 @@ static void cmd_connect(const char *args) __z88dk_fastcall
         return;
     }
 
+    if (!args || !*args) {
+        if (connection_state >= STATE_TCP_CONNECTED) {
+            // No args + connected: show current server
+            set_attr_sys();
+            main_puts2("Already connected to ", irc_server);
+            main_putc(':'); main_print(irc_port);
+            return;
+        }
+        // No args + not connected: reconnect using config-preloaded server if available
+        if (irc_server[0]) {
+            goto do_connect;
+        }
+        ui_usage("server host [port]");
+        return;
+    }
+
     if (connection_state >= STATE_TCP_CONNECTED) {
         ui_err("Already connected.");
         set_attr_sys();
@@ -188,20 +204,10 @@ static void cmd_connect(const char *args) __z88dk_fastcall
             if (k == 'y' || k == 'Y') {
                 main_print("Disconnecting...");
                 force_disconnect();
-                irc_server[0] = 0;
                 draw_status_bar(); draw_status_bar_real();
-                break; 
+                break;
             }
         }
-    }
-
-    if (!args || !*args) {
-        // No args: reconnect using config-preloaded server if available
-        if (irc_server[0]) {
-            goto do_connect;
-        }
-        ui_usage("server host [port]");
-        return;
     }
     
     sep = strchr(args, ' ');
@@ -1056,7 +1062,7 @@ static void sys_config(const char *args) __z88dk_fastcall
     main_puts(K_PASS); main_print(irc_pass[0] ? S_SET : S_NOTSET);
     main_puts(K_NKPASS); main_print(nickserv_pass[0] ? S_SET : S_NOTSET);
     main_puts(K_AUTOCONN); main_print(autoconnect ? S_ON : S_OFF);
-    main_puts(K_THEME); fast_u8_to_str(buf, current_theme); main_putc(buf[1]); main_newline();
+    main_puts(K_THEME); main_putc('0' + current_theme); main_newline();
     main_puts(K_AUTOAWAY);
     if (autoaway_minutes) { puts_u8_nolz(autoaway_minutes); main_print(S_MIN); }
     else main_print(S_OFF);
@@ -1384,29 +1390,39 @@ static void cmd_save(const char *args) __z88dk_fastcall
     p = cfg_put_csv(p, "friends", (const char *)friend_nicks, IRC_NICK_SIZE, MAX_FRIENDS);
     p = cfg_put_csv(p, "ignores", (const char *)ignore_list, sizeof(ignore_list[0]), ignore_count);
 
+    SYS_PUTS("Saving config... ");
+
     esx_fcreate(K_CFG_PRI);
     if (!esx_handle) esx_fcreate(K_CFG_ALT);
-    if (!esx_handle) { ui_err("Cannot write config"); return; }
+    if (!esx_handle) { main_print("FAIL"); ui_err("Cannot write config"); goto save_cleanup; }
 
     esx_buf = (uint16_t)(char *)ring_buffer;
     esx_count = (uint16_t)(p - (char *)ring_buffer);
-    esx_fwrite();
-    esx_fclose();
-    input_cache_invalidate();  // esxDOS corrupts Printer Buffer (input_cache lives there)
+    {
+        uint16_t expected = esx_count;
+        uint8_t write_ok;
+        esx_fwrite();
+        write_ok = (esx_result == expected);  // check BEFORE fclose overwrites esx_result
+        esx_fclose();
+        input_cache_invalidate();
 
-    // FIX: ring_buffer was used as temp space — reset to prevent
+        if (!write_ok) {
+            main_print("FAIL"); ui_err("Write error");
+        } else {
+            char nbuf[6];
+            main_puts("OK (");
+            u16_to_dec(nbuf, expected);
+            main_puts(nbuf);
+            main_print(" bytes)");
+        }
+    }
+
+save_cleanup:
+    // ring_buffer was used as temp — reset to prevent
     // process_irc_data() from parsing config data as IRC messages
     rb_head = 0;
     rb_tail = 0;
     rx_pos = 0;
-
-    SYS_PUTS("Saving config... OK (");
-    {
-        char nbuf[6];
-        u16_to_dec(nbuf, esx_count);
-        main_puts(nbuf);
-    }
-    main_print(" bytes)");
 }
 
 // OPT-C14: cmd_clear eliminated — command table points directly to clear_main

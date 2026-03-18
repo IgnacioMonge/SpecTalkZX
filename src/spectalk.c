@@ -275,19 +275,20 @@ void wait_drain(uint8_t frames) __z88dk_fastcall
 // Usar antes de enviar comandos de búsqueda para evitar residuos
 void flush_all_rx_buffers(void)
 {
-    // 1. Drenar UART al ring buffer (sin límite)
+    // 1. Drain UART to ring buffer (limit=0 -> 255 iterations, sufficient for ESP buffer)
     uint8_t saved = uart_drain_limit;
     uart_drain_limit = 0;
     uart_drain_to_buffer();
-    uart_drain_limit = saved;
-    
-    // 2. Vaciar ring buffer
+    // 2. Discard and repeat drain for bytes that arrived during step 1
     rb_tail = rb_head;
-    
-    // 3. Limpiar buffer de línea parcial
+    uart_drain_to_buffer();
+    uart_drain_limit = saved;
+    rb_tail = rb_head;
+
+    // 3. Clear line parser state
     rx_line[0] = 0;
     rx_pos = 0;
-    rx_overflow = 0;  // FIX: buffer is fully empty, next byte starts a clean line
+    rx_overflow = 0;
 }
 
 
@@ -1237,11 +1238,11 @@ static void draw_connection_indicator(void)
     uint8_t ind_attr;
 
     if (connection_state >= STATE_TCP_CONNECTED) {
-        ind_attr = STATUS_GREEN;  // Conectado (TCP o IRC)
+        ind_attr = STATUS_GREEN;
     } else if (connection_state >= STATE_WIFI_OK) {
-        ind_attr = STATUS_YELLOW; // WiFi OK pero sin conexión TCP
+        ind_attr = STATUS_YELLOW;
     } else {
-        ind_attr = STATUS_RED;    // Sin WiFi
+        ind_attr = STATUS_RED;
     }
 
     draw_indicator(INFO_LINE, 31, ind_attr);
@@ -2111,8 +2112,17 @@ void nick_try_alternate(void)
 {
     uint8_t len = 0;
     while (irc_nick[len] && len < IRC_NICK_SIZE - 2) len++;
-    irc_nick[len] = '_';
-    irc_nick[len + 1] = '\0';
+    if (len >= IRC_NICK_SIZE - 2) {
+        // Nick at max length: rotate last char to generate variants
+        char c = irc_nick[len - 1];
+        if (c == '_') c = '0';
+        else if (c >= '0' && c < '9') c++;
+        else c = '_';
+        irc_nick[len - 1] = c;
+    } else {
+        irc_nick[len] = '_';
+        irc_nick[len + 1] = '\0';
+    }
 
     set_attr_sys();
     main_puts(S_NICK_INUSE);
@@ -2729,7 +2739,7 @@ void main(void)
                         force_disconnect();
                         draw_status_bar();
                     }
-                } else if (server_silence_frames >= KEEPALIVE_SILENCE_FRAMES) {
+                } else if (server_silence_frames >= KEEPALIVE_SILENCE_FRAMES && !pagination_active) {
                     // No server activity for too long - send PING to check
                     uart_send_string("PING :keepalive\r\n");
                     keepalive_ping_sent = 1;
@@ -2862,6 +2872,31 @@ void main(void)
                     } else if (c == KEY_ENTER) {
                         switch_to_channel(sw_map[sw_sel]);
                         switcher_close();
+                    } else if (c == KEY_BACKSPACE) {
+                        // Close/part selected channel (not Server)
+                        uint8_t idx = sw_map[sw_sel];
+                        if (idx > 0) {
+                            uint8_t f = channels[idx].flags;
+                            if (f & CH_FLAG_ACTIVE) {
+                                if (!(f & CH_FLAG_QUERY)) {
+                                    // Real channel: send PART to server
+                                    irc_send_cmd1("PART", channels[idx].name);
+                                }
+                                remove_channel(idx);
+                            }
+                            // Rebuild switcher map
+                            sw_count = 0;
+                            sw_sel = 0;
+                            { uint8_t k;
+                            for (k = 0; k < MAX_CHANNELS; k++) {
+                                if (channels[k].flags & CH_FLAG_ACTIVE) {
+                                    if (k == current_channel_idx) sw_sel = sw_count;
+                                    sw_map[sw_count++] = k;
+                                }
+                            }}
+                            if (sw_count < 2) { switcher_close(); }
+                            else sw_dirty = 1;
+                        }
                     } else if (c == 7 && sw_released) {
                         switcher_close();
                     } else if (c >= '0' && c <= '9') {

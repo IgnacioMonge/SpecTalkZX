@@ -10,7 +10,7 @@
 
 ![Plataforma](https://img.shields.io/badge/Plataforma-ZX%20Spectrum-blue)
 ![Licencia](https://img.shields.io/badge/Licencia-GPLv2-green)
-![Versión](https://img.shields.io/badge/Versión-1.3.5-orange)
+![Versión](https://img.shields.io/badge/Versión-1.3.6-orange)
 
 ---
 
@@ -29,7 +29,7 @@ SpecTalk ZX es un cliente IRC completo para ZX Spectrum que trae la funcionalida
 - **Banner double-height** con efecto BRIGHT split (estilo NetManZX)
 - **Indicadores de actividad**: Marcadores visuales para ventanas con mensajes sin leer, badge parpadeante en Theme 2
 - **Resaltado de menciones**: Ventanas con menciones de tu nick mostradas en color destacado
-- **Barra de cambio de canales**: Pulsa EDIT para una barra visual con indicadores de no leido/mención en tiempo real
+- **Barra de cambio de canales**: Pulsa EDIT para una barra visual con indicadores de no leido/mención en tiempo real; DELETE cierra el canal seleccionado
 - **Indicador de conexión**: LED de tres estados (🔴 Sin WiFi → 🟡 WiFi OK → 🟢 Conectado)
 - **Reloj en tiempo real** sincronizado vía SNTP
 - **Timestamps opcionales** en todos los mensajes
@@ -54,6 +54,7 @@ SpecTalk ZX es un cliente IRC completo para ZX Spectrum que trae la funcionalida
 ### Rendimiento y Bajo Nivel
 - **Modo de interrupción IM2**: Handler de interrupción propio que evita conflictos con divMMC y permite hijacking de RAM del sistema
 - **Hijacking de RAM del sistema**: Printer Buffer, workspace CHANS y zona UDG reutilizados para variables (+602 bytes BSS liberados)
+- **Compresión BPE de strings**: 170 strings de pantalla comprimidas con 97 tokens (~1.100 bytes ahorrados)
 - **14 reglas peephole personalizadas**: Factorización en subrutinas en 200+ call sites (-1.520 bytes de código)
 - **Arquitectura Unity Build**: Cliente completo compilado como unidad única para máxima optimización
 - **Ring Buffer**: Buffer de 2KB para recepción de datos fiable a alta velocidad

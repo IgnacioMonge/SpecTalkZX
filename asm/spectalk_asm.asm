@@ -235,6 +235,11 @@ cache_scr_base: defs 2  ; Screen base addr cacheada (print_str64_char)
 cache_atr_base: defs 2  ; Attr base addr cacheada (print_str64_char)
 cache_row_y:   defs 1   ; Fila Y del cache (0xFF = inválido)
 
+; BPE decompression state (dict is after theme_raw for contiguous SPECTALK.DAT load)
+bpe_rstack:   defs 16   ; Return stack for BPE expansion (8 levels x 2 bytes)
+bpe_rsp:      defs 2    ; Current position in bpe_rstack
+
+
 SECTION code_user
 
 ; =============================================================================
@@ -740,6 +745,12 @@ font64_packed:
 PUBLIC _theme_raw
 _theme_raw:
     defs 75
+; BPE dictionary: contiguous with font_lut+font64_packed+theme_raw for single SPECTALK.DAT read
+; Layout in DAT: [10 LUT][288 glyphs][75 themes][318 bpe_dict][help text]
+PUBLIC _bpe_dict
+_bpe_dict:
+bpe_dict:
+    defs 318              ; 106 entries x 3 bytes (b1, b2, 0x00)
 
 SECTION code_user
 
@@ -748,11 +759,10 @@ SECTION code_user
 ; Input: A = char (ASCII 32-127)
 ; Output: HL = pointer to glyph_buffer with 8 bytes of decompressed glyph
 ; Preserves: IY (required by z88dk)
-; Destroys: AF, BC, DE
-; Timing: ~180 t-states (optimized with DE instead of IX)
+; Destroys: AF, BC, DE. Uses alternate HL'/E' via EXX (ISR safe: IM2 ISR only touches AF)
+; Timing: ~136 t-states/iteration (EXX LUT access, no push/pop)
 ; =============================================================================
 unpack_glyph:
-    ; Nota: BC no necesita preservarse aquí (el caller declara que BC se clobbera).
     ; Calculate offset: (char - 32) * 3
     sub 32
     jr nz, unpack_not_space
@@ -787,45 +797,50 @@ unpack_not_space:
     add hl, bc          ; HL = pointer to compressed glyph (3 bytes)
 
     ; Use DE as pointer to compressed source (faster than IX)
-    ex de, hl            ; DE = compressed source, HL freed for LUT
+    ex de, hl            ; DE = compressed source, HL freed
     ld hl, glyph_buffer  ; HL = destination
+
+    ; Setup alternate registers for LUT access (font_lut is ALIGN 16, no carry)
+    exx
+    ld hl, font_lut      ; H' = font_lut high byte (constant for ld a,(hl))
+    ld e, l              ; E' = font_lut low byte (base for add)
+    exx
 
     ; Unpack 3 bytes -> 6 lines (0-5)
     ld b, 3
 unpack_loop:
-    ld a, (de)           ; Read compressed byte (7 t-states vs 19 with IX)
-    ld c, a              ; Save copy
+    ld a, (de)           ; 7 T - Read compressed byte
+    ld c, a              ; 4 T - Save copy
 
     ; High nibble -> line N
     rrca
     rrca
     rrca
-    rrca                 ; A = high nibble in low position
-    and 0x0F             ; Clear upper garbage
+    rrca                 ; 16 T - A = high nibble in low position
+    and 0x0F             ; 7 T  - Clear upper garbage
 
-    push hl              ; Save destination
-    ld hl, font_lut      ; font_lut is 16-byte aligned, no carry possible
-    add a, l
-    ld l, a
-    ld a, (hl)           ; A = real value from LUT
-    pop hl               ; Restore destination
-    ld (hl), a
-    inc hl
+    exx                  ; 4 T  - switch to alt set (H=lut_hi, E=lut_lo)
+    add a, e             ; 4 T  - A = font_lut_lo + nibble (no carry: ALIGN 16)
+    ld l, a              ; 4 T
+    ld a, (hl)           ; 7 T  - LUT lookup
+    exx                  ; 4 T  - back to main set
+    ld (hl), a           ; 7 T  - store to glyph_buffer
+    inc hl               ; 6 T
 
     ; Low nibble -> line N+1
-    ld a, c
-    and 0x0F             ; A = low index
-    push hl              ; Save destination
-    ld hl, font_lut
-    add a, l
-    ld l, a
-    ld a, (hl)
-    pop hl               ; Restore destination
-    ld (hl), a
-    inc hl
+    ld a, c              ; 4 T
+    and 0x0F             ; 7 T  - A = low index
 
-    inc de               ; Next compressed byte
-    djnz unpack_loop
+    exx                  ; 4 T
+    add a, e             ; 4 T
+    ld l, a              ; 4 T
+    ld a, (hl)           ; 7 T
+    exx                  ; 4 T
+    ld (hl), a           ; 7 T
+    inc hl               ; 6 T
+
+    inc de               ; 6 T  - Next compressed byte
+    djnz unpack_loop     ; 13/8 T
 
     ; Lines 6 and 7 always 0x00
     xor a
@@ -1405,9 +1420,8 @@ plf_left_pad:
 plf_left_ok:
     ; Guardar string pointer antes de unpack_glyph (destruye DE)
     ex de, hl
-    ld (plf_str_ptr), hl
-    ex de, hl              ; A sigue teniendo el char
-    call unpack_glyph      ; HL = glyph_buffer, destruye AF/BC/DE
+    ld (plf_str_ptr), hl   ; HL = string ptr saved; no need to swap back
+    call unpack_glyph      ; A still has char; HL/DE don't matter (destroyed)
     ; Copiar nibbles altos a plf_left_buf
     ld hl, glyph_buffer
     ld de, plf_left_buf
@@ -1438,9 +1452,8 @@ plf_right_pad:
     ld a, 32
 plf_right_ok:
     ex de, hl
-    ld (plf_str_ptr), hl
-    ex de, hl              ; A sigue teniendo el char
-    call unpack_glyph      ; HL = glyph_buffer, destruye AF/BC/DE
+    ld (plf_str_ptr), hl   ; HL = string ptr saved; no need to swap back
+    call unpack_glyph      ; A still has char; HL/DE don't matter (destroyed)
 
     ; --- Combinar y escribir 8 scanlines ---
     pop hl                 ; HL = screen addr
@@ -1702,17 +1715,16 @@ di_pattern_loop:
 ; -----------------------------------------------------------------------------
 PUBLIC _st_strlen
 _st_strlen:
-    xor a
-    ld b, a               ; B = contador = 0
-_stl_loop:
-    cp (hl)               ; ¿*s == 0?
-    jr z, _stl_done
-    inc hl
-    inc b
-    jr _stl_loop
-_stl_done:
-    ld l, b
-    ld h, 0
+    ; CPIR block scan: 21 T-states/byte vs 36 manual (+41% faster)
+    ld d, h
+    ld e, l               ; DE = start
+    ld bc, 0x00FF         ; max 255 chars (uint8_t return)
+    xor a                 ; A = 0 (search for NUL)
+    cpir                  ; scan until match or BC=0
+    ; HL = byte after NUL, DE = start
+    or a
+    sbc hl, de            ; HL = length + 1
+    dec hl                ; HL = length
     ret
 
 ; -----------------------------------------------------------------------------
@@ -2571,6 +2583,10 @@ mn_indent_attr_done:
     ld a, (_current_attr)
     ld (_g_ps64_attr), a
 
+    ; Pre-warm row cache for next line's first character
+    ; Saves ~600 T-states when line starts with spaces (wrap indent)
+    call p64_get_scr_base
+
 mn_ret:
     pop iy
     pop ix
@@ -2890,9 +2906,10 @@ mptp_do:
     ld l, ' '
     call _main_putc
 
-    ; restore current_attr
+    ; restore current_attr AND g_ps64_attr (prevent color leak to next char)
     pop af
     ld (_current_attr), a
+    ld (_g_ps64_attr), a
 
     ; wrap_indent = 6
     ld a, 6
@@ -3170,6 +3187,11 @@ _main_puts:
     or a
     ret nz
     ; HL = string pointer
+    ; Initialize BPE return stack (empty)
+    push hl
+    ld hl, bpe_rstack
+    ld (bpe_rsp), hl
+    pop hl
     ; Optimización: cargar globals una vez y mantener en registros
     ; B = main_col, C = current_attr, D/E = string pointer
     ld d, h
@@ -3186,11 +3208,14 @@ _main_puts:
 puts_opt_loop:
     ld a, (de)
     or a
-    jp z, puts_opt_done ; Fin de cadena
+    jp z, puts_bpe_pop  ; 0x00: end of string or end of BPE dict entry
+
+    cp 0x80
+    jp nc, puts_bpe_expand ; >= 0x80: BPE token, expand from dictionary
 
     cp 10
-    jp z, puts_opt_nl   ; '\n' → newline
-    
+    jp z, puts_opt_nl   ; '\n' -> newline
+
     ; Chequear wrap
     ld h, a             ; H = caracter (temporal)
     bit 6, b
@@ -3285,9 +3310,11 @@ puts_opt_wrap:
     call _main_newline
     pop hl
     pop de
-    ; Recargar globals post-newline (main_newline puede cambiar main_line, main_col)
+    ; Recargar globals post-newline (main_newline clobbers BC, changes main_line/col)
     ld a, (_main_line)
     ld (_g_ps64_y), a
+    ld a, (_current_attr)
+    ld c, a             ; FIX: restore C = attr (clobbered by main_newline)
     ld a, (_main_col)
     ld b, a
     jp puts_opt_emit
@@ -3306,6 +3333,53 @@ puts_opt_nl:
     ld b, a
     inc de
     jp puts_opt_loop
+
+; --- BPE expansion for puts_opt ---
+; Token >= 0x80 found in A: push continuation (DE+1) to BPE stack,
+; set DE to dict entry (3 bytes: b1, b2, 0x00). Loop continues reading
+; from dict. On null, pops continuation and resumes original string.
+puts_bpe_expand:
+    ; A = token (0x80-0xFF), DE = current string position
+    ; B = main_col, C = current_attr — MUST be preserved!
+    inc de                  ; advance past the token
+    push bc                 ; save B=col, C=attr
+    ; Push continuation address (DE) onto BPE return stack
+    ld hl, (bpe_rsp)
+    ld (hl), e
+    inc hl
+    ld (hl), d
+    inc hl
+    ld (bpe_rsp), hl
+    ; Calculate dict entry address: bpe_dict + (token - 0x80) * 3
+    sub 0x80
+    ld l, a
+    ld h, 0
+    ld c, l
+    ld b, h                 ; BC = (token - 0x80) — temp, will restore
+    add hl, hl              ; HL = * 2
+    add hl, bc              ; HL = * 3
+    ld bc, bpe_dict
+    add hl, bc
+    ex de, hl               ; DE = &bpe_dict[(token-0x80)*3]
+    pop bc                  ; restore B=col, C=attr
+    jp puts_opt_loop         ; continue reading from dict entry
+
+puts_bpe_pop:
+    ; Null byte hit: end of string or end of BPE dict entry
+    ; Check if BPE stack has entries
+    ld hl, (bpe_rsp)
+    ld de, bpe_rstack
+    or a                    ; clear carry
+    sbc hl, de
+    jr z, puts_opt_done     ; stack empty -> real end of string
+    ; Pop continuation address from BPE stack
+    ld hl, (bpe_rsp)
+    dec hl
+    ld d, (hl)
+    dec hl
+    ld e, (hl)
+    ld (bpe_rsp), hl
+    jp puts_opt_loop         ; resume original string
 
 puts_opt_done:
     ; Sincronizar main_col de vuelta

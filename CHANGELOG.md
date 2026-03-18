@@ -7,6 +7,95 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.6] - 2026-03-19 "Byte Packer"
+
+### Added
+
+#### BPE String Compression (~1,100 bytes saved)
+- **Byte Pair Encoding** applied to 170 screen-only strings with 97 tokens (43% text reduction)
+- Stack-based ASM decoder with nested token support (8 levels deep)
+- SB_ naming convention: 36 string constants audited and marked as screen-only for safe compression
+- Pipeline: `src/` (originals) → `build/bpe_src/` (SB_ renames) → `build/bpe_final/` (BPE tokens) → compile. Source directory never contaminated
+- SPECTALK.DAT extended with BPE dictionary (318 bytes): layout now `[LUT][glyphs][themes][dict][help]`
+
+#### Close Channel from Tab Switcher
+- **DELETE key** in channel switcher closes/parts the selected channel
+- Query windows close directly; real channels send PART first
+- Server window (index 0) protected — cannot be closed
+- Switcher map rebuilds after close; auto-closes if only 1 channel remains
+
+#### 477 ERR_NEEDREGGEDNICK Handler
+- Channels requiring NickServ identification (e.g., #minecraft on Libera.Chat) now show a clear error message instead of being silently ignored
+- Zombie channel entry cleaned from status bar
+
+#### /save UX Improvement
+- "Saving config..." feedback displayed immediately before write operation
+- "OK (N bytes)" shown only after verified write
+- Specific error messages: "FAIL" + "Cannot write config" or "Write error"
+
+### Fixed
+
+#### Word-Wrap Attribute Corruption (Critical)
+- `puts_opt_wrap` did not reload C register (attribute) after `_main_newline` which clobbers BC
+- Space fast-path used corrupted attribute for writes after word-wrap
+- **Symptom**: Rare wrong-color character at the last position of a word after wrapping to next line
+
+#### Timestamp Attribute Leak
+- `main_print_time_prefix` did not restore `_g_ps64_attr` after rendering the `[HH:MM]` prefix
+- **Symptom**: Timestamp color (typically cyan) bled into the first characters of the message text
+
+#### print_line64_fast IX Register Corruption (Critical)
+- Optimization that eliminated `plf_attr_val`/`plf_y_val` BSS variables was broken: IX register was overwritten by `ld ix, plf_left_buf` inside the rendering loop and never restored
+- Epilogue reads `(ix+4)` and `(ix+7)` fetched garbage from BSS instead of function parameters
+- **Symptom**: Status bar rendered with wrong attribute colors; connection indicator appeared pink/magenta; NickServ messages ("Auto-identifying...", "You are now identified") displayed in white instead of yellow
+
+#### h_numeric_366 User Count (BUG-10)
+- `ENDOFNAMES` handler wrote user count to current channel via `chan_user_count` macro instead of looking up the correct channel by name with `find_channel()`
+- **Symptom**: User count in status bar could show wrong number when receiving NAMES for a non-active channel
+
+#### nick_try_alternate Infinite Loop (BUG-6)
+- When nick was already at maximum length, appending `_` would overflow and the function looped forever
+- **Fix**: Rotates last character instead of appending when at max length
+
+#### Keepalive PING During Pagination
+- PING keepalive was not postponed during `pagination_active` state
+- **Symptom**: Server could timeout and disconnect while user was reading a long /list or /search result
+
+#### /server Without Arguments
+- Running `/server` while already connected now shows "Already connected to server:port" instead of attempting a reconnection
+- Removed `irc_server[0] = 0` on disconnect that cleared the server address
+
+#### Makefile AY UART Build
+- `ASM_SOURCES` was hardcoded to `divmmc_uart.asm` regardless of `AY_UART` flag
+- Both `make` and `make ay` produced identical binaries
+- **Fix**: Conditional `ASM_SOURCES` selection based on `AY_UART` value
+
+### Optimized
+
+#### Glyph Decompression (25% faster)
+- `unpack_glyph` rewritten to access `font_lut` via alternate register set (EXX) instead of push/pop HL + reload
+- Saves 138 T-states per glyph (25% improvement). ISR-safe: IM2 handler only touches AF
+
+#### String Length (41% faster)
+- `st_strlen` rewritten with Z80 CPIR instruction: 21 T-states/byte vs 36 for manual loop
+
+#### Cache Pre-Warm
+- `main_newline` pre-loads `cache_scr_base`/`cache_atr_base` for the new row
+- Saves ~600 T-states on lines with indent (avoids recalculation on first character)
+
+#### Dead Code Removal
+- `idle_skip` variable and throttle logic removed from `process_irc_data` (never contributed useful behavior)
+- `flush_all_rx_buffers` changed to double-pass drain for robustness
+
+### Technical Notes
+- Binary TAP size: 34,075 bytes release (vs 35,786 in v1.3.5 = **-1,711 bytes, -4.8%**)
+- SPECTALK.DAT: 1,395 bytes (was 1,077 — +318 bytes for BPE dictionary)
+- BPE pipeline: `tools/bpe_build.py` orchestrates compression; `tools/bpe_compress.py` runs BPE algorithm
+- `main_print` detects BPE tokens (bytes >= 0x80) and skips `print_line64_fast` fast-path, routing through BPE-aware `main_puts`
+- Makefile: `ASM_SOURCES` now conditional on `AY_UART` flag via `ifeq`
+
+---
+
 ## [1.3.5] - 2026-03-16 "Terminal Glow"
 
 ### Added
