@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.3.7] - 2026-04-06 "Artemis II"
 
-TAP size: 36,087 bytes (vs 37,166 in v1.3.6 — 1,079 bytes smaller)
+TAP size: 35,233 bytes (vs 37,166 in v1.3.6 — 1,933 bytes smaller)
 
 ### Added
 
