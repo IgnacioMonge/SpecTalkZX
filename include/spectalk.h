@@ -40,15 +40,12 @@ const char *theme_get_name(uint8_t theme_id) __z88dk_fastcall;
 // =============================================================================
 // VERSION
 // =============================================================================
-#define VERSION "1.3.6"
+#define VERSION "1.3.7"
 
 // =============================================================================
 // SCREEN LAYOUT CONSTANTS
 // =============================================================================
 #define SCREEN_COLS     64
-#define SCREEN_PHYS     32
-
-#define TOP_BANNER_LINE   0
 #define MAIN_START        3
 #define MAIN_LINES        17
 #define MAIN_END          (MAIN_START + MAIN_LINES - 1)
@@ -135,7 +132,6 @@ typedef struct {
 #define PEND_WHO          2
 #define PEND_SEARCH_CHAN  3
 #define PEND_SEARCH_USER  4
-#define PEND_NAMES        5
 
 // =============================================================================
 // TIMEOUTS (frames, HALT-based)
@@ -146,7 +142,6 @@ typedef struct {
 #define TIMEOUT_PROMPT  250
 
 // Pagination
-#define PAGINATION_THRESHOLD 40
 #define PAGINATION_MAX_COUNT 60000  // Límite de seguridad para evitar overflow
 
 // Names timeout
@@ -156,10 +151,7 @@ typedef struct {
 // DRAIN LIMITS
 // =============================================================================
 #define DRAIN_NORMAL    32
-#define DRAIN_FAST      192
-#define RX_TICK_DRAIN_MAX        255
 #define RX_TICK_PARSE_BYTE_BUDGET 1024  // Reduced from 4096 to prevent UI lag
-#define RX_TICK_LINE_BUDGET_MAX   32
 
 // Buffer pressure thresholds
 #define BUFFER_PRESSURE_THRESHOLD (RING_BUFFER_SIZE * 3 / 4)  // 1536 bytes = 75%
@@ -168,18 +160,18 @@ typedef struct {
 // =============================================================================
 // FRAME MACRO
 // =============================================================================
-// NOTA P0-3: El 'ei' antes de 'halt' puede causar jitter si hay interrupción
-// pendiente (se dispara antes del halt, luego halt espera otra interrupción).
-// Idealmente sería solo 'halt', pero cambiar requiere auditar que ningún
-// código deshabilite interrupciones antes de llamar a HALT().
-#define HALT() do { __asm__("ei"); __asm__("halt"); } while(0)
+// Wait for next frame (50Hz sync via IM1 ROM ISR: ei;halt;di).
+extern void frame_wait(void);
+extern void fatal_msg(const char *msg) __z88dk_fastcall;  // never returns
 
 // =============================================================================
 // EXTERNAL ASM FUNCTIONS (spectalk_asm.asm)
 // =============================================================================
 extern void set_border(uint8_t color) __z88dk_fastcall;
+extern char *skip_spaces(char *p) __z88dk_fastcall;
 
 extern void mention_beep(void);
+extern void key_click(void);
 extern void check_caps_toggle(void);
 void badge_flash_on(void);
 void badge_flash_off(void);
@@ -187,11 +179,27 @@ extern uint8_t key_shift_held(void);
 extern void input_cache_invalidate(void);
 extern void print_str64_char(uint8_t ch) __z88dk_fastcall;
 extern void print_line64_fast(uint8_t y, const char *s, uint8_t attr);
+extern void notif_draw(uint8_t start_col, const char *str, uint8_t attr);
+extern void notif_clear(void);
+void notif_center(const char *str, uint8_t attr);
+extern uint16_t notif_timeout;
+extern uint8_t notif_is_pm;
+extern char last_pm_nick[];
 extern void redraw_input_asm(void);
+extern uint8_t overlay_slot[];
+extern uint8_t help_page;
+extern uint8_t config_dirty;
+extern uint8_t notif_enabled;
+void notify(const char *msg, uint8_t attr);
+void overlay_exec(uint8_t ovl_id, uint8_t entry_id) __z88dk_callee;
+void overlay_call(uint8_t entry_id) __z88dk_fastcall;
+void cmd_save(const char *args) __z88dk_fastcall;
+uint8_t overlay_header(const char *title) __z88dk_fastcall;
 extern void draw_indicator(uint8_t y, uint8_t phys_x, uint8_t attr);
 extern void clear_line(uint8_t y, uint8_t attr);
 extern void clear_zone(uint8_t start, uint8_t lines, uint8_t attr);
-extern uint16_t screen_row_base[];
+// Compute screen row base: H = 0x40|(y&0x18), L = (y&7)<<5
+#define SCREEN_ROW_ADDR(y) ((uint16_t)(((0x40 | ((y) & 0x18)) << 8) | (((y) & 7) << 5)))
 extern uint8_t* screen_line_addr(uint8_t y, uint8_t phys_x, uint8_t scanline);
 extern uint8_t* attr_addr(uint8_t y, uint8_t phys_x);
 extern int st_stricmp(const char *a, const char *b);
@@ -236,11 +244,14 @@ extern uint8_t autoaway_minutes;
 extern uint16_t autoaway_counter;
 extern uint8_t autoaway_active;
 extern uint8_t beep_enabled;
+extern uint8_t keyclick_enabled;
 extern uint8_t has_esxdos;
+extern uint8_t nick_color_mode;
 extern uint8_t show_traffic;
 extern int8_t sntp_tz;
 extern char irc_pass[IRC_PASS_SIZE];
 extern char nickserv_pass[IRC_PASS_SIZE];
+extern char nickserv_nick[IRC_NICK_SIZE];
 extern char user_mode[USER_MODE_SIZE];
 extern char network_name[NETWORK_NAME_SIZE];
 extern uint8_t connection_state;
@@ -283,7 +294,6 @@ extern uint8_t theme_attrs[20];
 #define ATTR_MSG_PRIV   theme_attrs[4]
 #define ATTR_MAIN_BG    theme_attrs[5]
 #define ATTR_INPUT      theme_attrs[6]
-#define ATTR_INPUT_BG   theme_attrs[7]
 #define ATTR_PROMPT     theme_attrs[8]
 #define ATTR_MSG_SERVER theme_attrs[9]
 #define ATTR_MSG_JOIN   theme_attrs[10]
@@ -315,6 +325,7 @@ void set_attr_priv(void);
 void set_attr_chan(void);
 void set_attr_nick(void);
 void set_attr_join(void);
+void set_nick_color(const char *nick) __z88dk_fastcall;
 
 // Current attribute for main_print
 extern uint8_t current_attr;
@@ -410,10 +421,10 @@ extern const char S_NOTSET[];
 extern const char S_DISCONN[];
 extern const char S_NICKSERV[];
 extern const char S_APPNAME[];
+extern const char S_APPSHORT[];
 extern const char S_APPDESC[];
 extern const char S_COPYRIGHT[];
 extern const char S_MAXWIN[];
-extern const char S_SWITCHTO[];
 extern const char S_PRIVMSG[];
 extern const char S_NOTICE[];
 extern const char S_TIMEOUT[];
@@ -424,7 +435,6 @@ extern const char S_MUST_CHAN[];
 extern const char S_ARROW_IN[];
 extern const char S_ARROW_OUT[];
 extern const char S_EMPTY_PAT[];
-extern const char S_ALREADY_IN[];
 extern const char S_CRLF[];
 extern const char S_ASTERISK[];
 extern const char S_COLON_SP[];
@@ -438,7 +448,6 @@ extern const char S_PROMPT[];
 extern const char S_CAP_END[];
 extern const char S_GLOBAL[];
 extern const char S_TOPIC_PFX[];
-extern const char S_YOU_LEFT[];
 extern const char S_CONN_REFUSED[];
 extern const char S_INIT_DOTS[];
 extern const char S_ACTION[];
@@ -459,6 +468,8 @@ extern const char S_JOINED_SP[];    // D10: " joined "
 extern const char S_AWAY_CMD[];     // D10: "AWAY"
 extern const char S_NICK_CMD[];     // D10: "NICK"
 extern const char S_SMART[];        // D10: "smart"
+extern const char S_PART_CMD[];     // D19: "PART"
+extern const char S_TCP[];          // D19: "TCP"
 extern const char S_AUTOAWAY[];     // D11: "Auto-away"
 
 // =============================================================================
@@ -469,8 +480,6 @@ void ui_sys(const char *s) __z88dk_fastcall;
 void ui_usage(const char *a) __z88dk_fastcall;
 
 #define ERR_NOTCONN() ui_err(S_NOTCONN)
-#define ERR_MSG(s)    ui_err(s)
-#define SYS_MSG(s)    ui_sys(s)
 #define SYS_PUTS(s)   do { set_attr_sys(); main_puts(s); } while(0)
 
 // Compatibility macros (cur_chan_ptr avoids idx*32 multiply per access)
@@ -493,7 +502,16 @@ void main_hline(void);
 void utf8_to_ascii(char *s) __z88dk_fastcall;  // UTF-8 → ASCII conversion
 void print_char64(uint8_t y, uint8_t col, uint8_t c, uint8_t attr) __z88dk_callee;
 void print_str64(uint8_t y, uint8_t col, const char *s, uint8_t attr) __z88dk_callee;
+void print_str64_bpe(uint8_t y, uint8_t col, const char *s, uint8_t attr) __z88dk_callee;
 void print_big_str(uint8_t y, uint8_t col, const char *s, uint8_t attr) __z88dk_callee;
+
+// Overlay modes
+#define OVERLAY_NONE   0
+#define OVERLAY_HELP   1
+#define OVERLAY_ABOUT  2
+#define OVERLAY_CONFIG 3
+#define OVERLAY_STATUS 4
+#define OVERLAY_WHATSNEW 5
 void draw_status_bar(void);
 void clear_main(void);
 extern void scroll_main_zone(void);
@@ -502,6 +520,14 @@ void reapply_screen_attributes(void);
 void cls_fast(void);
 void draw_status_bar_real(void);
 void fast_u8_to_str(char *buf, uint8_t val) __z88dk_callee;
+
+// Frameless ASM callee functions (spectalk_asm.asm)
+void sys_puts_print(const char *label, const char *value) __z88dk_callee;
+uint8_t ensure_args(const char *args, const char *usage) __z88dk_callee;
+void puts_u8_nolz(uint8_t v) __z88dk_fastcall;
+char *cfg_put(char *p, const char *s) __z88dk_callee;
+char *cfg_kv(char *p, const char *key, const char *val) __z88dk_callee;
+char *sb_put_u8_2d(char *p, uint8_t v) __z88dk_callee;
 
 // =============================================================================
 // FUNCTION DECLARATIONS - CHANNEL MANAGEMENT (spectalk.c)

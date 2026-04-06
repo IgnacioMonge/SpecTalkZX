@@ -5,6 +5,7 @@
 
 SECTION code_user
 
+EXTERN _frame_wait
 PUBLIC _ay_uart_init
 PUBLIC _ay_uart_send
 PUBLIC _ay_uart_read
@@ -34,7 +35,6 @@ SECTION code_user
 ; FIX: Race condition (DI/EI) para proteger _poked_byte y _is_recv
 ; -----------------------------------------------------------------------------
 uartRead:
-    di              ; CRÍTICO: Protección contra interrupciones
     ld a, (_poked_byte)
     and 1
     jr nz, uartRead_retBuff
@@ -56,7 +56,7 @@ uartRead:
     jr nz, uartRead_do_read
 
     or a            ; CF=0 (No data)
-    ei              ; Restaurar interrupciones
+    ; ei removed — divMMC UART is hardware, no IRQ protection needed
     ret
 
 uartRead_retBuff:
@@ -64,7 +64,7 @@ uartRead_retBuff:
     ld (_poked_byte), a
     ld a, (_byte_buff)
     scf             ; CF=1 (Data)
-    ei              ; Restaurar interrupciones
+    ; ei removed — divMMC UART is hardware, no IRQ protection needed
     ret
 
 uartRead_do_read:
@@ -85,7 +85,7 @@ uartRead_do_read:
     ld (_poked_byte), a
     ld a, e         ; Restaurar dato a A
     scf             ; CF=1 (Data)
-    ei              ; Restaurar interrupciones
+    ; ei removed — divMMC UART is hardware, no IRQ protection needed
     ret
 
 ; -----------------------------------------------------------------------------
@@ -114,13 +114,12 @@ _ay_uart_init:
     
     in a, (c)
 
-    ei
-    ld b, 10        ; OPTIMIZACIÓN: Reducido de 50 a 10 halts
+    ld b, 10        ; OPTIMIZACIÓN: Reducido de 50 a 10 frames
 uartInit_wait:
     push bc
     call uartRead
     pop bc
-    halt
+    call _frame_wait
     djnz uartInit_wait
 
     ld bc, 0x0200   ; OPTIMIZACIÓN: Reducido de 0x0800 a 512 bytes

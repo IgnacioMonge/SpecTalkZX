@@ -20,6 +20,7 @@
 
 #include "../include/spectalk.h"
 void cmd_quit(const char *args) __z88dk_fastcall;
+static void sntp_init(void);  // forward decl — defined in spectalk.c (SCU order)
 
 // OPT H3: extern para constantes compartidas (definidas en spectalk.c)
 extern const char S_ON[];
@@ -37,34 +38,40 @@ static const char K_AUTOCONN[] = "autoconnect=";
 static const char K_THEME[]    = "theme=";
 static const char K_AUTOAWAY[] = "autoaway=";
 static const char K_BEEP[]     = "beep=";
+static const char K_NCOLOR[]   = "nickcolor=";
 static const char K_TRAFFIC[]  = "traffic=";
 static const char K_TS[]       = "timestamps=";
 static const char K_TOPIC[]    = "TOPIC";
 static const char K_CFG_PRI[]  = "/SYS/CONFIG/SPECTALK.CFG";
 static const char K_CFG_ALT[]  = "/SYS/SPECTALK.CFG";
 static const char K_TZ[]       = "tz=";
-// K_BIGST removed (big mode eliminated)
+static const char K_NOTIF[]    = "notif=";
+
+static void cut_at_space(char *p) __z88dk_fastcall
+{
+    char *sp = strchr(p, ' ');
+    if (sp) *sp = 0;
+}
 
 // =============================================================================
 // INTERNAL HELPERS
 // =============================================================================
 
-static void sys_puts_print(const char *label, const char *value) __z88dk_callee {
-    set_attr_sys(); main_puts(label); main_print(value);
-}
+// sys_puts_print: frameless ASM in spectalk_asm.asm
 
 
 // Help overlay state (state-based, non-blocking — main loop keeps running)
 // Non-static: ASM main_puts checks this to suppress output during help
-uint8_t help_active;
-static uint8_t help_page;       // current page (0-based)
+uint8_t overlay_mode;
+uint8_t help_page;              // current page (0-based) — non-static for overlay access
+uint8_t config_dirty;           // 1 = unsaved config changes exist
 
 // NIVELES DE VALIDACIÓN JERÁRQUICA
 #define LVL_TCP  1  // Conectado a Internet (Socket abierto)
 #define LVL_IRC  2  // Conectado a Servidor (Registrado con NICK/USER)
 #define LVL_CHAN 3  // Conectado a Canal (Ventana válida y activa)
 
-static uint8_t check_status(uint8_t level) __z88dk_fastcall
+uint8_t check_status(uint8_t level) __z88dk_fastcall
 {
     // LVL_TCP  -> requiere STATE_TCP_CONNECTED
     // LVL_IRC+ -> requiere STATE_IRC_READY (que implícitamente incluye TCP)
@@ -89,14 +96,10 @@ static uint8_t check_status(uint8_t level) __z88dk_fastcall
 }
 
 
-static uint8_t ensure_args(const char *args, const char *usage) __z88dk_callee
-{
-    if (!args || !*args) {
-        ui_usage(usage);
-        return 0;
-    }
-    return 1;
-}
+#define IS_CHAN_PREFIX(c) ((c) == '#' || (c) == '&')
+#define REQUIRE_CHAN() do { if (!IS_CHAN_PREFIX(irc_channel[0])) { ui_err(S_MUST_CHAN); return; } } while(0)
+
+// ensure_args: frameless ASM in spectalk_asm.asm
 
 // Función auxiliar para diagnosticar la respuesta de conexión
 static uint8_t wait_for_connection_result(uint16_t max_frames) __z88dk_fastcall
@@ -105,7 +108,7 @@ static uint8_t wait_for_connection_result(uint16_t max_frames) __z88dk_fastcall
     rx_pos = 0;
 
     while (frames < max_frames) {
-        HALT();
+        frame_wait();
         if (in_inkey() == 7) { ui_err(S_CANCELLED); return 0; }
 
         uart_drain_to_buffer();
@@ -144,13 +147,7 @@ wcr_ok:
 
 // FIX-H6: redundant externs removed - already in spectalk.h with correct types
 
-// OPT M2: Helper para imprimir uint8 sin leading zero (usado por !config y !autoaway)
-static void puts_u8_nolz(uint8_t v) __z88dk_fastcall {
-    char buf[4];
-    fast_u8_to_str(buf, v);
-    if (buf[0] != '0') main_putc(buf[0]);
-    main_putc(buf[1]);
-}
+// puts_u8_nolz: frameless ASM in spectalk_asm.asm
 
 // =============================================================================
 // SEARCH COMMAND HELPER (Unifica lógica de list/who/search)
@@ -195,19 +192,19 @@ static void cmd_connect(const char *args) __z88dk_fastcall
         ui_err("Already connected.");
         set_attr_sys();
         main_print("Disconnect? (y/n)");
-        while (1) {
+        { uint8_t tmout = 250;  // audit M01: ~5s timeout
+        while (tmout--) {
             uint8_t k = in_inkey();
-            HALT(); uart_drain_to_buffer();
-            // Discard incoming lines to prevent ring buffer overflow
+            frame_wait(); uart_drain_to_buffer();
             while (try_read_line_nodrain()) { rx_pos = 0; }
-            if (k == 'n' || k == 'N') { main_print(S_CANCELLED); return; }
+            if (k == 'n' || k == 'N' || !tmout) { main_print(S_CANCELLED); return; }
             if (k == 'y' || k == 'Y') {
                 main_print("Disconnecting...");
                 force_disconnect();
                 draw_status_bar(); draw_status_bar_real();
                 break;
             }
-        }
+        } }
     }
     
     sep = strchr(args, ' ');
@@ -216,7 +213,8 @@ static void cmd_connect(const char *args) __z88dk_fastcall
     if (sep) {
         server_len = (uint8_t)(sep - args);
         port = sep + 1;
-        while (*port == ' ') port++;
+        port = (const char *)skip_spaces((char *)port);
+        if (!*port) port = S_DEFAULT_PORT;
     } else {
         server_len = st_strlen(args);
         port = S_DEFAULT_PORT;
@@ -225,7 +223,8 @@ static void cmd_connect(const char *args) __z88dk_fastcall
     if (server_len > sizeof(irc_server) - 1) server_len = sizeof(irc_server) - 1;
     memcpy(irc_server, args, server_len);
     irc_server[server_len] = '\0';
-    
+    if (strchr(irc_server, '"')) { ui_err("Bad server name"); return; }  // audit L04
+
     st_copy_n(irc_port, port, sizeof(irc_port));
 
 do_connect:
@@ -235,7 +234,7 @@ do_connect:
         return;
     }
     
-    if (irc_port[0] == '6' && irc_port[1] == '6' && irc_port[2] == '9' && irc_port[3] == '7' && !irc_port[4]) use_ssl = 1;
+    if (str_to_u16(irc_port) == 6697) use_ssl = 1;
     
     set_attr_priv();
     main_puts2("Connecting to ", irc_server); main_putc(':'); main_puts2(irc_port, "... ");
@@ -252,7 +251,7 @@ do_connect:
     if (use_ssl) { esp_at_cmd("AT+CIPSSLSIZE=4096"); }
 
     uart_send_string("AT+CIPSTART=\"");
-    uart_send_string(use_ssl ? "SSL" : "TCP");
+    uart_send_string(use_ssl ? "SSL" : S_TCP);
     uart_send_string("\",\""); uart_send_string(irc_server); uart_send_string("\","); uart_send_line(irc_port);
     
     { uint16_t fl = use_ssl ? TIMEOUT_SSL : TIMEOUT_DNS; result = wait_for_connection_result(fl); }
@@ -271,7 +270,8 @@ do_connect:
         uart_send_line(S_AT_SNTPTIME);
         // Wait for response and parse it
         for (sntp_wait = 0; sntp_wait < 100; sntp_wait++) {
-            HALT(); uart_drain_to_buffer();
+            frame_wait(); uart_drain_to_buffer();
+            if (in_inkey() == 7) break;  // audit M03: BREAK cancel
             if (try_read_line_nodrain()) {
                 // FIX P0-1: Verificar longitud antes de acceder a índices
                 if (rx_last_len >= 2) {
@@ -292,7 +292,17 @@ do_connect:
     wait_drain(20);
     uart_send_string("AT+CIPSEND\r\n");
     
-    if (!wait_for_prompt_char('>', TIMEOUT_PROMPT)) { ui_err("No '>' prompt"); goto connect_fail; }
+    if (!wait_for_prompt_char('>', TIMEOUT_PROMPT)) {
+        // rx_line has captured data — scan for IRC ban numeric (465/466)
+        char *p = (char *)rx_line;
+        while (*p) {
+            if (p[0] == '4' && p[1] == '6' && (p[2] == '5' || p[2] == '6')) {
+                ui_err("Banned"); goto connect_fail;
+            }
+            p++;
+        }
+        ui_err("No '>' prompt"); goto connect_fail;
+    }
     
     connection_state = STATE_TCP_CONNECTED; closed_reported = 0;
     rx_pos = 0; rx_overflow = 0;
@@ -316,7 +326,7 @@ do_connect:
         rx_pos = 0;
         
         while (!loop_done) {
-            HALT(); uart_drain_to_buffer();
+            frame_wait(); uart_drain_to_buffer();
             if (in_inkey() == 7) {
                 abort_msg = "Aborted.";
                 abort_disc = 1;
@@ -357,8 +367,8 @@ do_connect:
                 if (line[0] == ':' && sp && sp[1] == 'C' && sp[2] == 'A' && sp[3] == 'P') {
                     // Check for LS after CAP
                     char *ls = sp + 4;
-                    while (*ls == ' ') ls++;
-                    if (*ls == '*') { ls++; while (*ls == ' ') ls++; }
+                    ls = skip_spaces(ls);
+                    if (*ls == '*') { ls++; ls = skip_spaces(ls); }
                     if (ls[0] == 'L' && ls[1] == 'S') {
                         uart_send_line(S_CAP_END);
                         rx_pos = 0; continue;
@@ -373,7 +383,7 @@ do_connect:
 
                     if (ping_ptr) {
                         char *params = ping_ptr + 4;
-                        while (*params == ' ') params++;
+                        params = skip_spaces(params);
                         uart_send_string(S_PONG); uart_send_line(params);
                         rx_pos = 0; continue;
                     }
@@ -466,8 +476,9 @@ static void cmd_nick(const char *args) __z88dk_fastcall
         // Desconectado: Actualizar inmediatamente
         st_copy_n(irc_nick, p, sizeof(irc_nick));
 
-        sys_puts_print("Nick set to: ", irc_nick);
+        notify2("Nick set to ", irc_nick, ATTR_MSG_SYS);
         draw_status_bar();
+        config_dirty = 1;
     }
 }
 
@@ -480,12 +491,14 @@ static void cmd_pass(const char *args) __z88dk_fastcall
     
     if (st_stricmp(args, "clear") == 0 || st_stricmp(args, "none") == 0) {
         irc_pass[0] = '\0';
-        ui_sys("Password cleared");
+        notify("Password cleared", ATTR_MSG_SYS);
+        config_dirty = 1;
         return;
     }
-    
+
     st_copy_n(irc_pass, args, sizeof(irc_pass));
-    ui_sys("Password set");
+    notify("Password set", ATTR_MSG_SYS);
+    config_dirty = 1;
 }
 
 static void cmd_join(const char *args) __z88dk_fastcall
@@ -500,10 +513,9 @@ static void cmd_join(const char *args) __z88dk_fastcall
 
     // Tomar SOLO el primer token y truncar en el primer espacio
     char *p = (char *)args;
-    while (*p == ' ') p++;
     if (!*p) return;
 
-    { char *sp = strchr(p, ' '); if (sp) *sp = 0; }
+    cut_at_space(p);
 
     // Fast-path: si ya trae # o &, usar el puntero directo
     if (*p == '#' || *p == '&') {
@@ -518,23 +530,21 @@ static void cmd_join(const char *args) __z88dk_fastcall
 
     idx = find_channel(lookup);
     if (idx >= 0) {
-        const char *msg = S_ALREADY_IN;
         if ((uint8_t)idx != current_channel_idx) {
             switch_to_channel((uint8_t)idx);
-            msg = S_SWITCHTO;
+            notify2("Switched to ", channels[idx].name, ATTR_MSG_JOIN);
+        } else {
+            notify2("Already in ", channels[idx].name, ATTR_MSG_SYS);
         }
-        set_attr_sys();
-        main_puts2(msg, channels[idx].name);
-        main_newline();
         return;
     }
 
     if (find_empty_channel_slot() == -1) { ui_err(S_MAXWIN); main_print("Use /close or /part first."); return; }
 
     irc_send_cmd1("JOIN", lookup);
-    set_attr_sys();
-    main_puts2("Joining ", lookup);
-    main_print(S_DOTS3);
+    st_copy_n(temp_input + 64, lookup, 56);
+    nb_init("Joining "); nb(temp_input + 64); NB_END();
+    notify(temp_input, ATTR_MSG_JOIN);
 }
 
 static void cmd_part(const char *args) __z88dk_fastcall
@@ -554,7 +564,7 @@ static void cmd_part(const char *args) __z88dk_fastcall
             if (sp) {
                 *sp = '\0';
                 reason = sp + 1;
-                while (*reason == ' ') reason++;
+                reason = skip_spaces(reason);
             }
             idx = find_channel(chan_name);
         } else {
@@ -575,14 +585,10 @@ static void cmd_part(const char *args) __z88dk_fastcall
     // FIX: si es query/privado, NO enviar PART (evita 403 -> "Cannot join ... No such channel")
     if (!(channels[idx].flags & CH_FLAG_QUERY) && (cname_ptr[0] == '#' || cname_ptr[0] == '&')) {
         // OPT: unificar envío (irc_send_cmd2 ignora p2 si es NULL/vacío)
-        irc_send_cmd2("PART", cname_ptr, reason);
+        irc_send_cmd2(S_PART_CMD, cname_ptr, reason);
     }
 
-    set_attr_sys();
-    main_print_time_prefix();
-    main_puts(S_YOU_LEFT);
-    main_print(cname_ptr);
-    main_newline();
+    notify2("You have left ", cname_ptr, ATTR_MSG_JOIN);
 
     // remove_channel() YA llama a draw_status_bar()
     remove_channel((uint8_t)idx);
@@ -605,7 +611,7 @@ static void cmd_msg(const char *args) __z88dk_fastcall
 
     *space = '\0';
     char *msg = space + 1;
-    while (*msg == ' ') msg++;
+    msg = skip_spaces(msg);
 
     irc_send_privmsg(target, msg);
 }
@@ -620,10 +626,9 @@ static void cmd_query(const char *args) __z88dk_fastcall
 
     // Zero-copy: usar el buffer de entrada in-situ
     p = (char *)args;
-    while (*p == ' ') p++;
     if (!*p) return;
 
-    { char *sp = strchr(p, ' '); if (sp) *sp = 0; }
+    cut_at_space(p);
 
     {
         int8_t idx = add_query(p);
@@ -631,7 +636,7 @@ static void cmd_query(const char *args) __z88dk_fastcall
         if (idx >= 0) {
             if ((uint8_t)idx != current_channel_idx) {
                 switch_to_channel((uint8_t)idx);
-                sys_puts_print("Query opened with ", channels[idx].name);
+                notify2("Query: ", channels[idx].name, ATTR_MSG_SYS);
             }
             status_bar_dirty = 1;
         } else {
@@ -654,12 +659,11 @@ void cmd_quit(const char *args) __z88dk_fastcall
     cursor_visible = 0;
     redraw_input_full();
 
-    // FUSIÓN: main_puts("Disconnecting from "); main_puts(irc_server);
     main_puts2("Disconnecting from ", irc_server);
     main_print(S_DOTS3);
 
     // Mantener workaround callee/ternario (ya validado por ti)
-    msg = (args && *args) ? args : "SpecTalk ZX";
+    msg = (args && *args) ? args : S_APPSHORT;
 
     irc_send_cmd2("QUIT", NULL, msg);
 
@@ -745,9 +749,7 @@ static void cmd_id(const char *args) __z88dk_fastcall
     }
     
     send_identify(pass);
-    
-    set_attr_sys();
-    main_print("Identifying with NickServ...");
+    notify2("Identifying with ", nickserv_nick[0] ? (const char *)nickserv_nick : S_NICKSERV, ATTR_MSG_SYS);
 }
 
 static void cmd_raw(const char *args) __z88dk_fastcall
@@ -811,16 +813,18 @@ static void cmd_names(const char *args) __z88dk_fastcall
     if (!check_status(LVL_IRC)) return; // Nivel 2
 
     const char *target = (args && *args) ? args : irc_channel;
-    if (!target[0] || (target[0] != '#' && target[0] != '&')) {
-        ui_err(S_MUST_CHAN);
-        return;
-    }
+    if (!target[0] || (target[0] != '#' && target[0] != '&')) { ui_err(S_MUST_CHAN); return; }
     
     counting_new_users = 1;
     show_names_list = 1;
-    names_was_manual = 1;  // Flag para distinguir de JOIN automático
+    names_was_manual = 1;
+    names_count_acc = 0;
+    names_friend_pos = 0;
+    st_copy_n(names_target_channel, target, sizeof(names_target_channel));
+    names_pending = 1;
+    names_timeout_frames = 0;
     start_pagination();
-    
+
     irc_send_cmd1("NAMES", target);
     set_attr_sys();
     main_print("Listing users...");
@@ -832,13 +836,13 @@ static void cmd_topic(const char *args) __z88dk_fastcall
 
     // Sin args: consultar topic del canal actual
     if (!args || !*args) {
-        if (irc_channel[0] != '#') { ui_err(S_MUST_CHAN); return; }
+        REQUIRE_CHAN();
         irc_send_cmd2(K_TOPIC, irc_channel, NULL);
         return;
     }
 
-    // Si args empieza con '#': comportamiento original (primer token = canal)
-    if (args[0] == '#') {
+    // Si args empieza con prefijo de canal: comportamiento original (primer token = canal)
+    if (IS_CHAN_PREFIX(args[0])) {
         char *mutable_target = (char *)(void *)args;
         char *new_topic = NULL;
         char *space = strchr(mutable_target, ' ');
@@ -851,8 +855,8 @@ static void cmd_topic(const char *args) __z88dk_fastcall
         return;
     }
 
-    // Args sin '#': usar canal actual como target, args entero como topic
-    if (irc_channel[0] != '#') { ui_err(S_MUST_CHAN); return; }
+    // Args sin prefijo de canal: usar canal actual como target, args entero como topic
+    if (!IS_CHAN_PREFIX(irc_channel[0])) { ui_err(S_MUST_CHAN); return; }
     irc_send_cmd2(K_TOPIC, irc_channel, args);
 }
 
@@ -873,7 +877,7 @@ static void cmd_search(const char *args) __z88dk_fastcall
     if (mutable_args[0] == '#') {
         is_chan = 1;
         src = mutable_args + 1; // Saltamos '#'
-        while (*src == ' ') src++;
+        src = skip_spaces(src);
     } else {
         is_chan = 0;
         src = mutable_args;
@@ -883,7 +887,7 @@ static void cmd_search(const char *args) __z88dk_fastcall
 
     end = src;
     len = 0;
-    while (*end && *end != ' ' && len < 30) { end++; len++; }
+    while (*end && *end != ' ' && len < SEARCH_PATTERN_SIZE - 1) { end++; len++; }
     if (*end) *end = '\0';
 
     set_attr_sys();
@@ -923,26 +927,28 @@ static void cmd_ignore(const char *args) __z88dk_fastcall
     // Caso UNIGNORE
     if (p[0] == '-') {
         p++;
-        while (*p == ' ') p++;
+        p = skip_spaces(p);
         if (!*p) { ui_usage("ignore -nick to unignore"); return; }
 
-        { char *sp = strchr(p, ' '); if (sp) *sp = 0; }
+        cut_at_space(p);
 
         if (remove_ignore(p)) {
-            set_attr_sys(); main_puts("Unignored: "); main_print(p);
+            notify2("Unignored: ", p, ATTR_MSG_SYS);
+            config_dirty = 1;
         } else {
-            set_attr_err(); main_puts("Not in ignore list: "); main_print(p);
+            notify2("Not in ignore list: ", p, ATTR_MSG_SYS);
         }
         return;
     }
 
     // Caso IGNORE
-    { char *sp = strchr(p, ' '); if (sp) *sp = 0; }
+    cut_at_space(p);
 
     if (add_ignore(p)) {
-        set_attr_sys(); main_puts("Now ignoring: "); main_print(p);
+        notify2("Now ignoring: ", p, ATTR_MSG_SYS);
+        config_dirty = 1;
     } else if (is_ignored(p)) {
-        set_attr_err(); main_puts("Already ignoring: "); main_print(p);
+        notify2("Already ignoring: ", p, ATTR_MSG_SYS);
     } else {
         ui_err("Ignore list full");
     }
@@ -967,7 +973,7 @@ static void cmd_kick(const char *args) __z88dk_fastcall
     if (reason) {
         *reason = '\0';
         reason++;
-        while (*reason == ' ') reason++;
+        reason = skip_spaces(reason);
         if (!*reason) reason = NULL;   // evita tratar "" como razón
     }
 
@@ -981,125 +987,49 @@ static void cmd_kick(const char *args) __z88dk_fastcall
     }
     uart_send_crlf();
 
-    set_attr_sys();
-
-    main_puts2("Kicking ", nick);
-    if (reason && *reason) {
-        main_puts2(S_SP_PAREN, reason);
-        main_print(")");
-    } else {
-        main_newline();
-    }
+    notify2("Kicking ", nick, ATTR_MSG_SYS);
 }
 
 
 static void sys_status(const char *args) __z88dk_fastcall
 {
     (void)args;
-    uint8_t i, count = 0;
-    // switch/case en vez de static const char *states[] porque z88dk
-    // corrompe arrays de punteros que mezclan extern y literales.
-    ChannelInfo *ch = channels;
-
-    set_attr_nick(); main_puts("Nick: ");
-    set_attr_chan(); main_print(irc_nick[0] ? (const char *)irc_nick : S_NOTSET);
-
-    set_attr_nick(); 
-    
-    // FUSIÓN SEGURA
-    main_puts2(S_SERVER, S_COLON_SP);
-    
-    set_attr_chan();
-    if (irc_server[0]) {
-        main_puts(irc_server); main_putc(':'); main_puts(irc_port);
-        if (connection_state < 2) main_print(" (off)");
-        else main_newline();
-    }
-    else main_print(S_NOTSET);
-
-    set_attr_nick(); main_puts("State: ");
-    set_attr_chan();
-    {
-        const char *st;
-        switch (connection_state) {
-            case STATE_DISCONNECTED:  st = S_DISCONN;    break;
-            case STATE_WIFI_OK:       st = "WiFi OK";    break;
-            case STATE_TCP_CONNECTED: st = "TCP";        break;
-            case STATE_IRC_READY:     st = "IRC ready";  break;
-            default:                  st = "?";           break;
-        }
-        main_print(st);
-    }
-
-    set_attr_nick(); main_puts("Chans: ");
-    set_attr_chan();
-
-    for (i = 0; i < MAX_CHANNELS; i++, ch++) {
-        if ((ch->flags & CH_FLAG_ACTIVE) && !(ch->flags & CH_FLAG_QUERY)) {
-            if (count++) main_puts(S_COMMA_SP);
-            main_putc('0' + i); main_putc(':');
-            main_puts(ch->name);
-        }
-    }
-
-    if (count == 0) main_print("(none)");
-    else main_newline();
+    overlay_mode = OVERLAY_STATUS;
+    cursor_visible = 0;
+    overlay_exec(3, 0);
 }
 
 
 static void sys_about(const char *args) __z88dk_fastcall;
 
 // !config - Muestra la configuración actual
+// Common overlay header: clear, big font title with dual brightness, separator
+uint8_t overlay_header(const char *title) __z88dk_fastcall
+{
+    clear_main();
+    clear_line(MAIN_START, ATTR_BANNER | 0x40);
+    clear_line(MAIN_START + 1, ATTR_BANNER & 0xBF);
+    print_big_str(MAIN_START, 1, title, ATTR_BANNER);
+    memset((void *)(SCREEN_ROW_ADDR(MAIN_START + 2)), 0xFF, 32);
+    memset((void *)(0x5800 + (MAIN_START + 2) * 32), ATTR_MSG_TOPIC, 32);
+    return MAIN_START + 3;
+}
+
+// overlay_config_render — moved to overlay (SPECTALK.OVL entry 2)
 static void sys_config(const char *args) __z88dk_fastcall
 {
-    char buf[4];
     (void)args;
-    
-    set_attr_priv();
-    main_puts(K_NICK); main_print(irc_nick[0] ? (const char*)irc_nick : S_NOTSET);
-    main_puts(K_SERVER); main_print(irc_server[0] ? (const char*)irc_server : S_NOTSET);
-    main_puts(K_PORT); main_print(irc_port);
-    main_puts(K_PASS); main_print(irc_pass[0] ? S_SET : S_NOTSET);
-    main_puts(K_NKPASS); main_print(nickserv_pass[0] ? S_SET : S_NOTSET);
-    main_puts(K_AUTOCONN); main_print(autoconnect ? S_ON : S_OFF);
-    main_puts(K_THEME); main_putc('0' + current_theme); main_newline();
-    main_puts(K_AUTOAWAY);
-    if (autoaway_minutes) { puts_u8_nolz(autoaway_minutes); main_print(S_MIN); }
-    else main_print(S_OFF);
-    main_puts(K_BEEP); main_print(beep_enabled ? S_ON : S_OFF);
-    main_puts(K_TRAFFIC); main_print(show_traffic ? S_ON : S_OFF);
-    main_puts(K_TS); main_print(show_timestamps == 0 ? S_OFF :
-                                        show_timestamps == 1 ? S_ON : S_SMART);
+    overlay_mode = OVERLAY_CONFIG;
+    cursor_visible = 0;
+    overlay_exec(1, 1);
+}
 
-    main_puts("friends=");
-    {
-        uint8_t i, count = 0;
-        char *fn;
-        for (i = 0, fn = friend_nicks[0]; i < MAX_FRIENDS; i++, fn += IRC_NICK_SIZE) {
-            if (*fn) {
-                if (count++) main_puts(S_COMMA_SP);
-                main_puts(fn);
-            }
-        }
-        if (count == 0) main_puts(S_NOTSET);
-        main_newline();
-    }
-    main_puts("ignores=");
-    {
-        uint8_t i;
-        if (ignore_count == 0) main_puts(S_NOTSET);
-        else for (i = 0; i < ignore_count; i++) {
-            if (i) main_puts(S_COMMA_SP);
-            main_puts(ignore_list[i]);
-        }
-        main_newline();
-    }
-    main_puts(K_TZ);
-    if (sntp_tz < 0) { main_putc('-'); fast_u8_to_str(buf, -sntp_tz); } 
-    else { main_putc('+'); fast_u8_to_str(buf, sntp_tz); }
-    if (buf[0] != '0') main_putc(buf[0]); 
-    main_putc(buf[1]); 
-    main_newline();
+static void sys_whatsnew(const char *args) __z88dk_fastcall
+{
+    (void)args;
+    overlay_mode = OVERLAY_WHATSNEW;
+    cursor_visible = 0;
+    overlay_exec(2, 0);
 }
 
 static void sys_init(const char *args) __z88dk_fastcall
@@ -1114,8 +1044,7 @@ static void sys_init(const char *args) __z88dk_fastcall
     uart_send_line("AT");  // OPT M7
     
     if (wait_for_response(S_OK, 25)) {
-        uart_send_string(S_AT_CIPCLOSE);
-        uart_send_crlf();
+        uart_send_line(S_AT_CIPCLOSE);
         wait_for_response(NULL, 10);
     } 
     
@@ -1131,6 +1060,7 @@ static void sys_init(const char *args) __z88dk_fastcall
     } else if (connection_state == STATE_WIFI_OK) {
         set_attr_priv();
         main_print("WiFi connected");
+        sntp_init();  // Sync clock after successful reinit
     } else {
         ui_err("no WiFi");
     }
@@ -1143,7 +1073,7 @@ static void cmd_theme(const char *args) __z88dk_fastcall
     const char *p;
     /* Require exactly one digit (1..3), allow trailing spaces only */
     if (!args || args[0] < '1' || args[0] > '3') goto theme_usage;
-    p = args + 1; while (*p == ' ') p++;
+    p = (const char *)skip_spaces((char *)(args + 1));
     if (*p) goto theme_usage;
 
     t = (uint8_t)(args[0] - '0');
@@ -1157,6 +1087,7 @@ static void cmd_theme(const char *args) __z88dk_fastcall
     apply_theme();
 
     sys_puts_print("Theme set to ", theme_get_name(t));
+    config_dirty = 1;
     return;
 theme_usage:
     set_attr_err(); main_print("Usage: !theme 1|2|3");
@@ -1188,6 +1119,7 @@ static void cmd_autoaway(const char *args) __z88dk_fastcall
         autoaway_counter = 0;
         autoaway_active = 0;
         sys_puts_print(S_AUTOAWAY, " disabled");
+        config_dirty = 1;
         return;
     }
 
@@ -1204,18 +1136,20 @@ static void cmd_autoaway(const char *args) __z88dk_fastcall
     set_attr_sys(); main_puts(S_AUTOAWAY); main_puts(" set to ");
     puts_u8_nolz(mins);
     main_print(S_MIN);
+    config_dirty = 1;
 }
 
 // OPT H4: Helper para comandos toggle con argumento directo opcional
 static void set_or_toggle_flag(uint8_t *flag, const char *label, const char *args) __z88dk_callee {
     if (args && *args) {
-        if (args[0] == '0' && (!args[1] || args[1] == ' ')) *flag = 0;
-        else if (args[0] == '1' && (!args[1] || args[1] == ' ')) *flag = 1;
-        else { ui_usage("0|1"); return; }
+        if (args[0] == '1' || st_stricmp(args, S_ON) == 0) *flag = 1;
+        else if (args[0] == '0' || st_stricmp(args, S_OFF) == 0) *flag = 0;
+        else { ui_usage("on|off"); return; }
     } else {
         *flag = !*flag;
     }
     sys_puts_print(label, *flag ? S_ON : S_OFF);
+    config_dirty = 1;
 }
 
 static void cmd_beep(const char *args) __z88dk_fastcall
@@ -1223,17 +1157,33 @@ static void cmd_beep(const char *args) __z88dk_fastcall
     set_or_toggle_flag(&beep_enabled, "Beep: ", args);
 }
 
+static void cmd_click(const char *args) __z88dk_fastcall
+{
+    set_or_toggle_flag(&keyclick_enabled, "Click: ", args);
+}
+
+static void cmd_nickcolor(const char *args) __z88dk_fastcall
+{
+    set_or_toggle_flag(&nick_color_mode, "Nick color: ", args);
+}
+
 static void cmd_traffic(const char *args) __z88dk_fastcall
 {
     set_or_toggle_flag(&show_traffic, "Show traffic: ", args);
 }
 
+static void cmd_notif(const char *args) __z88dk_fastcall
+{
+    set_or_toggle_flag(&notif_enabled, "Notifications: ", args);
+}
+
 static void cmd_timestamps(const char *args) __z88dk_fastcall
 {
     if (args && *args) {
-        if (args[0] >= '0' && args[0] <= '2' && (!args[1] || args[1] == ' '))
-            show_timestamps = args[0] - '0';
-        else { ui_usage("0|1|2"); return; }
+        if (args[0] == '0' || st_stricmp(args, S_OFF) == 0) show_timestamps = 0;
+        else if (args[0] == '1' || st_stricmp(args, S_ON) == 0) show_timestamps = 1;
+        else if (args[0] == '2' || st_stricmp(args, S_SMART) == 0) show_timestamps = 2;
+        else { ui_usage("off|on|smart"); return; }
     } else {
         // Cycle: 0 (off) -> 1 (always) -> 2 (on-change) -> 0
         if (++show_timestamps > 2) show_timestamps = 0;
@@ -1244,6 +1194,7 @@ static void cmd_timestamps(const char *args) __z88dk_fastcall
     }
     sys_puts_print("Timestamps: ", show_timestamps == 0 ? S_OFF :
                show_timestamps == 1 ? S_ON : S_SMART);
+    config_dirty = 1;
 }
 
 static void cmd_autoconnect(const char *args) __z88dk_fastcall
@@ -1253,30 +1204,31 @@ static void cmd_autoconnect(const char *args) __z88dk_fastcall
 
 static void cmd_tz(const char *args) __z88dk_fastcall
 {
-    if (!args || !*args) {
-        char buf[3];
-        uint8_t abs_tz = (uint8_t)(sntp_tz < 0 ? -sntp_tz : sntp_tz);
-        set_attr_sys();
-        main_puts("TZ: UTC");
-        main_putc(sntp_tz >= 0 ? '+' : '-');
-        fast_u8_to_str(buf, abs_tz);
-        if (abs_tz >= 10) main_putc(buf[0]);
-        main_putc(buf[1]);
-        main_newline();
-        return;
-    }
-    {
+    if (args && *args) {
         int8_t tz;
         const char *p = args;
         uint8_t neg = 0;
         if (*p == '-') { neg = 1; p++; }
         else if (*p == '+') p++;
+        if (*p < '0' || *p > '9') { ui_err("Range: -12 to +12"); return; }
         { uint16_t raw = str_to_u16(p);
         if (raw > 12) { ui_err("Range: -12 to +12"); return; }
         tz = (int8_t)raw; }
         if (neg) tz = -tz;
+        { uint8_t h = time_hour + (uint8_t)(tz - sntp_tz + 24);
+        while (h >= 24) h -= 24;
+        time_hour = h; }
         sntp_tz = tz;
-        cmd_tz(NULL);
+        status_bar_dirty = 1;
+        config_dirty = 1;
+    }
+    {
+        uint8_t abs_tz = (uint8_t)(sntp_tz < 0 ? -sntp_tz : sntp_tz);
+        set_attr_sys();
+        main_puts(K_TZ);
+        main_putc(sntp_tz >= 0 ? '+' : '-');
+        puts_u8_nolz(abs_tz);
+        main_newline();
     }
 }
 
@@ -1293,136 +1245,36 @@ static void cmd_friend(const char *args) __z88dk_fastcall
         return;
     }
     // Truncar en primer espacio (igual que cmd_ignore)
-    { char *sp = strchr(args, ' '); if (sp) *sp = 0; }
-    // Toggle: remove if exists, add if not
+    cut_at_space((char *)args);
+    // Toggle: remove if exists, add if not (single pass)
+    { char *free_fn = NULL;
     for (i = 0, fn = friend_nicks[0]; i < MAX_FRIENDS; i++, fn += IRC_NICK_SIZE) {
-        if (*fn && st_stricmp(fn, args) == 0) {
-            *fn = '\0';
-            SYS_PUTS("- "); main_print(args);
-            return;
+        if (*fn) {
+            if (st_stricmp(fn, args) == 0) {
+                *fn = '\0';
+                SYS_PUTS("- "); main_print(args);
+                config_dirty = 1;
+                return;
+            }
+        } else if (!free_fn) {
+            free_fn = fn;
         }
     }
-    for (i = 0, fn = friend_nicks[0]; i < MAX_FRIENDS; i++, fn += IRC_NICK_SIZE) {
-        if (!*fn) {
-            st_copy_n(fn, args, IRC_NICK_SIZE);
-            SYS_PUTS("+ "); main_print(args);
-            return;
-        }
+    if (free_fn) {
+        st_copy_n(free_fn, args, IRC_NICK_SIZE);
+        SYS_PUTS("+ "); main_print(args);
+        config_dirty = 1;
+        return;
+    }
     }
     ui_err("Max 5 friends");
 }
 
-// Append string to buffer, return new position
-static char *cfg_put(char *p, const char *s) __z88dk_callee {
-    while (*s) *p++ = *s++;
-    return p;
-}
-
-// Write "key=val1,val2,...\r\n" from array of strings
-static char *cfg_put_csv(char *p, const char *key,
-                         const char *list, uint8_t elem_size, uint8_t count) __z88dk_callee {
-    uint8_t i, any = 0;
-    for (i = 0; i < count; i++) {
-        const char *s = list + i * elem_size;
-        if (!*s) continue;
-        if (!any) { p = cfg_put(p, key); *p++ = '='; any = 1; }
-        else *p++ = ',';
-        p = cfg_put(p, s);
-    }
-    if (any) { *p++ = '\r'; *p++ = '\n'; }
-    return p;
-}
-
-// Write key=value\r\n to buffer. Returns new position.
-// NOTE-M11: (uint16_t)val <= 9 trick: treats small integers cast to pointer
-// as literal digits 0-9. Safe on Z80 (addrs 0-9 are ROM, never valid string ptrs).
-static char *cfg_kv(char *p, const char *key, const char *val) __z88dk_callee {
-    p = cfg_put(p, key);
-    if ((uint16_t)val <= 9) {
-        *p++ = '0' + (uint8_t)(uint16_t)val;
-    } else {
-        p = cfg_put(p, val);
-    }
-    *p++ = '\r'; *p++ = '\n';
-    return p;
-}
-
-static void cmd_save(const char *args) __z88dk_fastcall
+// cmd_save — moved to overlay (SPCTLK4.OVL entry 1)
+void cmd_save(const char *args) __z88dk_fastcall
 {
-    // FIX-H7: worst-case write is ~329 bytes (all fields max length) << 2048
-    char *p = (char *)ring_buffer;
-    char tmp[4];
-
     (void)args;
-    if (!has_esxdos) { ui_err("No esxDOS"); return; }
-
-    p = cfg_put(p, "; SpecTalkZX config\r\n");
-
-    if (irc_server[0])    p = cfg_kv(p, K_SERVER, irc_server);
-    if (irc_port[0])      p = cfg_kv(p, K_PORT, irc_port);
-    if (irc_nick[0])      p = cfg_kv(p, K_NICK, irc_nick);
-    if (irc_pass[0])      p = cfg_kv(p, K_PASS, irc_pass);
-    if (nickserv_pass[0]) p = cfg_kv(p, K_NKPASS, nickserv_pass);
-
-    // Numeric settings (cast to pointer trick: 1-9 = single digit)
-    p = cfg_kv(p, K_THEME, (const char *)(uint16_t)current_theme);
-    p = cfg_kv(p, K_BEEP, (const char *)(uint16_t)beep_enabled);
-    p = cfg_kv(p, K_TRAFFIC, (const char *)(uint16_t)show_traffic);
-    p = cfg_kv(p, K_TS, (const char *)(uint16_t)show_timestamps);
-    p = cfg_kv(p, K_AUTOCONN, (const char *)(uint16_t)autoconnect);
-    // Autoaway (only if set)
-    if (autoaway_minutes) {
-        fast_u8_to_str(tmp, autoaway_minutes); tmp[2] = '\0';
-        p = cfg_kv(p, K_AUTOAWAY, tmp);
-    }
-
-    // Timezone (signed)
-    p = cfg_put(p, K_TZ);
-    if (sntp_tz < 0) {
-        *p++ = '-';
-        fast_u8_to_str(tmp, (uint8_t)(-sntp_tz));
-    } else {
-        fast_u8_to_str(tmp, (uint8_t)sntp_tz);
-    }
-    tmp[2] = '\0';
-    p = cfg_put(p, tmp); *p++ = '\r'; *p++ = '\n';
-
-    p = cfg_put_csv(p, "friends", (const char *)friend_nicks, IRC_NICK_SIZE, MAX_FRIENDS);
-    p = cfg_put_csv(p, "ignores", (const char *)ignore_list, sizeof(ignore_list[0]), ignore_count);
-
-    SYS_PUTS("Saving config... ");
-
-    esx_fcreate(K_CFG_PRI);
-    if (!esx_handle) esx_fcreate(K_CFG_ALT);
-    if (!esx_handle) { main_print("FAIL"); ui_err("Cannot write config"); goto save_cleanup; }
-
-    esx_buf = (uint16_t)(char *)ring_buffer;
-    esx_count = (uint16_t)(p - (char *)ring_buffer);
-    {
-        uint16_t expected = esx_count;
-        uint8_t write_ok;
-        esx_fwrite();
-        write_ok = (esx_result == expected);  // check BEFORE fclose overwrites esx_result
-        esx_fclose();
-        input_cache_invalidate();
-
-        if (!write_ok) {
-            main_print("FAIL"); ui_err("Write error");
-        } else {
-            char nbuf[6];
-            main_puts("OK (");
-            u16_to_dec(nbuf, expected);
-            main_puts(nbuf);
-            main_print(" bytes)");
-        }
-    }
-
-save_cleanup:
-    // ring_buffer was used as temp — reset to prevent
-    // process_irc_data() from parsing config data as IRC messages
-    rb_head = 0;
-    rb_tail = 0;
-    rx_pos = 0;
+    overlay_exec(3, 1);
 }
 
 // OPT-C14: cmd_clear eliminated — command table points directly to clear_main
@@ -1448,7 +1300,7 @@ static void cmd_close_wrapper(const char *a) __z88dk_fastcall {
         return;
     }
     if (f & CH_FLAG_QUERY) {
-        sys_puts_print("Closed query with ", irc_channel);
+        notify2("Closed ", irc_channel, ATTR_MSG_SYS);
         remove_channel(current_channel_idx);
     } else {
         cmd_part("");
@@ -1516,7 +1368,7 @@ typedef struct {
 static void sys_help(const char *args) __z88dk_fastcall;
 
 #define CMD_IDX_NONE  ((uint8_t)0xFF)
-#define SYS_CMDS_COUNT 6
+#define SYS_CMDS_COUNT 19
 
 // Command names/aliases pool (help strings moved to /SYS/SPECTALK.HLP)
 static const char cmd_pool[] =
@@ -1524,16 +1376,32 @@ static const char cmd_pool[] =
     "t\0nick\0pass\0id\0join\0j\0part\0p\0msg\0m\0query\0q\0close\0quit\0me"
     "\0away\0autoaway\0aa\0raw\0whois\0wi\0who\0list\0ls\0names\0topic\0sea"
     "rch\0ignore\0kick\0k\0channels\0w\0beep\0traffic\0timestamps\0ts\0clear\0cls\0"
-    "save\0sv\0autoconnect\0ac\0tz\0friend\0"
+    "save\0sv\0autoconnect\0ac\0tz\0friend\0nickcolor\0nc\0notif\0nf\0"
+    "changelog\0click\0"
 ;
 
 static const PackedCmd USER_COMMANDS[] = {
+    // --- System commands (! prefix) - SYS_CMDS_COUNT entries ---
     {   0,   1, sys_help },
     {   2,   3, sys_status },
     {   4,   5, sys_init },
     {   6,   7, sys_config },
     {   8, 255, cmd_theme },
     {   9, 255, sys_about },
+    {  43, 255, cmd_beep },
+    {  57,  58, cmd_notif },
+    {  59, 255, sys_whatsnew },
+    {  27,  28, cmd_autoaway },
+    {  44, 255, cmd_traffic },
+    {  45,  46, cmd_timestamps },
+    {  47,  48, (void (*)(const char *))clear_main },
+    {  49,  50, cmd_save },
+    {  51,  52, cmd_autoconnect },
+    {  53, 255, cmd_tz },
+    {  54, 255, cmd_friend },
+    {  55,  56, cmd_nickcolor },
+    {  60, 255, cmd_click },
+    // --- IRC commands (/ prefix) ---
     {  10,  11, cmd_connect },
     {  12, 255, cmd_nick },
     {  13, 255, cmd_pass },
@@ -1546,7 +1414,6 @@ static const PackedCmd USER_COMMANDS[] = {
     {  24, 255, cmd_quit },
     {  25, 255, cmd_me },
     {  26, 255, cmd_away },
-    {  27,  28, cmd_autoaway },
     {  29, 255, cmd_raw },
     {  30,  31, cmd_whois },
     {  32, 255, cmd_who },
@@ -1557,14 +1424,6 @@ static const PackedCmd USER_COMMANDS[] = {
     {  38, 255, cmd_ignore },
     {  39,  40, cmd_kick },
     {  41,  42, cmd_windows_wrapper },
-    {  43, 255, cmd_beep },
-    {  44, 255, cmd_traffic },
-    {  45,  46, cmd_timestamps },
-    {  47,  48, (void (*)(const char *))clear_main },
-    {  49,  50, cmd_save },
-    {  51,  52, cmd_autoconnect },
-    {  53, 255, cmd_tz },
-    {  54, 255, cmd_friend },
 };
 
 #define USER_COMMANDS_COUNT ((uint8_t)(sizeof(USER_COMMANDS) / sizeof(USER_COMMANDS[0])))
@@ -1579,93 +1438,30 @@ static const char *pool_nth(uint8_t idx) __z88dk_fastcall
     return p;
 }
 
-static const char K_DAT[] = "SPECTALK.DAT";
+const char K_DAT[] = "SPECTALK.DAT";
 
-// Render one help page. Briefly loads SPECTALK.DAT into ring_buffer,
-// renders, then releases ring_buffer for normal IRC use.
+// help_render_page — moved to overlay (SPECTALK.OVL entry 0)
 static void help_render_page(void)
 {
-    char *p;
-    uint8_t row, lines, skip;
-
-    // Read help text from SPECTALK.DAT (seek past binary header)
-    esx_fopen(K_DAT);
-    if (!esx_handle) { help_active = 0; return; }
-    esx_buf = (uint16_t)(char *)ring_buffer;
-    esx_count = RING_BUFFER_SIZE - 2;
-    esx_fread();
-    { uint16_t n = esx_result; if (n > RING_BUFFER_SIZE - 2) n = RING_BUFFER_SIZE - 2; ((char *)ring_buffer)[n] = '\0'; }
-    esx_fclose();
-    input_cache_invalidate();  // esxDOS corrupts Printer Buffer (input_cache lives there)
-
-    // Skip binary header (font + themes), then to current page
-    p = (char *)ring_buffer + 373;
-    for (skip = 0; skip < help_page; skip++) {
-        lines = 0;
-        while (*p && lines < 13) {
-            while (*p && *p != '\n' && *p != '\r') p++;
-            if (*p == '\r') p++;
-            if (*p == '\n') p++;
-            lines++;
-        }
-        if (!*p) { help_page = 0; p = (char *)ring_buffer + 373; break; }
-    }
-
-    // Render page
-    clear_main();
-    print_str64(MAIN_START, 2, "HELP", ATTR_MSG_TOPIC);
-    memset((void *)(screen_row_base[MAIN_START + 1] + 256), 0xFF, 16);
-    memset((void *)(0x5800 + (MAIN_START + 1) * 32), ATTR_MSG_TOPIC, 16);
-
-    row = 2; lines = 0;
-    while (*p && lines < 13) {
-        char *ls = p;
-        char *tab;
-        while (*p && *p != '\n' && *p != '\r') p++;
-        { char sv = *p; *p = '\0';
-          tab = ls;
-          while (*tab && *tab != '\t') tab++;
-          if (*tab == '\t') {
-              *tab = '\0';
-              print_str64(MAIN_START + row, 2, ls, ATTR_MSG_NICK);
-              print_str64(MAIN_START + row, 18, tab + 1, ATTR_MSG_CHAN);
-              *tab = '\t';
-          } else {
-              print_str64(MAIN_START + row, 2, ls, ATTR_MSG_CHAN);
-          }
-          *p = sv;
-        }
-        if (*p == '\r') p++;
-        if (*p == '\n') p++;
-        row++; lines++;
-    }
-
-    memset((void *)(screen_row_base[MAIN_START + row] + 256), 0xFF, 16);
-    memset((void *)(0x5800 + (MAIN_START + row) * 32), ATTR_MSG_TOPIC, 16);
-    print_str64(MAIN_START + 16, 2, "ANY: next  BREAK: exit", ATTR_MSG_TIME);
-
-    // Release ring_buffer: flush so main loop's uart_drain_to_buffer works
-    rb_head = rb_tail = 0;
-    rx_pos = 0;
+    overlay_exec(0, 0);
 }
 
 static void sys_help(const char *args) __z88dk_fastcall
 {
     (void)args;
-    if (!has_esxdos) { ui_err("No esxDOS"); return; }
     help_page = 0;
-    help_active = 1;
+    overlay_mode = OVERLAY_HELP;
     cursor_visible = 0;
     help_render_page();
 }
 
+// overlay_about_render — moved to overlay (SPECTALK.OVL entry 1)
 static void sys_about(const char *args) __z88dk_fastcall
 {
     (void)args;
-    set_attr_sys();
-    main_print(S_APPNAME);
-    main_print(S_APPDESC);
-    main_print(S_COPYRIGHT);
+    overlay_mode = OVERLAY_ABOUT;
+    cursor_visible = 0;
+    overlay_exec(1, 0);
 }
 
 void parse_user_input(char *line) __z88dk_fastcall
@@ -1674,7 +1470,7 @@ void parse_user_input(char *line) __z88dk_fastcall
     char *cmd_str;
     uint8_t is_sys = 0;
 
-    while (*line == ' ') line++;
+    line = skip_spaces(line);
     if (!*line) return;
 
     cmd_str = line;
@@ -1687,37 +1483,8 @@ void parse_user_input(char *line) __z88dk_fastcall
     } else {
         // FIX-M10: require IRC_READY, not just TCP_CONNECTED
         if (connection_state < STATE_IRC_READY) {
-            set_attr_err();
             ERR_NOTCONN();
             return;
-        }
-
-        // Check for "nick: message" format first (works from any window)
-        {
-            char *colon = strchr(line, ':');
-            if (colon && colon != line && line[0] >= 'A') {
-                char *sp = strchr(line, ' ');
-                if (!sp || sp > colon) {
-                    *colon = 0;
-                    {
-                        char *msg = colon + 1;
-                        while (*msg == ' ' || *msg == '\t') msg++;
-                        if (*msg) {
-                            // Open query window for the nick
-                            int8_t qidx = find_query(line);
-                            if (qidx < 0) {
-                                qidx = add_query(line);
-                                if (qidx >= 0) {
-                                    status_bar_dirty = 1;
-                                    switch_to_channel((uint8_t)qidx);
-                                }
-                            }
-                            irc_send_privmsg(line, msg);
-                            return;
-                        }
-                    }
-                }
-            }
         }
 
         // For regular messages, need to be in a channel/query window
@@ -1734,7 +1501,7 @@ void parse_user_input(char *line) __z88dk_fastcall
     args = strchr(cmd_str, ' ');
     if (args) {
         *args++ = '\0';
-        while (*args == ' ') args++;
+        args = skip_spaces(args);
     }
 
     {
@@ -1743,14 +1510,12 @@ void parse_user_input(char *line) __z88dk_fastcall
         uint8_t idx = c0 - '0';
 
         if (idx < MAX_CHANNELS && (channels[idx].flags & CH_FLAG_ACTIVE)) {
-            const char *chn_name = (idx == 0) ? S_SERVER : channels[idx].name;
-            const char *msg = S_ALREADY_IN;
-
             if (idx != current_channel_idx) {
                 switch_to_channel(idx);
-                msg = S_SWITCHTO;
+                notify2("Switched to ", channels[idx].name, ATTR_MSG_JOIN);
+            } else {
+                notify2("Already in ", channels[idx].name, ATTR_MSG_SYS);
             }
-            sys_puts_print(msg, chn_name);
         } else {
             set_attr_err();
             main_puts("No window ");

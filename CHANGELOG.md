@@ -7,6 +7,119 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.7] - 2026-04-06 "Artemis II"
+
+TAP size: 36,087 bytes (vs 37,166 in v1.3.6 — 1,079 bytes smaller)
+
+### Added
+
+#### Overlay System
+- C-compiled overlay architecture: help, about, config, status, and What's New screens loaded on demand from SPECTALK.OVL into the ring buffer
+- Frees ~1.5 KB of resident code while adding richer UI screens
+- Four overlay slots (2048 bytes each), packed into a single SPECTALK.OVL file
+
+#### Ikkle-4 Mini Font & Notification System
+- Custom 4px-wide uppercase font (128 bytes) rendered at row 20
+- Smart notifications: PM alerts, nick mentions, friend joins, friend online (ISON)
+- Configurable via `!notif on|off`, saved in config
+- Slide-in animation, 3-second timeout, max 2 stacked notifications
+- BPE decompression in notification strings
+
+#### Nick Coloring
+- Per-nick hash-based coloring (6 colors, avoids PAPER conflict)
+- Auto-detects mono themes (Terminal) and disables itself
+- Toggle via `!nickcolor on|off`, saved in config
+
+#### Word-by-Word Navigation
+- SS+LEFT / SS+RIGHT: jump to previous/next word boundary
+- SS+BACKSPACE: delete entire word
+- Auto-repeat: 240ms initial delay, 80ms repeat
+
+#### Key Auto-Repeat for All Keys
+- Holding any key now repeats after 400ms at ~17 chars/s
+- Previously only arrows and backspace had auto-repeat
+
+#### Prompt Indicator
+- `>` for channels, `@` for query/PM windows
+- Color follows theme (auto-detects mono themes, uses BRIGHT instead)
+
+#### What's New Screen
+- `!about` then press N to see changelog with version logo
+- Auto-generated from release assets at build time
+
+#### Status Screen Enhanced
+- `!status` now shows: Nick, Server, Network, State, Latency, Uptime
+- Two-column channel list (0-4 left, 5-9 right)
+
+#### Mention Highlighting
+- Messages mentioning your nick render with BRIGHT attribute
+- Beep notification with distinct lower tone
+
+#### Tab Switcher Improvements
+- Query windows shown as `N:@NICK`
+- ENTER shows "Switched to #channel" notification
+- "Already in #channel" feedback when selecting current channel
+
+#### Quick Reply
+- ENTER during PM notification opens sender's query window
+- BREAK dismisses the notification
+
+#### esxDOS Required
+- Fatal halt with centered message if divMMC not detected or SPECTALK.DAT missing
+
+#### New System Commands
+- `!nickcolor` (`!nc`): toggle per-nick coloring
+- `!notif` (`!nf`): toggle smart notifications
+- `!click`: toggle key click sound
+- `!changelog`: show What's New screen
+
+### Fixed
+
+#### Critical
+- IM2 dead code removal: CRT init was writing 0xFD over BSS at $FC00+ (corrupting bpe_dict). Removed — IM1 used exclusively
+- Auto-identify security: validates sender nick before sending NickServ password
+- cdecl wrapper stack corruption (COPT-32/33/34): parameter offset fixed via EXX register bank swap
+- frame_wait rewrite: busy-wait replaced with ei/halt/di + IY preservation
+
+#### Networking
+- PONG format corrected to match server PING token
+- SNTP race condition: adjusted timing gives 4.5s for NTP sync before transparent mode
+- SNTP timezone re-sync on reconnect
+- Reconnect throttle: no QUIT before reconnect (avoids server-side delay)
+- Server keepalive: absolute timeout prevents silent disconnects
+- Overlay keepalive: IRC timers paused during overlays
+
+#### Rendering & UX
+- Smart double quotes: UTF-8 U+201C/201D now correctly map to `"` (was `?`)
+- Unhandled CTCP no longer renders SOH garbage on screen
+- Help text: fixed BPE offset calculation + segment boundary padding
+- PM rendering restored to v1.3.6 behavior
+- Server NOTICE filter: post-connection NOTICEs no longer suppressed
+- Ban notification shows ban mask instead of channel name
+- WHO/352: RFC-correct field indices
+- Action messages: timestamps + word-wrap indent
+- Beep differentiation: mention beep sounds lower/longer than key click
+- esx_fcreate: added FA_WRITE bit (fixes eLeMeNtZX hardware)
+
+#### Input
+- PM shortcut `nick: msg` removed (caused accidental PMs in channels)
+- Server command injection: rejects server names containing `"`
+- Disconnect timeout: y/n prompt auto-cancels after 5 seconds
+- `/topic` now accepts `&` channel prefix
+
+### Removed
+- **AY bit-bang UART driver**: esxDOS (divMMC) is now required for font data, overlays, and config. AY-only setups without SD card access are no longer supported. The `make ay` and `release-ay` targets have been removed.
+
+### Optimized
+- Overlay offloading: ~1,500 bytes of resident code moved to SD-loaded overlays
+- 13 C functions rewritten as frameless ASM (~600 bytes saved)
+- 35 custom COPT peephole rules (was 14 in v1.3.6)
+- Lookup tables replaced with computed functions
+- BPE: 155 strings, 81 tokens, -947 bytes
+- BSS: 96 bytes saved via buffer aliasing and fixed-address placement
+
+---
+
 ## [1.3.6] - 2026-03-19 "Byte Packer"
 
 ### Added

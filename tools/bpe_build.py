@@ -79,10 +79,10 @@ def apply_sb_renames(content):
     return content
 
 
-def patch_spectalk_c(content):
+def patch_spectalk_c(content, dat_dict_offset=691):
     """Apply structural patches for BPE support."""
-    # esx_count for SPECTALK.DAT with dict
-    content = content.replace('esx_count = 373;', 'esx_count = 691;')
+    # esx_count for SPECTALK.DAT with dict (dynamic based on actual dict size)
+    content = content.replace('esx_count = 373;', f'esx_count = {dat_dict_offset};')
 
     # BPE bypass in main_print fast path
     content = content.replace(
@@ -114,9 +114,9 @@ def patch_spectalk_h(content):
     return content
 
 
-def patch_user_cmds_c(content):
+def patch_user_cmds_c(content, dat_dict_offset=691):
     """Apply help offset and abort_msg/status patches."""
-    content = content.replace('ring_buffer + 373', 'ring_buffer + 691')
+    content = content.replace('ring_buffer + 373', f'ring_buffer + {dat_dict_offset}')
 
     # Replace inline literals with SB_ constants
     content = content.replace('abort_msg = "Aborted.";', 'abort_msg = SB_ABORTED;')
@@ -139,18 +139,69 @@ def patch_irc_handlers_c(content):
     return content
 
 
+EXPECTED_DAT_SIZE = 1517   # src/SPECTALK.DAT without BPE dict (font+themes+help)
+BPE_POISON_MARKER = 'SB_ABORTED'  # only exists after BPE patching
+
+
+def validate_sources():
+    """Abort if src/ files are already BPE-modified or SPECTALK.DAT is wrong size.
+    Prevents cascading corruption from a previous failed build."""
+    dat_path = os.path.join(ROOT, 'src', 'SPECTALK.DAT')
+    dat_size = os.path.getsize(dat_path)
+    if dat_size != EXPECTED_DAT_SIZE:
+        print(f"  [BPE ABORT] src/SPECTALK.DAT is {dat_size} bytes, "
+              f"expected {EXPECTED_DAT_SIZE}. Sources are corrupted.",
+              file=sys.stderr)
+        print(f"  Restore from a Development/ backup: "
+              f"cp Development/16_v1.3.7_stable/SPECTALK.DAT src/",
+              file=sys.stderr)
+        sys.exit(1)
+
+    spectalk_c = read_file(os.path.join(ROOT, 'src', 'spectalk.c'))
+    if BPE_POISON_MARKER in spectalk_c:
+        print(f"  [BPE ABORT] src/spectalk.c contains '{BPE_POISON_MARKER}' — "
+              f"already BPE-patched. Sources are corrupted.",
+              file=sys.stderr)
+        print(f"  Restore from a Development/ backup or bpe_originals/",
+              file=sys.stderr)
+        sys.exit(1)
+
+
+def validate_backup(backup_dir):
+    """Verify bpe_originals/ backup is clean before we trust it for restore."""
+    dat_bak = os.path.join(backup_dir, 'SPECTALK.DAT')
+    if os.path.exists(dat_bak):
+        sz = os.path.getsize(dat_bak)
+        if sz != EXPECTED_DAT_SIZE:
+            print(f"  [BPE ABORT] Backup SPECTALK.DAT is {sz} bytes, "
+                  f"expected {EXPECTED_DAT_SIZE}. Backup is corrupted.",
+                  file=sys.stderr)
+            sys.exit(1)
+    sc_bak = os.path.join(backup_dir, 'spectalk.c')
+    if os.path.exists(sc_bak):
+        content = read_file(sc_bak)
+        if BPE_POISON_MARKER in content:
+            print(f"  [BPE ABORT] Backup spectalk.c contains '{BPE_POISON_MARKER}' — "
+                  f"backup is corrupted.", file=sys.stderr)
+            sys.exit(1)
+
+
 def main():
     sys.path.insert(0, os.path.join(ROOT, 'tools'))
     from bpe_compress import (extract_string_literals, build_corpus,
                                bpe_compress, generate_compressed_sources,
                                generate_dict_binary)
 
+    # SAFETY: Validate sources are clean BEFORE doing anything
+    validate_sources()
+
     bpe_src = os.path.join(BUILD_DIR, 'bpe_src')
     bpe_final = os.path.join(BUILD_DIR, 'bpe_final')
     os.makedirs(bpe_src, exist_ok=True)
     os.makedirs(bpe_final, exist_ok=True)
 
-    # Step 1: Copy and patch sources
+    # Step 1: Copy and patch sources (all patches including default offset 691;
+    # offset will be corrected in Step 4b after dict size is known)
     for f in SRC_FILES:
         content = read_file(os.path.join(ROOT, 'src', f))
         content = apply_sb_renames(content)
@@ -181,19 +232,79 @@ def main():
     # Step 3: Generate compressed sources
     generate_compressed_sources(src_paths, strings, dictionary, bpe_final)
 
-    # Step 4: Generate dict binary
+    # Step 4: Generate dict binary and compute help offset
     dict_bin = generate_dict_binary(dictionary)
     dict_path = os.path.join(BUILD_DIR, 'bpe_dict.bin')
     with open(dict_path, 'wb') as f:
         f.write(dict_bin)
 
-    # Step 5: Generate SPECTALK.DAT with dict
+    dat_dict_offset = 373 + len(dict_bin)  # help text starts after font+themes+dict
+
+    # Step 4b: Fix offsets in compressed sources if dict size differs from default
+    DEFAULT_OFFSET = 691  # 373 + 318 (original dict size assumption)
+    if dat_dict_offset != DEFAULT_OFFSET:
+        for f in ['spectalk.c', 'user_cmds.c']:
+            path = os.path.join(bpe_final, f)
+            content = read_file(path)
+            content = content.replace(f'esx_count = {DEFAULT_OFFSET};',
+                                      f'esx_count = {dat_dict_offset};')
+            content = content.replace(f'ring_buffer + {DEFAULT_OFFSET}',
+                                      f'ring_buffer + {dat_dict_offset}')
+            write_file(path, content)
+
+    # Step 4c: Patch overlay_api.h with actual help offset
+    ovl_api = os.path.join(ROOT, 'overlay', 'overlay_api.h')
+    ovl_content = read_file(ovl_api)
+    ovl_content = re.sub(
+        r'#define BPE_HELP_OFFSET \d+',
+        f'#define BPE_HELP_OFFSET {dat_dict_offset}',
+        ovl_content
+    )
+    write_file(ovl_api, ovl_content)
+
+    # Step 5: Generate SPECTALK.DAT with dict + help segment padding
     dat_orig = os.path.join(ROOT, 'src', 'SPECTALK.DAT')
-    dat_out = os.path.join(BUILD_DIR, 'SPECTALK.DAT')
     with open(dat_orig, 'rb') as f:
         orig = f.read()
+
+    header = orig[:373]          # font + glyphs + themes
+    help_text = orig[373:]       # help text (plain)
+
+    # Pad help text so 512-byte segment boundaries never split a line.
+    # Insert newlines before lines that would cross a boundary.
+    padded = bytearray()
+    for byte in help_text:
+        # Check if this byte would cross a 512-byte boundary mid-line
+        seg_pos = len(padded) % 512
+        if seg_pos == 511 and byte != 0x0A and byte != 0x0D:
+            # Last byte of segment and not a newline — find last newline
+            # and insert padding there instead
+            pass  # handled below
+        padded.append(byte)
+
+    # Better approach: split into lines, reassemble with NUL padding at boundaries
+    help_lines = help_text.split(b'\n')
+    padded = bytearray()
+    for i, line in enumerate(help_lines):
+        content = line.rstrip(b'\r')
+        line_with_nl = len(content) + (1 if i < len(help_lines) - 1 else 0)
+        line_start = len(padded)
+        line_end = line_start + line_with_nl
+        seg_boundary = ((line_start // 512) + 1) * 512
+        if line_start < seg_boundary <= line_end and len(content) > 0:
+            # This line would cross a 512B boundary — pad with NUL bytes
+            # so segment ends cleanly. skip_partial in overlay treats
+            # bytes before first \n as partial (skips them), but NUL bytes
+            # terminate the segment string, so no partial to skip.
+            while len(padded) < seg_boundary:
+                padded.append(0x00)
+        padded.extend(content)
+        if i < len(help_lines) - 1:
+            padded.append(0x0A)
+
+    dat_out = os.path.join(BUILD_DIR, 'SPECTALK.DAT')
     with open(dat_out, 'wb') as f:
-        f.write(orig[:373] + dict_bin + orig[373:])
+        f.write(header + dict_bin + bytes(padded))
 
     # Step 6: Install compressed files for compilation
     for f in SRC_FILES:

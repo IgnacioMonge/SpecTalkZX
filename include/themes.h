@@ -49,8 +49,7 @@ uint8_t banner;
     uint8_t badge[5];
 } Theme;
 
-// OPT-01: Tabla de themes definida en spectalk.c para evitar duplicación si se incluye desde múltiples .c
+// Theme data is now loaded at runtime from SPECTALK.DAT into theme_raw[]
 #define THEME_COUNT 3
-extern const Theme themes[THEME_COUNT];
 
 #endif

@@ -1,0 +1,23 @@
+# Build artifacts
+*.tap
+*.bin
+*.map
+*.o
+*.sym
+*.zip
+build/
+SpecTalkZX
+
+# Data files (distributed in release ZIPs, not in repo)
+SPECTALK.DAT
+SPECTALK.CFG
+SPECTALK.OVL
+src/SPECTALK.DAT
+
+# Python
+__pycache__/
+*.pyc
+
+# Editor
+*.swp
+*~

@@ -6,11 +6,11 @@
 
 **Cliente IRC para ZX Spectrum con WiFi ESP8266**
 
-🇬🇧 [Read in English](README.md)
+:gb: [Read in English](README.md)
 
 ![Plataforma](https://img.shields.io/badge/Plataforma-ZX%20Spectrum-blue)
 ![Licencia](https://img.shields.io/badge/Licencia-GPLv2-green)
-![Versión](https://img.shields.io/badge/Versión-1.3.6-orange)
+![Versión](https://img.shields.io/badge/Versión-1.3.7-orange)
 
 ---
 
@@ -28,11 +28,26 @@ SpecTalk ZX es un cliente IRC completo para ZX Spectrum que trae la funcionalida
 - **3 temas de color** con badges exclusivos: Default (rainbow dither), Terminal (`<<<` parpadeante), Commander (`_ [] X`)
 - **Banner double-height** con efecto BRIGHT split (estilo NetManZX)
 - **Indicadores de actividad**: Marcadores visuales para ventanas con mensajes sin leer, badge parpadeante en Theme 2
-- **Resaltado de menciones**: Ventanas con menciones de tu nick mostradas en color destacado
-- **Barra de cambio de canales**: Pulsa EDIT para una barra visual con indicadores de no leido/mención en tiempo real; DELETE cierra el canal seleccionado
+- **Resaltado de menciones**: Mensajes con tu nick mostrados en BRIGHT
+- **Barra de cambio de canales**: Pulsa EDIT para una barra visual con indicadores de no leído/mención en tiempo real; DELETE cierra el canal seleccionado
 - **Indicador de conexión**: LED de tres estados (🔴 Sin WiFi → 🟡 WiFi OK → 🟢 Conectado)
 - **Reloj en tiempo real** sincronizado vía SNTP
 - **Timestamps opcionales** en todos los mensajes
+
+### Nuevas funcionalidades en v1.3.7
+
+- **Sistema de overlays**: Ayuda, About, Config, Status, What's New cargados desde SPECTALK.OVL bajo demanda
+- **Mini fuente Ikkle-4**: Fuente de 4px para notificaciones en fila 20
+- **Notificaciones inteligentes**: Alertas de PM, menciones, amigos online. Configurable con `!notif on|off`
+- **Coloreado de nicks**: Color por nick basado en hash, detecta temas monocromo. `!nickcolor on|off`
+- **Navegación por palabras**: SS+IZQUIERDA/DERECHA, SS+BORRAR para borrar palabra
+- **Auto-repetición de teclas**: Todas las teclas repiten al mantenerlas pulsadas
+- **Respuesta rápida**: ENTER en notificación PM abre ventana del remitente; BREAK descarta
+- **Globo rotatorio** en la pantalla About
+- **Pantalla What's New** (pulsar N en About)
+- **Pantalla Status mejorada**: Red, Latencia, Uptime, lista de canales en dos columnas
+- **esxDOS obligatorio**: Parada fatal si no hay divMMC o falta el DAT
+- **Beep diferenciado**: Mención suena más grave que el click de tecla
 
 ### Protocolo IRC
 - **Compatibilidad IRC completa**: JOIN, PART, QUIT, NICK, PRIVMSG, NOTICE, TOPIC, MODE, KICK, WHO, WHOIS, LIST, NAMES
@@ -52,26 +67,26 @@ SpecTalk ZX es un cliente IRC completo para ZX Spectrum que trae la funcionalida
 - **Latencia de ping**: Medición del tiempo de respuesta del servidor
 
 ### Rendimiento y Bajo Nivel
-- **Modo de interrupción IM2**: Handler de interrupción propio que evita conflictos con divMMC y permite hijacking de RAM del sistema
 - **Hijacking de RAM del sistema**: Printer Buffer, workspace CHANS y zona UDG reutilizados para variables (+602 bytes BSS liberados)
-- **Compresión BPE de strings**: 170 strings de pantalla comprimidas con 97 tokens (~1.100 bytes ahorrados)
-- **14 reglas peephole personalizadas**: Factorización en subrutinas en 200+ call sites (-1.520 bytes de código)
+- **Compresión BPE de strings**: 155 strings de pantalla comprimidas con 81 tokens (~947 bytes ahorrados)
+- **35 reglas peephole personalizadas**: Factorización en subrutinas en múltiples call sites
+- **Sistema de overlays**: 13 funciones ASM optimizadas cargadas bajo demanda desde SPECTALK.OVL
 - **Arquitectura Unity Build**: Cliente completo compilado como unidad única para máxima optimización
 - **Ring Buffer**: Buffer de 2KB para recepción de datos fiable a alta velocidad
 - **Optimizado en ensamblador**: Rutas críticas de renderizado en Z80 assembly, renderizado inline de espacios
-- **Drivers UART duales**: UART hardware (115200 baud) y bit-bang AY (9600 baud)
-- **Detección esxDOS**: Detección segura de divMMC al arrancar; funciona sin tarjeta SD usando valores por defecto
+- **UART hardware**: 115200 baud vía divMMC/divTIESUS
+- **esxDOS obligatorio**: Parada fatal con mensajes ROM si no se detecta divMMC o falta el fichero DAT
 
 Sesión de chat en vivo en un canal IRC:
 
 <p align="center">
-  <a href="images/snap1.png"><img src="images/snap1.png" width="600" alt="SpecTalkZX - Chat IRC en vivo"></a>
+  <a href="images/chat_default.png"><img src="images/chat_default.png" width="600" alt="SpecTalkZX - Chat IRC en vivo"></a>
 </p>
 
-Pantalla de arranque mostrando la inicialización del sistema y conexión WiFi:
+Notificación de mención con resaltado BRIGHT:
 
 <p align="center">
-  <a href="images/boot.png"><img src="images/boot.png" width="600" alt="Pantalla de arranque"></a>
+  <a href="images/chat_mention.png"><img src="images/chat_mention.png" width="600" alt="Mención de nick resaltada"></a>
 </p>
 
 ---
@@ -82,31 +97,25 @@ Pantalla de arranque mostrando la inicialización del sistema y conexión WiFi:
 |------------|----------------|
 | **Ordenador** | ZX Spectrum 48K, 128K, +2, +2A, +3, o compatible |
 | **Módulo WiFi** | ESP8266 (ESP-01 o similar) con firmware AT |
-| **Interfaz** | divMMC, divTIESUS, o adaptador UART basado en AY |
+| **Interfaz** | divMMC o divTIESUS (UART hardware) |
+| **Velocidad** | **115200** bps |
+| **Tarjeta SD** | Necesaria (esxDOS) para fuentes, overlays y configuración |
 
-### Configuración de Velocidad
-
-| Interfaz | Driver | Velocidad |
-|----------|--------|-----------|
-| divMMC / divTIESUS | UART Hardware | **115200** bps |
-| ZX-Uno / Interfaz AY | Bit-bang AY-3-8912 | **9600** bps |
-
-> ⚠️ **Importante**: Configura tu ESP8266 a la velocidad correspondiente a tu interfaz antes de usar.
+> **Importante**: Configura tu ESP8266 a 115200 baud antes de usar.
 
 ---
 
 ## Instalación
 
-1. Descarga el ZIP de la release para tu hardware (incluye TAP + archivo de datos):
-   - `spectalk_divmmc.zip` para divMMC/divTIESUS (115200 baud)
-   - `spectalk_ay.zip` para interfaz AY (9600 baud)
-2. Extrae y copia ambos archivos a tu tarjeta SD:
+1. Descarga `spectalk_divmmc.zip` desde la página de [Releases](https://github.com/IgnacioMonge/SpecTalkZX/releases)
+2. Extrae y copia todos los ficheros a tu tarjeta SD:
    - `SpecTalkZX.tap` — el programa
-   - `SPECTALK.DAT` — fuente, temas y datos de ayuda (debe estar en el mismo directorio que el TAP)
+   - `SPECTALK.DAT` — fuente, temas y datos comprimidos (debe estar en el mismo directorio que el TAP)
+   - `SPECTALK.OVL` — overlay con pantallas de ayuda, about, config y status
 3. Cárgalo en tu Spectrum mediante tarjeta SD, cinta u otro método
 4. Configura las credenciales WiFi usando [NetManZX](https://github.com/IgnacioMonge/NetManZX) o herramienta similar
 
-> **Importante**: `SPECTALK.DAT` es necesario. Sin él no se cargará la fuente de 64 columnas ni las pantallas de ayuda.
+> **Importante**: `SPECTALK.DAT` y `SPECTALK.OVL` son necesarios. Sin el DAT no se cargará la fuente de 64 columnas. Sin el OVL no funcionarán las pantallas de ayuda, about, config ni status.
 
 ---
 
@@ -129,18 +138,24 @@ Pantalla de arranque mostrando la inicialización del sistema y conexión WiFi:
    /join #spectrum
    ```
 
-5. **¡A chatear!** Escribe tu mensaje y pulsa ENTER
+5. **A chatear!** Escribe tu mensaje y pulsa ENTER
 
 Los tres temas de color disponibles:
 
 <p align="center">
-  <a href="images/theme1.png"><img src="images/theme1.png" width="250" alt="Tema 1 - Default"></a>
+  <a href="images/chat_default.png"><img src="images/chat_default.png" width="250" alt="Tema 1 - Default"></a>
   &nbsp;&nbsp;
-  <a href="images/theme2.png"><img src="images/theme2.png" width="250" alt="Tema 2 - Terminal"></a>
+  <a href="images/theme_terminal.png"><img src="images/theme_terminal.png" width="250" alt="Tema 2 - Terminal"></a>
   &nbsp;&nbsp;
-  <a href="images/theme3.png"><img src="images/theme3.png" width="250" alt="Tema 3 - Commander"></a>
+  <a href="images/theme_commander.png"><img src="images/theme_commander.png" width="250" alt="Tema 3 - Commander"></a>
   <br>
   <em>Default &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Terminal &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Commander</em>
+</p>
+
+Notificación en tema Terminal:
+
+<p align="center">
+  <a href="images/theme_terminal_notif.png"><img src="images/theme_terminal_notif.png" width="600" alt="Notificación en tema Terminal"></a>
 </p>
 
 ---
@@ -151,12 +166,15 @@ Los tres temas de color disponibles:
 
 | Tecla | Acción |
 |-------|--------|
-| **ENTER** | Enviar mensaje o ejecutar comando |
-| **EDIT** (Caps+1) | Abrir/cerrar barra de cambio de canales |
-| **DELETE** (Caps+0) | Borrar carácter (retroceso) |
-| **← / →** | Mover cursor en la línea de entrada |
-| **↑ / ↓** | Navegar historial de comandos |
-| **BREAK** (Caps+Space) | Salir de pantallas de ayuda |
+| **ENTER** | Enviar mensaje / ejecutar comando |
+| **EDIT** (Caps+1) | Abrir/cerrar barra de canales |
+| **DELETE** (Caps+0) | Borrar carácter |
+| **← / →** | Mover cursor |
+| **↑ / ↓** | Historial de comandos |
+| **SS+← / SS+→** | Navegación por palabras |
+| **SS+DELETE** | Borrar palabra |
+| **BREAK** (Caps+Space) | Salir de overlays / cerrar notificación |
+| **ENTER** (en notificación PM) | Abrir ventana del remitente |
 
 ### Comandos de Sistema (!)
 
@@ -165,11 +183,24 @@ Comandos locales que no requieren conexión al servidor.
 | Comando | Alias | Descripción |
 |---------|-------|-------------|
 | `!help` | `!h` | Mostrar pantallas de ayuda |
-| `!status` | `!s` | Mostrar estado de conexión y estadísticas |
+| `!status` | `!s` | Información de conexión |
 | `!init` | `!i` | Reinicializar módulo ESP8266 |
-| `!config` | `!cfg` | Mostrar valores de configuración actuales |
-| `!theme N` | — | Cambiar tema de color (1, 2 o 3) |
-| `!about` | — | Mostrar versión y créditos |
+| `!config` | `!cfg` | Mostrar configuración |
+| `!theme N` | — | Cambiar tema de color (1-3) |
+| `!about` | — | Versión y créditos |
+| `!beep` | — | Activar/desactivar sonido de mención |
+| `!notif` | `!nf` | Activar/desactivar notificaciones |
+| `!changelog` | — | Mostrar novedades (What's New) |
+| `!autoaway` | `!aa` | Auto-away tras N minutos |
+| `!traffic` | — | Mostrar/ocultar mensajes JOIN/QUIT |
+| `!timestamps` | `!ts` | Ciclar modo de timestamps |
+| `!clear` | `!cls` | Limpiar zona de chat |
+| `!save` | `!sv` | Guardar configuración en SD |
+| `!autoconnect` | `!ac` | Activar/desactivar auto-conexión |
+| `!tz [±N]` | — | Ver/configurar zona horaria |
+| `!friend [nick]` | — | Gestionar lista de amigos |
+| `!nickcolor` | `!nc` | Activar/desactivar coloreado de nicks |
+| `!click` | — | Activar/desactivar sonido de tecla |
 
 ### Comandos IRC (/)
 
@@ -177,71 +208,57 @@ Comandos locales que no requieren conexión al servidor.
 
 | Comando | Alias | Descripción |
 |---------|-------|-------------|
-| `/server host [puerto]` | `/connect` | Conectar a servidor IRC (puerto por defecto: 6667) |
-| `/nick [nombre]` | — | Ver actual o establecer nuevo nickname |
-| `/pass [contraseña]` | — | Ver, establecer o borrar (`none`) contraseña del servidor |
-| `/id [contraseña]` | — | Identificarse con NickServ (usa contraseña guardada si no se indica) |
-| `/quit [mensaje]` | — | Desconectar del servidor con mensaje opcional |
+| `/server host [puerto]` | `/connect` | Conectar al servidor |
+| `/nick [nombre]` | — | Establecer nick |
+| `/pass [contraseña]` | — | Establecer contraseña del servidor |
+| `/id [contraseña]` | — | Identificarse con NickServ |
+| `/quit [mensaje]` | — | Desconectar |
 
 #### Canales
 
 | Comando | Alias | Descripción |
 |---------|-------|-------------|
 | `/join #canal` | `/j` | Unirse a un canal |
-| `/part [mensaje]` | `/p` | Salir del canal actual |
-| `/topic [texto]` | — | Ver o establecer el tema del canal |
-| `/names` | — | Listar usuarios en el canal actual |
-| `/kick nick [razón]` | `/k` | Expulsar usuario del canal (solo ops) |
+| `/part [mensaje]` | `/p` | Salir del canal |
+| `/topic [texto]` | — | Ver/establecer topic |
+| `/names` | — | Listar usuarios del canal |
+| `/kick nick [razón]` | `/k` | Expulsar usuario |
 
 #### Mensajes
 
 | Comando | Alias | Descripción |
 |---------|-------|-------------|
 | `/msg nick texto` | `/m` | Enviar mensaje privado |
-| `/query nick` | `/q` | Abrir ventana de mensaje privado |
-| `/me acción` | — | Enviar acción (aparece como *TuNick acción*) |
-| `nick: texto` | — | Atajo: enviar PM a nick (sin /msg) |
+| `/query nick` | `/q` | Abrir ventana de PM |
+| `/me acción` | — | Enviar acción |
+| `/close` | — | Cerrar ventana actual |
 
 #### Ventanas
 
 | Comando | Alias | Descripción |
 |---------|-------|-------------|
-| `/0` ... `/9` | — | Cambiar a ventana por número (0 = servidor) |
-| `/channels` | `/w` | Listar todas las ventanas abiertas (menciones resaltadas) |
-| `/close` | — | Cerrar ventana actual |
+| `/0` ... `/9` | — | Cambiar ventana por número |
+| `/channels` | `/w` | Listar ventanas abiertas |
 
 #### Herramientas
 
 | Comando | Alias | Descripción |
 |---------|-------|-------------|
-| `/search patrón` | — | Buscar canales (`#patrón`) o usuarios (`patrón`) |
-| `/list patrón` | `/ls` | Listar canales que coincidan con el patrón (lista completa deshabilitada) |
-| `/who patrón` | — | Buscar usuarios que coincidan con el patrón |
-| `/whois nick` | `/wi` | Obtener información sobre un usuario |
-| `/ignore [nick]` | — | Alternar ignorar nick (`-nick` para quitar), o listar ignorados |
-| `/raw comando` | — | Enviar comando IRC crudo al servidor |
+| `/search patrón` | — | Buscar canales/usuarios |
+| `/list patrón` | `/ls` | Listar canales |
+| `/who patrón` | — | Buscar usuarios |
+| `/whois nick` | `/wi` | Información de usuario |
+| `/ignore [nick]` | — | Activar/desactivar ignore |
+| `/raw comando` | — | Enviar comando IRC crudo |
 
 #### Estado Away
 
 | Comando | Alias | Descripción |
 |---------|-------|-------------|
-| `/away [mensaje]` | — | Establecer estado away con mensaje, o quitar si no hay mensaje |
-| `/autoaway N` | `/aa` | Auto-away tras N minutos inactivo (1-60, 0=desactivar) |
+| `/away [mensaje]` | — | Establecer/quitar away |
+| `/autoaway N` | `/aa` | Auto-away tras N minutos inactivo (1-60, 0=off) |
 
 > **Comportamiento de auto-away**: Cuando está activado, te pone automáticamente away tras N minutos de inactividad. Enviar cualquier mensaje quita el auto-away automáticamente. El `/away` manual debe quitarse manualmente con `/away`.
-
-#### Preferencias
-
-| Comando | Alias | Descripción |
-|---------|-------|-------------|
-| `/beep` | — | Alternar sonido en mención de nick (on/off) |
-| `/traffic` | — | Alternar mostrar mensajes QUIT/JOIN (on/off) |
-| `/timestamps` | `/ts` | Ciclar modo de timestamps (off/on/smart) |
-| `/autoconnect` | `/ac` | Alternar auto-conexión al iniciar (on/off) |
-| `/tz [±N]` | — | Ver o establecer zona horaria (UTC -12 a +12) |
-| `/friend [nick]` | — | Listar amigos, o alternar añadir/quitar un amigo (máx 5) |
-| `/clear` | `/cls` | Limpiar el área de chat |
-| `/save` | `/sv` | Guardar configuración actual en tarjeta SD |
 
 ---
 
@@ -256,25 +273,20 @@ SpecTalk soporta hasta 10 ventanas simultáneas:
 - Usa `/0` a `/9` para cambiar de ventana
 - Usa `/w` o `/channels` para ver todas las ventanas abiertas
 - Pulsa **EDIT** para abrir la **barra de cambio de canales** — una barra visual mostrando todos los canales activos. Usa IZQUIERDA/DERECHA para navegar, ENTER para seleccionar, o teclas numéricas para acceso directo. Se oculta automáticamente tras 20 segundos.
-- El indicador de actividad (●) muestra ventanas con mensajes sin leer
-- El indicador de mención (!) muestra ventanas donde te mencionaron (resaltado en color)
-
-La barra de cambio de canales en acción, mostrando los canales activos con indicadores de no leído:
-
-<p align="center">
-  <a href="images/switcher.png"><img src="images/switcher.png" width="600" alt="Barra de cambio de canales"></a>
-</p>
+- El indicador de actividad muestra ventanas con mensajes sin leer
+- El indicador de mención muestra ventanas donde te mencionaron (resaltado en color)
 
 ### Mensajes Privados
 - Los PMs entrantes crean automáticamente una ventana de consulta
 - Usa `/query nick` para abrir manualmente un chat privado
 - Usa `/close` para cerrar la ventana de consulta actual
+- En una notificación de PM, pulsa **ENTER** para abrir directamente la ventana del remitente, o **BREAK** para descartarla
 
 ---
 
 ## Archivo de Configuración
 
-SpecTalk puede cargar ajustes desde un archivo de configuración en tu tarjeta SD. El archivo debe llamarse `SPECTALK.CFG` y estar en el directorio `SYS/CONFIG/`. Usa `/save` para escribir tu configuración actual en este archivo.
+SpecTalk puede cargar ajustes desde un archivo de configuración en tu tarjeta SD. El archivo debe llamarse `SPECTALK.CFG` y estar en el directorio `SYS/CONFIG/`. Usa `!save` para escribir tu configuración actual en este archivo.
 
 ### Formato del Archivo
 
@@ -285,12 +297,16 @@ nick=MiNickname
 server=irc.libera.chat
 port=6667
 nickpass=micontraseñanickserv
+nickserv=NickServ
 autoconnect=1
 theme=1
 timestamps=1
 autoaway=15
 beep=1
 traffic=1
+notif=1
+nickcolor=0
+click=1
 tz=1
 friends=Amigo1,Amigo2,Amigo3
 ignores=Troll1,Troll2
@@ -305,24 +321,54 @@ ignores=Troll1,Troll2
 | `port` | Puerto del servidor | 1-65535 | 6667 |
 | `pass` | Contraseña del servidor | Cualquier string | (ninguno) |
 | `nickpass` | Contraseña NickServ | Cualquier string | (ninguno) |
+| `nickserv` | Nick del servicio NickServ | nick | (auto) |
 | `autoconnect` | Conectar al iniciar | 0 o 1 | 0 |
 | `theme` | Tema de color | 1, 2, o 3 | 1 |
 | `timestamps` | Mostrar timestamps | 0, 1, o 2 (smart) | 1 |
 | `autoaway` | Minutos auto-away | 0-60 (0=off) | 0 |
 | `beep` | Sonido en mención | 0 o 1 | 1 |
 | `traffic` | Mostrar mensajes QUIT/JOIN | 0 o 1 | 1 |
+| `notif` | Mostrar notificaciones | 0 o 1 | 1 |
+| `nickcolor` | Coloreado de nicks | 0 o 1 | 0 |
+| `click` | Sonido al pulsar tecla | 0 o 1 | 1 |
 | `tz` | Desplazamiento horario | -12 a +12 | 1 |
 | `friends` | Nicks de amigos a monitorizar (separados por coma, máx 5) | nick1,nick2,... | (ninguno) |
 | `ignores` | Nicks ignorados (separados por coma, máx 5) | nick1,nick2,... | (ninguno) |
 
 ### Ver Configuración Actual
 
-Usa `!config` o `!cfg` para mostrar todos los valores de configuración actuales. Usa `/save` para guardar los cambios en la tarjeta SD.
+Usa `!config` o `!cfg` para mostrar todos los valores de configuración actuales. Usa `!save` para guardar los cambios en la tarjeta SD.
 
 Pantalla mostrando la configuración actual del cliente:
 
 <p align="center">
   <a href="images/config.png"><img src="images/config.png" width="600" alt="Pantalla de configuración"></a>
+</p>
+
+---
+
+## Pantallas de Overlay
+
+Las pantallas informativas se cargan bajo demanda desde el fichero `SPECTALK.OVL`:
+
+**About** — Versión, créditos y globo rotatorio animado:
+
+<p align="center">
+  <a href="images/about_globe.png"><img src="images/about_globe.png" width="300" alt="About - Globo"></a>
+  &nbsp;&nbsp;
+  <a href="images/about_commander.png"><img src="images/about_commander.png" width="300" alt="About - Commander"></a>
+</p>
+
+**What's New** — Novedades de la versión actual (pulsar N en About):
+
+<p align="center">
+  <a href="images/whatsnew.png"><img src="images/whatsnew.png" width="600" alt="Pantalla What's New"></a>
+</p>
+
+**Help** — Referencia de comandos en pantalla:
+
+<p align="center">
+  <a href="images/help.png"><img src="images/help.png" width="600" alt="Pantalla de ayuda"></a>
 </p>
 
 ---
@@ -357,11 +403,11 @@ Cuando estás away, el indicador cambia de un círculo sólido a un semicírculo
 ### Comandos de Compilación
 
 ```bash
-# Compilación estándar (divMMC/divTIESUS - 115200 baud)
+# Compilación estándar
 make
 
-# Compilación interfaz AY (9600 baud)
-make ay
+# Release build con optimización máxima
+make release
 
 # Limpiar artefactos de compilación
 make clean
@@ -381,10 +427,12 @@ El proyecto usa estrategia **Unity Build**: todos los fuentes C se compilan como
 | Los mensajes de un usuario no paran | Usa `/ignore nick` para bloquearlo |
 | No puedo identificarme con NickServ | Usa `/id contraseña` o configura `nickpass=` en el archivo de configuración |
 | Olvidé la configuración actual | Usa `!config` para ver todos los valores de configuración |
-| Demasiados mensajes de quit | Usa `/traffic` para desactivarlos |
-| No hay sonido en menciones | Usa `/beep` para activar el sonido |
+| Demasiados mensajes de quit | Usa `!traffic` para desactivarlos |
+| No hay sonido en menciones | Usa `!beep` para activar el sonido |
 | Nick en uso al conectar | SpecTalk añade `_` automáticamente - usa `/nick` para cambiar después |
 | Los caracteres acentuados se ven mal | UTF-8 se convierte automáticamente a equivalentes ASCII |
+| Falta SPECTALK.OVL | Copia el fichero OVL junto al TAP y DAT en la tarjeta SD |
+| Error fatal al arrancar | Necesitas divMMC con SPECTALK.DAT en la tarjeta SD |
 
 ---
 
@@ -394,7 +442,7 @@ SpecTalk ZX es software libre publicado bajo la **GNU General Public License v2.
 
 Incluye código derivado de:
 - **BitchZX** — Cliente IRC (GPLv2)
-- **Driver UART AY/ZXuno** por Nihirash
+- **Driver UART** por Nihirash
 
 ---
 
@@ -407,7 +455,8 @@ Incluye código derivado de:
 ## Agradecimientos
 
 - Proyecto BitchZX por la base del protocolo IRC
-- Nihirash por el código del driver UART AY
+- Nihirash por el código del driver UART
+- Jack Oatley por la mini fuente Ikkle-4 (dominio público)
 - Equipo z88dk por el toolchain del compilador cruzado
 - Comunidad de retrocomputación del ZX Spectrum
 

@@ -136,3 +136,216 @@
 	EXTERN _st_hl_ixm2
 %0call%1_st_hl_ixm2
 
+;; OPT-COPT-36: IX load DE from (ix-2/-1) (6 -> 3 bytes, 10 sites)
+%0ld%1e,(ix-2)
+%0ld%1d,(ix-1)
+=
+	EXTERN _ld_de_ixm2
+%0call%1_ld_de_ixm2
+
+;; OPT-COPT-37: IX load HL from (ix-5/-4) (6 -> 3 bytes, 6 sites)
+%0ld%1l,(ix-5)
+%0ld%1h,(ix-4)
+=
+	EXTERN _ld_hl_ixm5
+%0call%1_ld_hl_ixm5
+
+;; OPT-COPT-38: IX load HL from (ix-7/-6) (6 -> 3 bytes, 7 sites)
+%0ld%1l,(ix-7)
+%0ld%1h,(ix-6)
+=
+	EXTERN _ld_hl_ixm7
+%0call%1_ld_hl_ixm7
+
+;; OPT-COPT-39: IX load HL from (ix-3/-2) (6 -> 3 bytes, 7 sites)
+%0ld%1l,(ix-3)
+%0ld%1h,(ix-2)
+=
+	EXTERN _ld_hl_ixm3
+%0call%1_ld_hl_ixm3
+
+;; OPT-COPT-26: check_status(LVL_IRC) fusion (5 -> 3 bytes, 13 sites)
+%0ld%1l,0x02
+%0call%1_check_status
+=
+	EXTERN _check_status_irc
+%0call%1_check_status_irc
+
+;; OPT-COPT-27: status_bar_dirty = 1 (5 -> 3 bytes, 9 sites)
+%0ld%1hl,_status_bar_dirty
+%0ld%1(hl),0x01
+=
+	EXTERN _set_sbd
+%0call%1_set_sbd
+
+;; OPT-COPT-28: cursor_visible=1 + redraw_input_full (8 -> 3 bytes, 4 sites)
+;; Must come before any 2-line cursor_visible rule (3-line match first)
+%0ld%1hl,_cursor_visible
+%0ld%1(hl),0x01
+%0call%1_redraw_input_full
+=
+	EXTERN _restore_input
+%0call%1_restore_input
+
+;; =================================================================
+;; OPT-COPT-16..23: Fuse set_attr_X + ld hl + call/jp main_puts/print
+;; Saves 3 bytes per site (eliminates the call _set_attr_X)
+;; =================================================================
+
+;; --- set_attr + main_puts fusions ---
+
+;; OPT-COPT-16: set_attr_sys + main_puts
+%0call%1_set_attr_sys
+%0ld%1hl,%2
+%0call%1_main_puts
+=
+%0ld%1hl,%2
+	EXTERN _sys_puts
+%0call%1_sys_puts
+
+;; OPT-COPT-17: set_attr_err + main_puts
+%0call%1_set_attr_err
+%0ld%1hl,%2
+%0call%1_main_puts
+=
+%0ld%1hl,%2
+	EXTERN _err_puts
+%0call%1_err_puts
+
+;; OPT-COPT-18: set_attr_priv + main_puts
+%0call%1_set_attr_priv
+%0ld%1hl,%2
+%0call%1_main_puts
+=
+%0ld%1hl,%2
+	EXTERN _priv_puts
+%0call%1_priv_puts
+
+;; OPT-COPT-19: set_attr_nick + main_puts
+%0call%1_set_attr_nick
+%0ld%1hl,%2
+%0call%1_main_puts
+=
+%0ld%1hl,%2
+	EXTERN _nick_puts
+%0call%1_nick_puts
+
+;; OPT-COPT-20: set_attr_join + main_puts
+%0call%1_set_attr_join
+%0ld%1hl,%2
+%0call%1_main_puts
+=
+%0ld%1hl,%2
+	EXTERN _join_puts
+%0call%1_join_puts
+
+;; --- set_attr + call main_print fusions ---
+
+;; OPT-COPT-21: set_attr_sys + call main_print
+%0call%1_set_attr_sys
+%0ld%1hl,%2
+%0call%1_main_print
+=
+%0ld%1hl,%2
+	EXTERN _sys_print
+%0call%1_sys_print
+
+;; OPT-COPT-22: set_attr_err + call main_print
+%0call%1_set_attr_err
+%0ld%1hl,%2
+%0call%1_main_print
+=
+%0ld%1hl,%2
+	EXTERN _err_print
+%0call%1_err_print
+
+;; OPT-COPT-23: set_attr_priv + call main_print
+%0call%1_set_attr_priv
+%0ld%1hl,%2
+%0call%1_main_print
+=
+%0ld%1hl,%2
+	EXTERN _priv_print
+%0call%1_priv_print
+
+;; --- set_attr + jp main_print fusions (tail calls) ---
+
+;; OPT-COPT-24: set_attr_sys + jp main_print
+%0call%1_set_attr_sys
+%0ld%1hl,%2
+%0jp%1_main_print
+=
+%0ld%1hl,%2
+	EXTERN _sys_print
+%0jp%1_sys_print
+
+;; OPT-COPT-25: set_attr_err + jp main_print
+%0call%1_set_attr_err
+%0ld%1hl,%2
+%0jp%1_main_print
+=
+%0ld%1hl,%2
+	EXTERN _err_print
+%0jp%1_err_print
+
+;; OPT-COPT-29: ld hl,_SB_COLON_SP + call _main_puts → call _puts_colon_sp (6→3, 6 sites)
+%0ld%1hl,_SB_COLON_SP
+%0call%1_main_puts
+=
+	EXTERN _puts_colon_sp
+%0call%1_puts_colon_sp
+
+;; OPT-COPT-30: ld hl,_S_SP_COLON + call _uart_send_string → call _uart_sp_colon (6→3, 6 sites)
+%0ld%1hl,_S_SP_COLON
+%0call%1_uart_send_string
+=
+	EXTERN _uart_sp_colon
+%0call%1_uart_sp_colon
+
+;; OPT-COPT-31: ld hl,_S_PRIVMSG + call _uart_send_string → call _uart_privmsg (6→3, 3 sites)
+%0ld%1hl,_S_PRIVMSG
+%0call%1_uart_send_string
+=
+	EXTERN _uart_privmsg
+%0call%1_uart_privmsg
+
+;; OPT-COPT-32: st_copy_n cdecl cleanup fusion (call + pop×2 + inc sp → call wrapper)
+;; 24 sites × 4 bytes saved - wrapper cost
+%0call%1_st_copy_n
+%0pop%1af
+%0pop%1af
+%0inc%1sp
+=
+	EXTERN _st_copy_n_cleanup
+%0call%1_st_copy_n_cleanup
+
+;; OPT-COPT-33: st_stricmp cdecl cleanup (call + pop×2 → call wrapper, 29 sites)
+%0call%1_st_stricmp
+%0pop%1af
+%0pop%1af
+=
+	EXTERN _st_stricmp_cleanup
+%0call%1_st_stricmp_cleanup
+
+;; OPT-COPT-34: st_stristr cdecl cleanup (call + pop×2 → call wrapper, 10 sites)
+%0call%1_st_stristr
+%0pop%1af
+%0pop%1af
+=
+	EXTERN _st_stristr_cleanup
+%0call%1_st_stristr_cleanup
+
+;; OPT-COPT-35: Boolean materialization NZ (7→5 bytes, ~19 sites)
+;; jr NZ,L1 / ld a,1 / jr L2 / L1: / xor a / L2: → ld a,0 / jr NZ,L2 / inc a / L2:
+%0jr	NZ,%2
+%0ld	a,0x01
+%0jr	%3
+%2:
+%0xor	a,a
+%3:
+=
+%0ld	a,0x00
+%0jr	NZ,%3
+%0inc	a
+%3:
+

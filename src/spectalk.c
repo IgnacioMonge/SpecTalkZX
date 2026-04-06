@@ -64,10 +64,10 @@ const char S_NOTSET[] = "(not set)";
 const char S_DISCONN[] = "Disconnected";
 const char S_NICKSERV[] = "NickServ";
 const char S_APPNAME[] = "SpecTalk ZX v" VERSION;
+const char S_APPSHORT[] = "SpecTalk ZX";
 const char S_APPDESC[] = "IRC Client for ZX Spectrum";
 const char S_COPYRIGHT[] = "(C) 2026 M. Ignacio Monge Garcia";
 const char S_MAXWIN[] = "Max windows reached (10).";
-const char S_SWITCHTO[] = "Switched to ";
 const char S_PRIVMSG[] = "PRIVMSG ";
 const char S_NOTICE[]  = "NOTICE ";
 const char S_TIMEOUT[] = "Connection timeout";
@@ -78,7 +78,6 @@ const char S_MUST_CHAN[] = "Must be in a channel or specify one";
 const char S_ARROW_IN[] = "<< ";
 const char S_ARROW_OUT[] = ">> ";
 const char S_EMPTY_PAT[] = "Empty pattern";
-const char S_ALREADY_IN[] = "Already in ";
 const char S_CRLF[] = "\r\n";
 const char S_ASTERISK[] = "* ";
 const char S_COLON_SP[] = ": ";
@@ -92,7 +91,6 @@ const char S_PROMPT[] = "> ";
 const char S_CAP_END[] = "CAP END";
 const char S_GLOBAL[] = "Global";
 const char S_TOPIC_PFX[] = "Topic: ";
-const char S_YOU_LEFT[] = "<< You left ";
 const char S_CONN_REFUSED[] = "Connection refused";
 const char S_INIT_DOTS[] = "Initializing...";
 const char S_ACTION[] = "ACTION ";
@@ -118,6 +116,9 @@ const char S_JOINED_SP[] = " joined ";            // D10: dedup (2 uses)
 const char S_AWAY_CMD[] = "AWAY";                 // D10: dedup (2 uses)
 const char S_NICK_CMD[] = "NICK";                 // D10: dedup (2 uses)
 const char S_SMART[] = "smart";                   // D10: dedup (2 uses)
+// S_NO_ESXDOS removed — esxDOS is now required (fatal halt at startup)
+const char S_PART_CMD[] = "PART";                    // D19: dedup (2 uses, UART - no BPE)
+const char S_TCP[] = "TCP";                          // D19: dedup (2 uses, UART - no BPE)
 const char S_AUTOAWAY[] = "Auto-away";            // D11: dedup (5 uses)
 
 // =============================================================================
@@ -160,7 +161,10 @@ uint16_t names_timeout_frames;
 
 // User preferences (toggle with commands)
 uint8_t beep_enabled = 1;   // 0 = silent mode
+uint8_t keyclick_enabled;   // 0 = off (default), 1 = key click sound
+uint8_t nick_color_mode = 1;  // 0 = theme fixed, 1 = per-nick hash color
 uint8_t show_traffic = 1;     // 0 = hide JOIN/QUIT messages
+uint8_t notif_enabled = 1;    // 1 = ikkle notifications, 0 = classic inline messages
 uint8_t show_timestamps = 1; // 0=off, 1=always, 2=on-change
 // big_status removed (big mode eliminated)
 uint8_t last_ts_hour = 0xFF;   // Last printed timestamp hour (0xFF = force print)
@@ -177,6 +181,7 @@ uint8_t  keepalive_ping_sent;        // 1 = waiting for PONG
 uint16_t keepalive_timeout;          // Timeout counter after PING sent
 uint16_t lagmeter_counter;           // Counter for periodic lag measurement
 uint8_t ping_latency;               // 0=good, 1=medium, 2=high
+uint8_t flush_frames;               // Post-About drain: discard UART for N frames
 
 // Pagination for long LIST/WHO results
 uint8_t pagination_active;
@@ -185,6 +190,14 @@ uint8_t pagination_lines;        // Líneas impresas desde última pausa
 uint8_t pagination_timeout;      // Frames sin datos válidos → safety timeout
 uint8_t search_data_lost;        // Flag: se perdieron datos durante listado
 uint8_t buffer_pressure;         // 1 = buffer >75% (indicator shows empty circle)
+
+// Notification bar (ikkle-4 font on row 20)
+uint16_t notif_timeout;              // Frames until clear; 0=inactive
+uint8_t notif_is_pm;                 // 1=PM notification (enables TAB reply)
+char last_pm_nick[IRC_NICK_SIZE];    // Nick of last PM sender
+
+// Overlay execution slot (loaded from esxDOS on demand)
+// overlay_slot aliased to rx_line (512B) in spectalk_asm.asm — mutually exclusive
 
 // Flush state for search commands (simple drain-based approach)
 // States: 0=idle, 1=draining, 2=command sent
@@ -244,7 +257,7 @@ static void put_char64_input_cached(uint8_t y, uint8_t col, char ch, uint8_t att
 // =============================================================================
 
 // Ring buffer: single-producer/single-consumer, thread-safe en Z80 sin IRQ
-uint8_t ring_buffer[RING_BUFFER_SIZE];
+// ring_buffer placed via defc in spectalk_asm.asm (outside BSS, fixed address)
 uint16_t rb_head;
 uint16_t rb_tail;
 
@@ -257,16 +270,13 @@ uint8_t rx_overflow;             // Flag for ASM access (0 or 1)
 // TIMEOUT_* values are defined in spectalk.h (single source of truth)
 
 uint8_t uart_drain_limit = DRAIN_NORMAL;
-#ifndef ST_UART_AY
-#define ST_UART_AY 0
-#endif
 
 
 // Wait frames while draining UART - prevents buffer overflow during waits
 void wait_drain(uint8_t frames) __z88dk_fastcall
 {
     while (frames--) {
-        HALT();
+        frame_wait();
         uart_drain_to_buffer();
     }
 }
@@ -291,6 +301,34 @@ void flush_all_rx_buffers(void)
     rx_overflow = 0;
 }
 
+// Lightweight UART scanner during OVERLAY_ABOUT.
+// Responds to server PING to prevent timeout disconnect.
+// All other IRC data discarded (ring_buffer busy with overlay code).
+// Uses rx_line directly (bypass ring_buffer). Cleaned by flush_all_rx_buffers on exit.
+void overlay_keepalive(void)
+{
+    while (ay_uart_ready()) {
+        uint8_t ch = ay_uart_read();
+        if (ch == '\n') {
+            rx_line[rx_pos] = 0;
+            char *p = rx_line;
+            if (*p == ':') {
+                while (*p && *p != ' ') p++;
+                if (*p) p++;
+            }
+            if (p[0]=='P' && p[1]=='I' && p[2]=='N' && p[3]=='G') {
+                p += 4;
+                while (*p == ' ') p++;
+                if (*p == ':') p++;
+                irc_send_pong(p);
+                server_silence_frames = 0;
+            }
+            rx_pos = 0;
+        } else if (ch != '\r' && rx_pos < 200) {
+            rx_line[rx_pos++] = ch;
+        }
+    }
+}
 
 // rb_pop() está implementada en spectalk_asm.asm
 
@@ -300,6 +338,7 @@ void flush_all_rx_buffers(void)
 // line_buffer mapped to CHANS workspace 0x5CB6 via ASM defc
 uint8_t line_len;
 uint8_t cursor_pos;
+static uint8_t input_prev_len;  // for trailing char cleanup in redraw_input_from
 
 // CAPS LOCK state (from BitStream)
 uint8_t caps_lock_mode;
@@ -313,6 +352,7 @@ char irc_port[IRC_PORT_SIZE] = "6667";
 char irc_nick[IRC_NICK_SIZE];
 char irc_pass[IRC_PASS_SIZE];
 char nickserv_pass[IRC_PASS_SIZE];
+char nickserv_nick[IRC_NICK_SIZE];
 uint8_t autoconnect;
 uint8_t has_esxdos;
 // friend_nicks mapped to UDG area 0xFF58 via ASM defc
@@ -480,10 +520,7 @@ void remove_channel(uint8_t idx) __z88dk_fastcall
         channels[i] = channels[i + 1];
     }
     // Limpiar último slot completo tras defragmentación
-    channels[MAX_CHANNELS - 1].flags = 0;
-    channels[MAX_CHANNELS - 1].name[0] = '\0';
-    channels[MAX_CHANNELS - 1].mode[0] = '\0';
-    channels[MAX_CHANNELS - 1].user_count = 0;
+    memset(&channels[MAX_CHANNELS - 1], 0, sizeof(ChannelInfo));
     if (channel_count > 1) channel_count--;
     if (sw_active) sw_dirty = 1;
 
@@ -501,6 +538,7 @@ void remove_channel(uint8_t idx) __z88dk_fastcall
     nav_fix_on_delete(idx);
 
     draw_status_bar();
+    if (was_current) redraw_input_full();
 }
 
 void switch_to_channel(uint8_t idx) __z88dk_fastcall
@@ -520,6 +558,7 @@ void switch_to_channel(uint8_t idx) __z88dk_fastcall
     set_border(BORDER_COLOR);
     force_status_redraw = 1;
     status_bar_dirty = 1;
+    redraw_input_full();
 }
 
 // =============================================================================
@@ -533,11 +572,14 @@ extern uint8_t last_frames_lo;
 // (sw_active and sw_dirty declared earlier for live-update from add/remove channel)
 static uint8_t sw_sel;
 static uint8_t sw_first;
-static uint8_t sw_map[MAX_CHANNELS];
+// OPT: sw_map + sw_flags_snap aliased onto search_pattern[32] — mutually exclusive:
+// switcher requires !pagination_active && search_mode==SEARCH_NONE (line 3068),
+// search requires user ENTER which is consumed while switcher is open (line 3067).
+#define sw_map       ((uint8_t *)search_pattern)        // [0..9]
+#define sw_flags_snap ((uint8_t *)(search_pattern + 10)) // [10..19]
 static uint8_t sw_count;
 static uint8_t sw_released;  // EDIT key released after open
 static uint16_t sw_timeout;  // frames since last key press (auto-close)
-static uint8_t sw_flags_snap[MAX_CHANNELS];  // flags snapshot for change detection
 
 // Even-width tabs + 2-char separator " |" → all tab boundaries align to
 // attribute cell boundaries (8px), so inverse video never bleeds into separators.
@@ -550,9 +592,10 @@ static void switcher_close(void);
 // Compute tab width for a given channel slot index (always even)
 static uint8_t sw_tab_width(uint8_t slot) __z88dk_fastcall
 {
-    // " N:name " = 1 + 1 + 1 + nlen + 1 = nlen + 4, rounded up to even
+    // " N:name " = nlen + 4, or " N:@name " = nlen + 5 for queries
     const char *name = channels[slot].name;
     uint8_t tw = st_strlen((*name == '#' || *name == '&') ? name + 1 : name) + 4;
+    if (channels[slot].flags & CH_FLAG_QUERY) tw++;
     if (tw & 1) tw++;
     return tw;
 }
@@ -603,10 +646,11 @@ static void switcher_render(void)
 
     for (i = sw_first; i < sw_count; i++) {
         const char *name = channels[sw_map[i]].name;
+        uint8_t is_q = (channels[sw_map[i]].flags & CH_FLAG_QUERY) ? 1 : 0;
         if (*name == '#' || *name == '&') name++;
         uint8_t nlen = st_strlen(name);
         uint8_t need;
-        tw = nlen + 4;
+        tw = nlen + 4 + is_q;  // +1 for @ prefix on queries
         if (tw & 1) tw++;
         need = tw + ((i > sw_first) ? 2 : 0);
 
@@ -615,14 +659,15 @@ static void switcher_render(void)
         if (i > sw_first) {
             buf[pos] = ' ';
             buf[pos + 1] = '|';
-            pos += 2;               // 2-char separator (even)
+            pos += 2;
         }
 
-        // " N:name " — slot number prefix
+        // " N:name " or " N: @name " for queries
         buf[pos] = ' ';
         buf[pos + 1] = '0' + sw_map[i];
         buf[pos + 2] = ':';
-        for (j = 0; j < nlen; j++) buf[pos + 3 + j] = name[j];
+        if (is_q) buf[pos + 3] = '@';
+        for (j = 0; j < nlen; j++) buf[pos + 3 + is_q + j] = name[j];
         // trailing spaces already present from memset
         pos += tw;
         last_shown = i;
@@ -684,21 +729,30 @@ static void switcher_render(void)
 
 static void switcher_open(void)
 {
-    uint8_t i;
-    sw_count = 0;
-    sw_sel = 0;
+    sw_count = 0;   // forces rebuild to select current_channel_idx
     sw_first = 0;
-    for (i = 0; i < MAX_CHANNELS; i++) {
-        if (channels[i].flags & CH_FLAG_ACTIVE) {
-            if (i == current_channel_idx) sw_sel = sw_count;
-            sw_map[sw_count++] = i;
-        }
-    }
+    switcher_rebuild_map();
     if (sw_count < 2) return;
     sw_active = 1;
     sw_released = 0;
     sw_timeout = 0;
     sw_dirty = 1;
+}
+
+static void switcher_part(uint8_t idx) __z88dk_fastcall
+{
+    uint8_t f = channels[idx].flags;
+    if (f & CH_FLAG_ACTIVE) {
+        if (f & CH_FLAG_QUERY) {
+            notify2("Closed ", channels[idx].name, ATTR_MSG_SYS);
+        } else {
+            irc_send_cmd1(S_PART_CMD, channels[idx].name);
+            notify2("You have left ", channels[idx].name, ATTR_MSG_JOIN);
+        }
+        remove_channel(idx);
+    }
+    sw_count = 0;
+    switcher_rebuild_map();
 }
 
 static void switcher_close(void)
@@ -773,6 +827,7 @@ uint8_t disconnecting_in_progress;       // FIX: Prevent reentrant disconnection
 uint8_t time_hour;
 uint8_t time_minute;
 uint8_t time_second;             // Nuevo: Segundos explícitos
+uint16_t uptime_minutes;         // Session uptime in minutes (for !status)
 uint8_t sntp_init_sent;          // Flag: SNTP init commands sent (not static - needs reset on disconnect)
 uint8_t sntp_waiting;            // Flag: waiting for SNTP response
 uint8_t sntp_queried;            // Flag: valid time received (stop retrying)
@@ -786,6 +841,10 @@ uint8_t main_line = MAIN_START;
 uint8_t main_col;
 uint8_t wrap_indent;             // Indentación para líneas que continúan (wrap)
 uint8_t current_attr;  // Initialized in apply_theme()
+
+// Shared scratch buffer for u16-to-string conversions (8 bytes).
+// Used by main_run_u16, draw_clock, draw_status_bar_real (never simultaneously).
+static char fmt_buf[8];
 // COMMAND HISTORY
 #define HISTORY_SIZE    4
 // E2: Reduced from 128 to 96 - saves 128 bytes BSS
@@ -884,6 +943,35 @@ void print_str64(uint8_t y, uint8_t col, const char *s, uint8_t attr) __z88dk_ca
     }
 }
 
+// BPE-aware variant: expands BPE tokens (>= 0x80) from bpe_dict
+extern uint8_t bpe_dict[];
+void print_str64_bpe(uint8_t y, uint8_t col, const char *s, uint8_t attr) __z88dk_callee
+{
+    const char *stack[4];  // BPE return stack (4 levels enough for overlay strings)
+    uint8_t sp = 0;
+    uint8_t c;
+    g_ps64_y = y;
+    g_ps64_col = col;
+    g_ps64_attr = attr;
+    for (;;) {
+        c = (uint8_t)*s++;
+        if (c == 0) {
+            if (sp == 0) return;
+            s = stack[--sp];
+            continue;
+        }
+        if (c >= 0x80) {
+            if (sp >= 4) continue;
+            stack[sp++] = s;
+            s = (const char *)&bpe_dict[(c - 0x80) * 3];
+            continue;
+        }
+        if (g_ps64_col < 64)
+            print_str64_char(c);
+        g_ps64_col++;
+    }
+}
+
 // Scroll seguro: Solo mueve lines de la 3 a la 19. No toca banners.
 // scroll_main_zone está implementada en ASM (spectalk_asm.asm)
 extern void scroll_main_zone(void);
@@ -899,12 +987,12 @@ uint8_t pagination_pause(void)
     uint8_t prev_pressure;
     uint8_t ui_throttle = 1;
 
-    // Mostrar prompt en la última línea visible
-    print_line64_fast(MAIN_END, "-- Any key: more | EDIT: cancel --", ATTR_MSG_SYS);
+    // Mostrar prompt en row 20 con ikkle-4 font (frees MAIN_END for chat)
+    notif_center("-- MORE: ANY KEY | BREAK: CANCEL --", ATTR_MSG_SYS);
 
-    while (in_inkey() != 0) { HALT(); }
+    while (in_inkey() != 0) { frame_wait(); uart_drain_to_buffer(); }
     while ((key = in_inkey()) == 0) {
-        HALT();
+        frame_wait();
         uart_drain_to_buffer();
 
         prev_pressure = buffer_pressure;
@@ -930,23 +1018,24 @@ uint8_t pagination_pause(void)
             ui_throttle = 1;
         }
     }
-    while (in_inkey() != 0) { HALT(); }
+    while (in_inkey() != 0) { frame_wait(); uart_drain_to_buffer(); }
 
     if (buffer_pressure) {
         buffer_pressure = 0;
         draw_status_bar_real();
     }
 
-    if (key == 7) {  // EDIT = cancelar
+    if (key == 3) {  // BREAK = cancelar
+        notif_clear();
         print_line64_fast(MAIN_END, S_CANCELLED, ATTR_ERROR);
-        main_line = MAIN_END;  // FIX: Posicionar cursor en fin de zona para que
-        main_col = 64;         //      el próximo main_putc fuerce scroll vía main_newline.
-                               //      Así "Cancelled" se preserva y el nuevo texto va debajo.
-        flush_all_rx_buffers();  // Limpiar UART, ring buffer y línea parcial
+        main_line = MAIN_END;
+        main_col = 64;
+        flush_all_rx_buffers();
         cancel_search_state();
         return 1;
     }
 
+    notif_clear();
     clear_main();
     pagination_lines = 0;
     return 0;
@@ -979,8 +1068,7 @@ static void ensure_attr_alignment(uint8_t target_attr) __z88dk_fastcall
 
 void main_run_u16(uint16_t val, uint8_t attr) __z88dk_callee
 {
-    static char buf[8];  // OPTIMIZACIÓN: Alojado en BSS
-    char *q = u16_to_dec(buf, val);
+    char *q = u16_to_dec(fmt_buf, val);
     (void)q;  
     
     ensure_attr_alignment(attr);
@@ -988,7 +1076,7 @@ void main_run_u16(uint16_t val, uint8_t attr) __z88dk_callee
     g_ps64_y = main_line;
     g_ps64_attr = attr;
     
-    q = buf;
+    q = fmt_buf;
     while (*q) {
         if (main_col >= SCREEN_COLS) {
             main_newline();
@@ -1006,7 +1094,7 @@ void main_print(const char *s) __z88dk_fastcall
     // During help overlay, suppress IRC message output to prevent
     // overwriting the help display. PING/PONG is handled by process_irc_data
     // since ring_buffer is free between help pages.
-    if (help_active) return;
+    if (overlay_mode) return;
 
     // Fast path: Solo si estamos al inicio de la línea y el texto cabe en una línea
     // Para textos largos, usamos slow path que hace wrap automático
@@ -1042,8 +1130,8 @@ void main_hline(void)
     if (main_col > 0) main_newline();
     
     // Inline: draw_hline(main_line, 0, 32, 3, current_attr)
-    screen_ptr = (uint8_t*)(screen_row_base[main_line] + (3 << 8));  // scanline 3
-    attr_ptr = (uint8_t*)(0x5800 + (uint16_t)main_line * 32);
+    screen_ptr = (uint8_t*)(SCREEN_ROW_ADDR(main_line) + (3 << 8));  // scanline 3
+    attr_ptr = (uint8_t*)(0x5800 + ((uint16_t)main_line << 5));
     for (x = 0; x < 32; x++) {
         *screen_ptr++ = 0xFF;
         *attr_ptr++ = current_attr;
@@ -1149,21 +1237,11 @@ void start_search_command(uint8_t type, const char *arg) __z88dk_callee
 // Double-height string renderer (uses draw_big_char from ASM)
 extern void draw_big_char(uint8_t ch) __z88dk_fastcall;
 
-void print_big_str(uint8_t y, uint8_t col, const char *s, uint8_t attr) __z88dk_callee
-{
-    g_ps64_y = y;
-    g_ps64_attr = attr;
-    g_ps64_col = col;
-    while (*s) {
-        draw_big_char((uint8_t)*s++);
-        g_ps64_col++;
-    }
-}
+// print_big_str: frameless ASM in spectalk_asm.asm
 
 static void draw_clock(void)
 {
-    static char time_part[8];
-    char *p = time_part;
+    char *p = fmt_buf;
 
     *p++ = '[';
     fast_u8_to_str(p, time_hour); p += 2;
@@ -1172,7 +1250,7 @@ static void draw_clock(void)
     *p++ = ']';
     *p = 0;
 
-    print_str64(INFO_LINE, 54, time_part, ATTR_STATUS);
+    print_str64(INFO_LINE, 54, fmt_buf, ATTR_STATUS);
 }
 
 // Print timestamp prefix: [HH:MM] - implemented in ASM (spectalk_asm.asm)
@@ -1210,27 +1288,30 @@ extern void main_print_time_prefix(void);
 // EJEMPLO: sb_append(buf, "ABC", buf+2) escribe "AB", retorna buf+2
 extern char *sb_append(char *dst, const char *src, const char *limit) __z88dk_callee;
 
+// Variables estáticas para caché de repintado (estas SÍ deben ser estáticas para persistir)
+// OPT H6: Reducido de 64 a 57 (máximo usado: índice 56 + null)
+static char sb_left_part[57];  // Buffer estático (ahorra stack frame)
+
 // Extraer nombre de red del hostname: chat.freenode.net → freenode
+// OPT: net_short aliased onto sb_left_part[45..56] — safe because sb_append
+// copies net_short into sb_left_part[~25] (dest < source, no overlap corruption),
+// and extract_network_short is only called during draw_status_bar_real.
+#define net_short (sb_left_part + 45)
 static char *extract_network_short(char *hostname) __z88dk_fastcall
 {
-    static char net_short[12];
     char *first_dot = strchr(hostname, '.');
     if (!first_dot) return hostname;
-    
+
     char *src = first_dot + 1;
     char *second_dot = strchr(src, '.');
     if (!second_dot) return hostname;
-    
+
     uint8_t len = (uint8_t)(second_dot - src);
     if (len > 11) len = 11;
     memcpy(net_short, src, len);
     net_short[len] = '\0';
     return net_short;
 }
-
-// Variables estáticas para caché de repintado (estas SÍ deben ser estáticas para persistir)
-// OPT H6: Reducido de 64 a 57 (máximo usado: índice 56 + null)
-static char sb_left_part[57];  // Buffer estático (ahorra stack frame)
 uint8_t force_status_redraw = 1;
 
 static void draw_connection_indicator(void)
@@ -1254,17 +1335,7 @@ static void draw_connection_indicator(void)
 //   - NO verifica límites — el caller debe garantizar espacio
 //   - Retorna puntero a la siguiente posición libre
 // PRECONDICIÓN: p tiene al menos 2 bytes disponibles
-static char* sb_put_u8_2d(char *p, uint8_t v) __z88dk_callee
-{
-    // Mantiene exactamente la semántica actual: 0..19 (>=10 usa '1' y (v-10))
-    if (v >= 10) {
-        *p++ = '1';
-        *p++ = (char)('0' + (v - 10));
-    } else {
-        *p++ = (char)('0' + v);
-    }
-    return p;
-}
+// sb_put_u8_2d: frameless ASM in spectalk_asm.asm
 
 static const char* sb_pick_status(uint8_t prefer_server_full) __z88dk_fastcall
 {
@@ -1376,6 +1447,20 @@ static char *sb_format_channel(char *p, char *central_limit, uint8_t cur_flags) 
 //   - ']' se escribe AL FINAL de cada sección, con bounds check
 //   - central_limit reserva espacio para sección 3 antes de escribir sección 2
 // =============================================================================
+
+// Check if any non-current channel has an active mention
+static uint8_t has_other_mention(void)
+{
+    uint8_t i;
+    for (i = 0; i < MAX_CHANNELS; i++) {
+        uint8_t f = channels[i].flags;
+        if ((f & (CH_FLAG_ACTIVE | CH_FLAG_MENTION)) == (CH_FLAG_ACTIVE | CH_FLAG_MENTION) &&
+            i != current_channel_idx)
+            return 1;
+    }
+    return 0;
+}
+
 void draw_status_bar_real(void)
 {
     char *p = sb_left_part;
@@ -1384,18 +1469,7 @@ void draw_status_bar_real(void)
     uint8_t cur_flags = chan_flags;
     uint8_t is_query = (cur_flags & CH_FLAG_QUERY) && current_channel_idx != 0;
 
-    uint8_t has_mention = 0;
-    {
-        uint8_t i;
-        for (i = 0; i < MAX_CHANNELS; i++) {
-            uint8_t f = channels[i].flags;
-            if ((f & (CH_FLAG_ACTIVE | CH_FLAG_MENTION)) == (CH_FLAG_ACTIVE | CH_FLAG_MENTION) &&
-                i != current_channel_idx) {
-                has_mention = 1;
-                break;
-            }
-        }
-    }
+    uint8_t has_mention = has_other_mention();
 
     // === SECCIÓN 1: Nick y modos de usuario ===
     // Límites: nick máx 10 chars (col 1-10), modes máx 4 chars (col 12-15)
@@ -1417,13 +1491,12 @@ void draw_status_bar_real(void)
     // === SECCIÓN 3 (preparación): Contador de usuarios ===
     // Se calcula ANTES de sección 2 para reservar espacio
     // Formato: " [NNN]" = 1 + 1 + 1-3 + 1 = 4-6 chars
-    static char user_buf[8];
     uint8_t user_len = 0;
-    user_buf[0] = 0;
+    fmt_buf[0] = 0;
 
     if (irc_channel[0] && !(cur_flags & CH_FLAG_QUERY) && chan_user_count > 0) {
-        char *u_end = u16_to_dec(user_buf, chan_user_count);
-        user_len = (uint8_t)(u_end - user_buf) + 3;  // " [" + numero + "]"
+        char *u_end = u16_to_dec(fmt_buf, chan_user_count);
+        user_len = (uint8_t)(u_end - fmt_buf) + 3;  // " [" + numero + "]"
     }
 
     // === SECCIÓN 2: Canal, indicadores, modos ===
@@ -1465,10 +1538,10 @@ void draw_status_bar_real(void)
     }
 
     // === SECCIÓN 3 (renderizado): Escribir contador de usuarios ===
-    if (user_buf[0]) {
+    if (fmt_buf[0]) {
         *p++ = ' ';
         *p++ = '[';
-        p = sb_append(p, user_buf, limit_end - 1);  // -1 reserva espacio para ']'
+        p = sb_append(p, fmt_buf, limit_end - 1);  // -1 reserva espacio para ']'
         *p++ = ']';
     }
 
@@ -1549,13 +1622,8 @@ void refresh_cursor_char(uint8_t idx, uint8_t show_cursor) __z88dk_callee
 }
 
 // Wrappers to avoid 2-param call overhead (saves ~3 bytes per call site)
-static void cursor_show(void) { refresh_cursor_char(cursor_pos, 1); }
-static void cursor_hide(void) { refresh_cursor_char(cursor_pos, 0); }
-
-static void input_draw_prompt(void)
-{
-    print_str64(INPUT_START, 0, S_PROMPT, ATTR_PROMPT);
-}
+void cursor_show(void) { refresh_cursor_char(cursor_pos, 1); }
+void cursor_hide(void) { refresh_cursor_char(cursor_pos, 0); }
 
 static void input_put_char_at(uint8_t abs_pos, char c) __z88dk_callee
 {
@@ -1567,15 +1635,16 @@ static void input_put_char_at(uint8_t abs_pos, char c) __z88dk_callee
     put_char64_input_cached(row, col, c, ATTR_INPUT);
 }
 
-static void redraw_input_from(uint8_t start_pos) __z88dk_fastcall
+void redraw_input_from(uint8_t start_pos) __z88dk_fastcall
 {
     uint8_t i;
     uint8_t abs_pos;
     uint8_t row, col;
 
-    // 1. Si redibujamos desde el inicio, pintar prompt
+    // Full redraw handles prompt char (@ for query, > for channel) via ASM
     if (start_pos == 0) {
-        input_draw_prompt();
+        redraw_input_full();
+        return;
     }
 
     // 2. Dibujar el texto actual (usando caché normal)
@@ -1589,16 +1658,17 @@ static void redraw_input_from(uint8_t start_pos) __z88dk_fastcall
         put_char64_input_cached(row, col, line_buffer[i], ATTR_INPUT);
     }
 
-    // 3. Limpieza Segura: Borrar SOLO el carácter siguiente al final del texto.
-    // IMPORTANTE: en 64 cols, 1 atributo cubre 2 chars (col>>1).
-    // Si usamos ATTR_INPUT_BG aquí, puede cambiar el atributo del último char real (alternancia).
-    abs_pos = line_len + 2;
-    row = INPUT_START + (abs_pos >> 6);
-    col = abs_pos & 63;
-    
-    if (row <= INPUT_END) {
-        // Mantener el mismo atributo que el input para no contaminar la celda de atributos compartida
-        put_char64_input_cached(row, col, ' ', ATTR_INPUT);
+    // 3. Clear from line_len to prev_line_len (handles multi-char delete)
+    {
+        uint8_t clear_to = input_prev_len > line_len ? input_prev_len : line_len + 1;
+        for (i = line_len; i < clear_to; i++) {
+            abs_pos = i + 2;
+            row = INPUT_START + (abs_pos >> 6);
+            col = abs_pos & 63;
+            if (row > INPUT_END) break;
+            put_char64_input_cached(row, col, ' ', ATTR_INPUT);
+        }
+        input_prev_len = line_len;
     }
 
     // 4. Restaurar cursor
@@ -1625,17 +1695,7 @@ static void input_clear(void)
     redraw_input_full();
 }
 
-void fast_u8_to_str(char *buf, uint8_t val) __z88dk_callee
-{
-    char tens = '0';
-    // Bucle simple: Ocupa menos bytes que los if/else de rangos
-    while (val >= 10) {
-        val -= 10;
-        tens++;
-    }
-    buf[0] = tens;
-    buf[1] = '0' + val;
-}
+// fast_u8_to_str: frameless ASM in spectalk_asm.asm
 
 static void input_add_char(char c) __z88dk_fastcall
 {
@@ -1663,6 +1723,7 @@ static void input_add_char(char c) __z88dk_fastcall
         if (cursor_pos == line_len) {
             // Append rápido
             input_put_char_at((uint8_t)(cursor_pos - 1) + 2, c);
+            input_prev_len = line_len;
             cursor_show();
         } else {
             redraw_input_from((uint8_t)(cursor_pos - 1));
@@ -1708,6 +1769,12 @@ static void input_right(void)
     }
 }
 
+
+// Word navigation — ASM in spectalk_asm.asm
+extern uint8_t key_ss_arrow(void);  // 0=none, 1=SS+LEFT, 2=SS+RIGHT, 3=SS+BKSP
+extern void input_word_left(void);
+extern void input_word_right(void);
+extern void input_delete_word(void);
 
 // Hide cursor during command execution (visual feedback)
 static void set_input_busy(uint8_t busy) __z88dk_fastcall
@@ -1795,12 +1862,12 @@ uint8_t wait_for_response(const char *expected, uint16_t max_frames) __z88dk_cal
     rx_pos = 0;
     
     while (frames < max_frames) {
-        HALT();
+        frame_wait();
         
-        if (in_inkey() == 7) return 0;  // EDIT = cancel
-        
+        if (in_inkey() == 3) return 0;  // BREAK = cancel
+
         uart_drain_to_buffer();
-        
+
         if (try_read_line_nodrain()) {
             // FIX P0-1: Verificar longitud antes de acceder a índices fijos
             // Prefix checks para ERROR/FAIL/OK (siempre al inicio de línea)
@@ -1821,26 +1888,30 @@ uint8_t wait_for_response(const char *expected, uint16_t max_frames) __z88dk_cal
     return 0;
 }
 
-// Wait for any of up to three expected substrings in a line, with standard error/FAIL/CLOSED handling.
+// Wait for a single prompt character, capturing received data into rx_line.
+// On timeout, rx_line contains what was received (NUL-terminated) for inspection.
 uint8_t wait_for_prompt_char(uint8_t prompt_ch, uint16_t max_frames) __z88dk_callee
 {
     uint16_t frames = 0;
     int16_t c;
+    uint8_t wp = 0;
 
     while (frames < max_frames) {
-        HALT();
+        frame_wait();
 
-        if (in_inkey() == 7) return 0;  // EDIT = cancel
+        if (in_inkey() == 3) { rx_line[0] = '\0'; return 0; }
 
         uart_drain_to_buffer();
 
         while ((c = rb_pop()) != -1) {
             if ((uint8_t)c == prompt_ch) return 1;
+            if (wp < 254) rx_line[wp++] = (uint8_t)c;
         }
 
         frames++;
     }
 
+    rx_line[wp] = '\0';
     return 0;
 }
 
@@ -1858,8 +1929,7 @@ uint8_t esp_at_cmd(const char *cmd) __z88dk_fastcall
 // Helper para comandos AT simples durante inicialización
 // Envía comando y espera OK o timeout corto
 static void esp_hard_cmd(const char *cmd) __z88dk_fastcall {
-    uart_send_string(cmd);
-    uart_send_crlf();
+    uart_send_line(cmd);
     // Reutilizamos wait_for_response para ahorrar bytes
     wait_for_response(NULL, 30);
     rx_pos = 0;
@@ -1873,29 +1943,22 @@ uint8_t esp_init(void)
     ay_uart_init();
 
     // waitr a que la UART se estabilice
-    for (i = 0; i < 10; i++) HALT();
+    for (i = 0; i < 10; i++) frame_wait();
     flush_all_rx_buffers();
     
     // 1. Intentar salir del modo transparente (+++)
-    for (i = 0; i < 55; i++) HALT();  // 1.1s silencio
+    for (i = 0; i < 55; i++) frame_wait();  // 1.1s silencio
     uart_send_string("+++");
-    for (i = 0; i < 55; i++) HALT();  // 1.1s silencio
+    for (i = 0; i < 55; i++) frame_wait();  // 1.1s silencio
     flush_all_rx_buffers();
     
-    // 2. Lista de commands de Initialization (Esto ahorra mucho código)
-    static const char * const init_cmds[] = {
-        S_AT_CIPMODE0,
-        S_AT_CIPCLOSE,
-        "ATE0",
-        S_AT_CIPSERVER0,
-        S_AT_CIPMUX0,
-        NULL // Terminador
-    };
-    
-    const char * const *p = init_cmds; // Ajustar puntero
-    while (*p) {
-        esp_hard_cmd(*p++);
-    }
+    // 2. Initialization commands (sequential — mixed extern/literal array
+    //    causes garbage pointers on z88dk/SDCC, see audit C01)
+    esp_hard_cmd(S_AT_CIPMODE0);
+    esp_hard_cmd(S_AT_CIPCLOSE);
+    esp_hard_cmd("ATE0");
+    esp_hard_cmd(S_AT_CIPSERVER0);
+    esp_hard_cmd(S_AT_CIPMUX0);
     
     // 3. Test final AT - OPT M7
     uart_send_line("AT");
@@ -1904,7 +1967,7 @@ uint8_t esp_init(void)
     
     // Timeout ~3 segundos
     for (frames = 0; frames < 150; frames++) {
-        HALT();
+        frame_wait();
         uart_drain_to_buffer();
         
         if (try_read_line_nodrain()) {
@@ -1917,7 +1980,7 @@ uint8_t esp_init(void)
                     uint8_t has_ip = 0;
                     uint8_t w;
                     for (w = 0; w < 100; w++) {
-                        HALT(); uart_drain_to_buffer();
+                        frame_wait(); uart_drain_to_buffer();
                         if (try_read_line_nodrain()) {
                             // FIX P0-1: Verificar longitud
                             if (rx_last_len >= 1 && rx_line[0] == '+' && st_stristr(rx_line, "STAIP")) {
@@ -1936,7 +1999,7 @@ uint8_t esp_init(void)
                         {
                             uint8_t w2;
                             for (w2 = 0; w2 < 100; w2++) {
-                                HALT(); uart_drain_to_buffer();
+                                frame_wait(); uart_drain_to_buffer();
                                 if (try_read_line_nodrain()) {
                                     // FIX P0-1: Verificar longitud antes de índices fijos
                                     if (rx_last_len >= 4) {
@@ -1994,11 +2057,11 @@ void force_disconnect(void)
         // No QUIT here: sending QUIT before reconnect triggers server-side
         // throttle (many servers delay 001 for 30-120s after clean QUIT+reconnect).
         // Ghost nick clears itself via server ping timeout (~120s).
-        for (i = 0; i < 65; i++) { HALT(); flush_all_rx_buffers(); }
+        for (i = 0; i < 65; i++) { frame_wait(); flush_all_rx_buffers(); }
         
         ay_uart_send('+'); ay_uart_send('+'); ay_uart_send('+');
         
-        for (i = 0; i < 55; i++) { HALT(); flush_all_rx_buffers(); }
+        for (i = 0; i < 55; i++) { frame_wait(); flush_all_rx_buffers(); }
     }
     
     uart_send_line(S_AT_CIPCLOSE);
@@ -2025,6 +2088,7 @@ void force_disconnect(void)
     
     // sntp_init_sent NOT reset — AT+CIPSNTPCFG persists in ESP8266
     sntp_waiting = 0;
+    sntp_queried = 0;            // re-sync clock on reconnect
     
     network_name[0] = '\0';
     user_mode[0] = '\0';
@@ -2037,11 +2101,13 @@ void force_disconnect(void)
     
     cancel_search_state();
     
+    rb_head = 0;
+    rb_tail = 0;
     rx_pos = 0;
     rx_overflow = 0;
-    
+
     reset_all_channels();
-    
+
     disconnecting_in_progress = 0;
 }
 // =============================================================================
@@ -2061,22 +2127,14 @@ void irc_send_pong(const char *token) __z88dk_fastcall
     uart_send_line(token);
 }
 
-void irc_send_cmd1(const char *cmd, const char *p1) __z88dk_callee
-{
-    irc_send_cmd_internal(cmd, p1, NULL);
-}
+// irc_send_cmd1/cmd2: frameless ASM in spectalk_asm.asm
 
-// Envía "CMD p1 :p2\r\n" - para comandos con texto final
-void irc_send_cmd2(const char *cmd, const char *p1, const char *p2) __z88dk_callee
-{
-    irc_send_cmd_internal(cmd, p1, p2);
-}
-
-// Envía "PRIVMSG NickServ :IDENTIFY <pass>\r\n"
+// Envía "PRIVMSG <service> :IDENTIFY <pass>\r\n"
+// Uses nickserv_nick if detected, otherwise defaults to "NickServ"
 void send_identify(const char *pass) __z88dk_fastcall
 {
     uart_send_string(S_PRIVMSG);
-    uart_send_string(S_NICKSERV);
+    uart_send_string(nickserv_nick[0] ? (const char *)nickserv_nick : S_NICKSERV);
     uart_send_string(S_IDENTIFY_CMD);
     uart_send_line(pass);
 }
@@ -2146,8 +2204,7 @@ void irc_send_privmsg(const char *target, const char *msg) __z88dk_callee
         uart_send_string(S_PRIVMSG);
         uart_send_string(target);
         uart_send_string(S_SP_COLON);
-        uart_send_string(msg);
-        uart_send_crlf();
+        uart_send_line(msg);
     }
 
     // 2. MOSTRAR EN screen
@@ -2206,6 +2263,9 @@ void apply_theme(void)
     // Copy 20 attribute bytes from theme_raw into theme_attrs[]
     memcpy(theme_attrs, t, 20);
 
+    // Auto-detect nick coloring: mono theme if nick INK == chan INK
+    nick_color_mode = ((theme_attrs[11] & 7) != (theme_attrs[2] & 7)) ? 1 : 0;
+
     // 2. Aplicar cambios físicos a la pantalla
     set_border(BORDER_COLOR); 
     
@@ -2235,6 +2295,7 @@ void badge_flash_on(void)
     uint8_t *t = theme_raw + (current_theme - 1) * 25;
     if (t[21] != 0x40 || ((ATTR_BANNER >> 3) & 0x07)) return;
     badge_flashing = 1;
+    flash_timer = 0;
 }
 
 void badge_flash_off(void)
@@ -2247,42 +2308,11 @@ void badge_flash_off(void)
     *(uint8_t *)(0x5820 + 31) = ATTR_BANNER & 0xBF;
 }
 
+// draw_banner — overlay SPCTLK1 entry 1 (banner_render_ovl)
 void draw_banner(void)
 {
-    uint8_t *t = theme_raw + (current_theme - 1) * 25;
-    uint8_t bp = (ATTR_BANNER >> 3) & 0x07;  // banner PAPER color
-
-    clear_line(0, ATTR_BANNER | 0x40);
-    clear_line(1, ATTR_BANNER & 0xBF);
-    print_big_str(0, 0, "SPECTALK ZX v" VERSION " - ", ATTR_BANNER);
-    print_big_str(0, 21, S_APPDESC, ATTR_BANNER);
-
-    if (t[21] != 0x40) {
-        // Dithered badge: attrs + dither for 5 cells (columns 27-31)
-        uint8_t b1 = t[21] | 0x40, b2 = t[22] | 0x40;
-        uint8_t b3 = t[23] | 0x40, b4 = t[24] | 0x40;
-        uint8_t sb = 0x40 | (bp << 3) | bp;
-
-        *(uint8_t *)(0x5800 + 27) = sb;
-        *(uint8_t *)(0x5800 + 28) = b1;
-        *(uint8_t *)(0x5800 + 29) = b2;
-        *(uint8_t *)(0x5800 + 30) = b3;
-        *(uint8_t *)(0x5800 + 31) = b4;
-
-        *(uint8_t *)(0x5820 + 27) = b1;
-        *(uint8_t *)(0x5820 + 28) = b2;
-        *(uint8_t *)(0x5820 + 29) = b3;
-        *(uint8_t *)(0x5820 + 30) = b4;
-        *(uint8_t *)(0x5820 + 31) = 0x40 | ((t[24] & 0x07) << 3) | ((t[20] >> 3) & 0x07);
-
-        draw_badge_dither(5);
-    } else {
-        // Text badge (no dither)
-        print_big_str(0, bp ? 58 : 61, bp ? "_ [] X" : "<<<", ATTR_BANNER);
-    }
-
-    // 1px separator line below banner (row 2, scanline 0)
-    memset((uint8_t *)0x4040, 0xFF, 32);
+    badge_flashing = 0; /* W12: reset flash state before redrawing banner */
+    overlay_exec(0, 1); /* SPCTLK1, entry 1 */
 }
 
 void init_screen(void)
@@ -2310,6 +2340,58 @@ void init_screen(void)
 // OPTIMIZED UI HELPERS (Saves ROM space vs Macros)
 // =============================================================================
 
+// Auto-centered ikkle notification
+void notif_center(const char *str, uint8_t attr)
+{
+    uint8_t len = st_strlen(str);
+    notif_draw((len < 64) ? ((64 - len) >> 1) : 0, str, attr);
+}
+
+// Notification slide-in state
+// notif_buf[64] declared in irc_handlers.c (SCU order: irc_handlers before spectalk)
+// Also aliased as names_friend_buf for NAMES friend accumulation (disjoint lifetimes)
+static uint8_t notif_slide_len;  // total chars to reveal
+static uint8_t notif_slide_pos;  // chars currently visible
+static uint8_t notif_attr;       // render attribute
+
+// Unified notification dispatcher: ikkle (row 20) or classic (chat area)
+void notify(const char *msg, uint8_t attr)
+{
+    if (notif_enabled) {
+        if (notif_timeout && notif_buf[0]) {
+            if (st_stricmp(notif_buf, msg) == 0) return;
+            { char *sep = strchr(notif_buf, 1);
+              char *d, *end = notif_buf + 62;
+              if (sep) {
+                d = notif_buf;
+                { char *s = sep + 1; while (*s) *d++ = *s++; }
+              } else {
+                d = notif_buf + st_strlen(notif_buf);
+              }
+              if (d + 3 < end) { *d++ = ' '; *d++ = '-'; *d++ = 1; }
+              while (*msg && d < end) *d++ = *msg++;
+              *d = 0;
+            }
+        } else {
+            st_copy_n(notif_buf, msg, 62);
+        }
+        // Strip '#'/'&' and UTF-8 on notif_buf (audit W04: never write through const msg)
+        { char *r = notif_buf, *w = notif_buf;
+          while (*r) { if (*r != '#' && *r != '&') *w++ = *r; r++; }
+          *w = 0; }
+        utf8_to_ascii(notif_buf);
+
+        notif_slide_len = st_strlen(notif_buf);
+        notif_slide_pos = 0;
+        notif_attr = attr;
+        notif_timeout = 150;
+    } else {
+        if (main_col) main_newline();
+        current_attr = attr;
+        main_print(msg);
+    }
+}
+
 void ui_err(const char *s) __z88dk_fastcall
 {
     set_attr_err();
@@ -2325,7 +2407,7 @@ void ui_sys(const char *s) __z88dk_fastcall
 void ui_usage(const char *a) __z88dk_fastcall
 {
     set_attr_err();
-    main_puts("Usage: /");
+    main_puts("Usage: ");
     main_print(a);
 }
 
@@ -2367,7 +2449,7 @@ static char *csv_next_tok(char **pp) {
     char *tok = *pp;
     char *comma;
     if (!tok || !*tok) return NULL;
-    while (*tok == ' ') tok++;
+    tok = skip_spaces(tok);
     if (!*tok) return NULL;
     comma = tok;
     while (*comma && *comma != ',') comma++;
@@ -2378,64 +2460,58 @@ static char *csv_next_tok(char **pp) {
     return tok;
 }
 
+// Config helpers: reduce repeated st_copy_n/str_to_u16 patterns
+static const char *cfg_vp;  // cached val pointer for helpers
+
+static void cfg_s(char *dst, uint8_t sz) __z88dk_callee {
+    st_copy_n(dst, cfg_vp, sz);
+}
+
+static void cfg_b(uint8_t *dst) __z88dk_fastcall {
+    *dst = (uint8_t)str_to_u16(cfg_vp) & 1;
+}
+
 // Apply a key=value pair
 static void cfg_apply(char *key, char *val) __z88dk_callee {
-    // 2-char dispatch: fast and tiny
     uint8_t k0 = key[0], k1 = key[1];
-    uint8_t klen = st_strlen(key);
-    
-    if (k0 == 'n' && k1 == 'i') {           // nick / nickpass
-        if (klen >= 8 && key[4] == 'p') {   // nickpass (8 chars)
-            st_copy_n(nickserv_pass, val, IRC_PASS_SIZE);
-        } else if (klen == 4) {             // nick (4 chars)
-            st_copy_n(irc_nick, val, IRC_NICK_SIZE);
-        }
+    cfg_vp = val;
+    if (k0 == 'n' && k1 == 'i') {           // nick / nickpass / nickcolor / nickserv
+        if (key[4] == 'p') cfg_s(nickserv_pass, IRC_PASS_SIZE);
+        else if (key[4] == 'c') cfg_b(&nick_color_mode);
+        else if (key[4] == 's') cfg_s(nickserv_nick, IRC_NICK_SIZE);
+        else cfg_s(irc_nick, IRC_NICK_SIZE);
     } else if (k0 == 's' && k1 == 'e') {    // server
-        st_copy_n(irc_server, val, IRC_SERVER_SIZE);
+        cfg_s(irc_server, IRC_SERVER_SIZE);
     } else if (k0 == 'p' && k1 == 'o') {    // port
-        st_copy_n(irc_port, val, IRC_PORT_SIZE);
+        cfg_s(irc_port, IRC_PORT_SIZE);
     } else if (k0 == 'p' && k1 == 'a') {    // pass
-        st_copy_n(irc_pass, val, IRC_PASS_SIZE);
+        cfg_s(irc_pass, IRC_PASS_SIZE);
     } else if (k0 == 't' && k1 == 'h') {    // theme
         uint8_t v = (uint8_t)str_to_u16(val);
         if (v >= 1 && v <= 3) current_theme = v;
     } else if (k0 == 'a' && k1 == 'u') {
-        // FIX P2-2: Verificar claves exactas para evitar interpretación errónea
-        // autoconnect = 11 chars, autoaway = 8 chars
         uint8_t v = (uint8_t)str_to_u16(val);
-        if (klen == 11 && key[4] == 'c' && key[5] == 'o') {  // autoconnect
-            autoconnect = v & 1;
-        } else if (klen == 8 && key[4] == 'a' && key[5] == 'w') {  // autoaway
-            if (v <= 60) autoaway_minutes = v;
-        }
-        // Claves no reconocidas (autoxxx) se ignoran silenciosamente
-    } else if (k0 == 'f' && k1 == 'r') {  // friends=nick1,nick2,...
+        if (key[4] == 'c') autoconnect = v & 1;
+        else if (key[4] == 'a') { if (v <= 60) autoaway_minutes = v; }
+    } else if (k0 == 'f' && k1 == 'r') {  // friends
         uint8_t idx = 0;
         char *tok, *p = val;
         while (idx < MAX_FRIENDS && (tok = csv_next_tok(&p)) != NULL)
             st_copy_n(friend_nicks[idx++], tok, IRC_NICK_SIZE);
-    } else if (k0 == 'i' && k1 == 'g') {  // ignores=nick1,nick2,...
+    } else if (k0 == 'i' && k1 == 'g') {  // ignores
         char *tok, *p = val;
         while (ignore_count < MAX_IGNORES && (tok = csv_next_tok(&p)) != NULL)
             add_ignore(tok);
-    } else if (k0 == 'b' && k1 == 'e') {    // beep
-        beep_enabled = (uint8_t)str_to_u16(val) & 1;
-    } else if (k0 == 't' && k1 == 'r') {    // traffic
-        show_traffic = (uint8_t)str_to_u16(val) & 1;
-    } else if (k0 == 't' && k1 == 'i') {    // timestamps (0=off, 1=on, 2=smart)
-        {
-            uint8_t v = (uint8_t)str_to_u16(val);
-            show_timestamps = (v > 2) ? 1 : v;
-        }
-    } else if (k0 == 't' && k1 == 'z') {    // tz
-        int8_t tz;
-        if (*val == '-') {
-            tz = -(int8_t)str_to_u16(val + 1);
-        } else {
-            tz = (int8_t)str_to_u16(val);
-        }
+    } else if (k0 == 'b' && k1 == 'e') cfg_b(&beep_enabled);
+      else if (k0 == 'c' && k1 == 'l') cfg_b(&keyclick_enabled);
+      else if (k0 == 't' && k1 == 'r') cfg_b(&show_traffic);
+      else if (k0 == 't' && k1 == 'i') {
+        uint8_t v = (uint8_t)str_to_u16(val);
+        show_timestamps = (v > 2) ? 1 : v;
+    } else if (k0 == 't' && k1 == 'z') {
+        int8_t tz = (*val == '-') ? -(int8_t)str_to_u16(val + 1) : (int8_t)str_to_u16(val);
         if (tz >= -12 && tz <= 12) sntp_tz = tz;
-    }
+    } else if (k0 == 'n' && k1 == 'o') cfg_b(&notif_enabled);
 }
 
 // Parse the config buffer (ring_buffer[]) line by line
@@ -2530,17 +2606,19 @@ void main(void)
     
     has_esxdos = esx_detect();
 
-    // Load font + themes from SPECTALK.DAT
-    // Layout: [298 font][75 themes][help text]
-    if (has_esxdos) {
+    // Fatal: no divMMC/esxDOS
+    if (!has_esxdos) fatal_msg("REQUIRES DIVMMC!");
+
+    // Load font + themes + BPE dict from SPECTALK.DAT
+    {
         extern uint8_t font_lut[];
         esx_fopen(K_DAT);
-        if (esx_handle) {
-            esx_buf = (uint16_t)font_lut;
-            esx_count = 373;
-            esx_fread();
-            esx_fclose();
-        }
+        if (!esx_handle) fatal_msg("DAT NOT FOUND!");
+        esx_buf = (uint16_t)font_lut;
+        esx_count = 373;
+        esx_fread();
+        esx_fclose();
+        if (esx_result < 373) fatal_msg("DAT TRUNCATED!");
     }
 
     cfg_ok = config_load();  // Load settings before theme/screen init
@@ -2557,7 +2635,7 @@ void main(void)
 
     // --- Initialization ---
     {
-        uint8_t retries = 2;
+        uint8_t retries = 3;
         while (retries--) {
             set_attr_priv();
             main_puts(S_INIT_DOTS);
@@ -2566,8 +2644,8 @@ void main(void)
             if (retries) {
                 ui_sys("Press any key to retry...");
                 // FIX: Drenar la UART mientras esperamos la tecla
-                while (!in_inkey()) { HALT(); uart_drain_to_buffer(); }
-                while (in_inkey()) { HALT(); uart_drain_to_buffer(); }
+                while (!in_inkey()) { frame_wait(); uart_drain_to_buffer(); }
+                while (in_inkey()) { frame_wait(); uart_drain_to_buffer(); }
             }
         }
     }
@@ -2578,7 +2656,7 @@ void main(void)
     
     if (connection_state < STATE_WIFI_OK) {
         main_putc(' '); set_attr_err(); main_puts("NO WIFI"); main_newline();
-        ui_sys("Join WiFi network first");
+        ui_sys("Connect to WiFi first or try !init");
     } else {
         main_newline();
         sntp_init();  // OPT L2: inlined sync_time()
@@ -2587,7 +2665,7 @@ void main(void)
 
     set_attr_sys();
     main_hline();
-    main_print("Type !help or !about for more info.");
+    main_print("Type !help, !about or !changelog for more info");
 
     // Autoconnect only if ALL conditions are met
     can_autoconnect = autoconnect && cfg_ok && irc_server[0]
@@ -2620,21 +2698,23 @@ void main(void)
     {
         uint8_t prev_caps_mode = caps_lock_mode;
         uint8_t prev_shift_held = 0;
-        uint8_t sntp_timer = 0;
-        uint8_t autoconnect_delay = can_autoconnect ? 200 : 0;  // ~4 sec delay
+        uint8_t sntp_timer = 75;  // first SNTP query after ~0.5s (not 2s)
+        uint8_t autoconnect_delay = can_autoconnect ? 250 : 0;  // ~5 sec (SNTP needs time)
 
         // FIX: Ocultar cursor durante autoconnect countdown
         if (autoconnect_delay) { cursor_visible = 0; redraw_input_full(); }
 
         // FIX: muestrear SHIFT 1 vez por frame y reutilizarlo
         uint8_t shift_held = 0;
+        uint8_t ss_held = 0;    // SS+arrow state tracking
+        uint8_t ss_repeat = 0;  // auto-repeat timer
 
         // Sync frame counter before entering main loop
         last_frames_lo = *(volatile uint8_t *)23672;
         tick_accum = 0;
 
         while (1) {
-            HALT(); // 50 Hz Sync
+            frame_wait(); // 50 Hz Sync
             
             // Read system FRAMES (23672) low byte and compute elapsed frames.
             // This correctly accounts for frames lost during long processing.
@@ -2643,6 +2723,28 @@ void main(void)
             uint8_t elapsed = now_lo - last_frames_lo;  // wraps correctly (uint8)
             last_frames_lo = now_lo;
             tick_accum += elapsed;
+            // Notification slide-in animation (3 chars/frame, right to left)
+            // Skip during overlays: overlay footer is static, don't overwrite it
+            if (notif_slide_pos < notif_slide_len && !overlay_mode) {
+                notif_slide_pos += 3;
+                if (notif_slide_pos > notif_slide_len) notif_slide_pos = notif_slide_len;
+                notif_draw(64 - notif_slide_pos,
+                           notif_buf + notif_slide_len - notif_slide_pos,
+                           notif_attr);
+            }
+
+            // Notification bar timeout (frame-accurate via HALT)
+            // Skip during overlays: overlay footer must persist until exit
+            if (notif_timeout && !overlay_mode) {
+                if (notif_timeout <= elapsed) {
+                    notif_timeout = 0;
+                    notif_is_pm = 0;
+                    notif_buf[0] = 0;
+                    notif_clear();
+                } else {
+                    notif_timeout -= elapsed;
+                }
+            }
             }
             while (tick_accum >= 50) {
                 tick_accum -= 50;
@@ -2651,23 +2753,12 @@ void main(void)
                 // Away auto-reply global cooldown (1 tick per second)
                 if (away_reply_cd) away_reply_cd--;
                 
-                {
-                    uint8_t i;
-                    for (i = 0; i < MAX_CHANNELS; i++) {
-                        // Optimización: Comprobar ACTIVE y MENTION en una sola operación
-                        uint8_t f = channels[i].flags;
-                        if ((f & (CH_FLAG_ACTIVE | CH_FLAG_MENTION)) == (CH_FLAG_ACTIVE | CH_FLAG_MENTION) &&
-                            i != current_channel_idx) {
-                            status_bar_dirty = 1;
-                            break;
-                        }
-                    }
-                }
+                if (has_other_mention()) status_bar_dirty = 1;
                 
                 // Auto-away check (cada segundo, si configurado y conectado)
                 if (autoaway_minutes && connection_state == STATE_IRC_READY && !irc_is_away) {
                     if (autoaway_counter < 65000) autoaway_counter++;  // Prevenir overflow
-                    if (autoaway_counter >= (uint16_t)autoaway_minutes * 60) {
+                    if (autoaway_counter >= ((uint16_t)autoaway_minutes << 6) - ((uint16_t)autoaway_minutes << 2)) {
                         uart_send_string("AWAY :");
                         uart_send_line(S_AUTOAWAY);
                         st_copy_n(away_message, S_AUTOAWAY, sizeof(away_message));
@@ -2680,6 +2771,7 @@ void main(void)
                 if (time_second >= 60) {
                     time_second = 0;
                     time_minute++;
+                    uptime_minutes++;
                     // Actualizar reloj en pantalla cada minuto
                     draw_clock(); 
                     
@@ -2707,6 +2799,14 @@ void main(void)
                         names_timeout_frames = 0;
                         names_target_channel[0] = '\0';
                         counting_new_users = 0;
+                        names_count_acc = 0;
+                        show_names_list = 0;
+                        names_was_manual = 0;
+                        if (pagination_active) {
+                            pagination_active = 0;
+                            cursor_visible = 1;
+                            redraw_input_full();
+                        }
                     }
                 }
             }
@@ -2715,7 +2815,7 @@ void main(void)
             if (autoconnect_delay) {
                 if (--autoconnect_delay == 0) {
                     if (irc_server[0] && connection_state == STATE_WIFI_OK) {
-                        parse_user_input("/server");
+                        { char ac[] = "/server"; parse_user_input(ac); }
                     } else {
                         // Conditions not met — restore cursor
                         cursor_visible = 1;
@@ -2724,8 +2824,8 @@ void main(void)
                 }
             }
             
-            // 1.5. KEEP-ALIVE & LAGMETER
-            if (connection_state == STATE_IRC_READY) {
+            // 1.5. KEEP-ALIVE & LAGMETER (paused during About — ring_buffer busy)
+            if (connection_state == STATE_IRC_READY && overlay_mode != OVERLAY_ABOUT) {
                 server_silence_frames++;
                 lagmeter_counter++;
                 
@@ -2819,13 +2919,18 @@ void main(void)
             }
             
             c = read_key();
+            if (c) key_click();
 
-            // Badge "<<<" blink: toggle INK green every 16 frames
+            // Badge "<<<" blink: toggle INK green every 16 frames, auto-stop after ~5s
             if (badge_flashing && !(++flash_timer & 0x0F)) {
-                *(uint8_t *)(0x5800 + 30) ^= 0x04;
-                *(uint8_t *)(0x5800 + 31) ^= 0x04;
-                *(uint8_t *)(0x5820 + 30) ^= 0x04;
-                *(uint8_t *)(0x5820 + 31) ^= 0x04;
+                if (flash_timer >= 240) {
+                    badge_flash_off();
+                } else {
+                    *(uint8_t *)(0x5800 + 30) ^= 0x04;
+                    *(uint8_t *)(0x5800 + 31) ^= 0x04;
+                    *(uint8_t *)(0x5820 + 30) ^= 0x04;
+                    *(uint8_t *)(0x5820 + 31) ^= 0x04;
+                }
             }
 
             // Any keypress resets auto-away counter and badge flash
@@ -2837,19 +2942,59 @@ void main(void)
                 c = shift_keys[c - '5'];
             }
 
-            // Help overlay (state-based, non-blocking)
-            if (help_active) {
-                if (c == 3) {  // BREAK
-                    help_active = 0;
+            // Overlay system (state-based, non-blocking)
+            if (overlay_mode) {
+                pagination_active = 0; /* W11: overlays and pagination are mutually exclusive */
+                if (c) sw_timeout = 0; /* W14: reset help timeout on any keypress */
+                // About overlay: N key opens What's New
+                if (overlay_mode == OVERLAY_ABOUT && (c == 'n' || c == 'N')) {
+                    overlay_mode = OVERLAY_WHATSNEW;
+                    overlay_exec(2, 0);
+                    c = 0;
+                // Config overlay: S key triggers save + refresh
+                } else if (overlay_mode == OVERLAY_CONFIG && config_dirty && (c == 's' || c == 'S')) {
+                    overlay_mode = OVERLAY_NONE;
                     cursor_visible = 1;
                     clear_main();
+                    notif_clear();
+                    redraw_input_full();
+                    cmd_save(NULL);
+                    // Re-enter config overlay to show updated state
+                    overlay_mode = OVERLAY_CONFIG;
+                    cursor_visible = 0;
+                    overlay_exec(1, 1);
+                    c = 0;
+                } else if (c == 3 || (c && overlay_mode != OVERLAY_HELP)) {
+                    // BREAK always exits; any key exits single-page overlays
+                    if (overlay_mode == OVERLAY_ABOUT) {
+                        flush_all_rx_buffers();
+                        flush_frames = 15; /* drain UART silently — handles NAMES floods */
+                    }
+                    overlay_mode = OVERLAY_NONE;
+                    cursor_visible = flush_frames ? 0 : 1;
+                    notif_timeout = 0;
+                    clear_main();
+                    notif_clear();
                     redraw_input_full();
                 } else if (c) {
+                    // Help: paginated — advance page
                     help_page++;
+                    sw_timeout = 0; /* W14: reset timeout on keypress */
                     help_render_page();
-                    if (!help_active) { cursor_visible = 1; clear_main(); redraw_input_full(); }
+                    if (!overlay_mode) { cursor_visible = 1; notif_timeout = 0; clear_main(); notif_clear(); redraw_input_full(); }
+                } else if (overlay_mode == OVERLAY_HELP && ++sw_timeout >= 4500) {
+                    /* W14: auto-close help after ~90s to prevent PING timeout */
+                    overlay_mode = OVERLAY_NONE;
+                    cursor_visible = 1;
+                    notif_timeout = 0;
+                    clear_main();
+                    notif_clear();
+                    redraw_input_full();
+                    continue;
+                } else if (overlay_mode == OVERLAY_ABOUT && !c) {
+                    overlay_call(2); /* globe animation tick (already in ring_buffer) */
                 }
-                c = 0;  // consume all keys while help is open
+                c = 0;
             }
 
             // Channel switcher overlay (non-blocking, state-based)
@@ -2870,32 +3015,18 @@ void main(void)
                         sw_sel = (sw_sel < sw_count - 1) ? sw_sel + 1 : 0;  // wrap
                         sw_dirty = 1;
                     } else if (c == KEY_ENTER) {
-                        switch_to_channel(sw_map[sw_sel]);
+                        if (sw_map[sw_sel] != current_channel_idx) {
+                            switch_to_channel(sw_map[sw_sel]);
+                            notify2("Switched to ", irc_channel, ATTR_MSG_JOIN);
+                        } else {
+                            notify2("Already in ", irc_channel, ATTR_MSG_SYS);
+                        }
                         switcher_close();
                     } else if (c == KEY_BACKSPACE) {
-                        // Close/part selected channel (not Server)
                         uint8_t idx = sw_map[sw_sel];
                         if (idx > 0) {
-                            uint8_t f = channels[idx].flags;
-                            if (f & CH_FLAG_ACTIVE) {
-                                if (!(f & CH_FLAG_QUERY)) {
-                                    // Real channel: send PART to server
-                                    irc_send_cmd1("PART", channels[idx].name);
-                                }
-                                remove_channel(idx);
-                            }
-                            // Rebuild switcher map
-                            sw_count = 0;
-                            sw_sel = 0;
-                            { uint8_t k;
-                            for (k = 0; k < MAX_CHANNELS; k++) {
-                                if (channels[k].flags & CH_FLAG_ACTIVE) {
-                                    if (k == current_channel_idx) sw_sel = sw_count;
-                                    sw_map[sw_count++] = k;
-                                }
-                            }}
-                            if (sw_count < 2) { switcher_close(); }
-                            else sw_dirty = 1;
+                            switcher_part(idx);
+                            switcher_close();
                         }
                     } else if (c == 7 && sw_released) {
                         switcher_close();
@@ -2905,7 +3036,12 @@ void main(void)
                         uint8_t k;
                         for (k = 0; k < sw_count; k++) {
                             if (sw_map[k] == slot) {
-                                switch_to_channel(slot);
+                                if (slot != current_channel_idx) {
+                                    switch_to_channel(slot);
+                                    notify2("Switched to ", irc_channel, ATTR_MSG_JOIN);
+                                } else {
+                                    notify2("Already in ", irc_channel, ATTR_MSG_SYS);
+                                }
                                 switcher_close();
                                 break;
                             }
@@ -2928,11 +3064,45 @@ void main(void)
                     }
                 }
 
-                if (sw_dirty) switcher_render();
+                if (sw_active && sw_dirty) switcher_render();
                 c = 0;  // consume all keys while switcher is open
             } else if (c == 7 && !pagination_active && search_mode == SEARCH_NONE && !autoconnect_delay) {
                 switcher_open();
                 c = 0;
+            }
+
+            // ENTER/BREAK with empty input during PM notification
+            if ((c == 13 || c == 3) && line_len == 0 && notif_is_pm && notif_timeout && last_pm_nick[0]) {
+                if (c == 13) {
+                    int8_t qi = add_query(last_pm_nick);
+                    if (qi >= 0) { switch_to_channel((uint8_t)qi); status_bar_dirty = 1; }
+                    else ui_err("Max windows. /close first");
+                }
+                notif_timeout = 0; notif_is_pm = 0;
+                notif_clear();
+                c = 0;
+            }
+
+            // Word navigation: SS+arrow via raw port reads (with auto-repeat)
+            {
+                uint8_t ssa = key_ss_arrow();
+                if (ssa) {
+                    if (!ss_held || !ss_repeat) {
+                        if (!pagination_active && search_mode == SEARCH_NONE && !autoconnect_delay) {
+                            if (ssa == 1) input_word_left();
+                            else if (ssa == 2) input_word_right();
+                            else input_delete_word();
+                        }
+                        ss_repeat = ss_held ? 4 : 12;  // fast repeat / initial delay
+                    } else {
+                        ss_repeat--;
+                    }
+                    ss_held = 1;
+                    c = 0;
+                } else {
+                    ss_held = 0;
+                    ss_repeat = 0;
+                }
             }
 
             if (c != 0 && !pagination_active && search_mode == SEARCH_NONE && !autoconnect_delay) {
@@ -2967,7 +3137,23 @@ void main(void)
                 }
             }
             
-            process_irc_data();
+            // About blocks IRC processing (ring_buffer busy with globe animation).
+            // All other overlays: process_irc_data runs normally — output suppressed
+            // by main_print's overlay_mode early-return, data consumed silently.
+            if (overlay_mode != OVERLAY_ABOUT) {
+                if (flush_frames) {
+                    flush_frames--;
+                    overlay_mode = 1;           // suppress all screen output
+                    uart_drain_limit = 0;       // drain everything from UART
+                    process_irc_data();         // consume data silently
+                    uart_drain_limit = DRAIN_NORMAL;
+                    overlay_mode = 0;
+                    if (!flush_frames) cursor_visible = 1;
+                } else {
+                    process_irc_data();
+                }
+            } else if (connection_state >= STATE_TCP_CONNECTED)
+                overlay_keepalive();
         }
     }
 }

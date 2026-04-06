@@ -22,12 +22,18 @@
 SECTION code_crt_init
 EXTERN __data_compiler_tail
 EXTERN __bss_compiler_tail
+EXTERN ___sdcc_enter_ix
+EXTERN _cur_chan_ptr
+EXTERN _current_channel_idx
     ld hl, __bss_compiler_tail
     ld de, __data_compiler_tail
     or a
     sbc hl, de          ; HL = total size to zero
     ld b, h
     ld c, l             ; BC = size
+    ld a, b
+    or c
+    jr z, bss_zero_skip ; W10: skip if BSS size = 0
     ex de, hl           ; HL = start address (1 byte vs 2)
     ld (hl), 0
     ld d, h
@@ -35,6 +41,7 @@ EXTERN __bss_compiler_tail
     inc de              ; DE = start + 1
     dec bc              ; BC = size - 1
     ldir
+bss_zero_skip:
     ; Zero Printer Buffer: 0x5B00..0x5BFF (256 bytes)
     ld hl, 0x5B00
     ld (hl), 0
@@ -59,24 +66,10 @@ EXTERN __bss_compiler_tail
     inc de
     ld bc, 153
     ldir
-    ; --- IM2 setup ---
-    ; Fill vector table at 0xFC00 with 0xFD (257 bytes)
-    ld hl, 0xFC00
-    ld (hl), 0xFD
-    ld d, h
-    ld e, l
-    inc de
-    ld bc, 256
-    ldir
-    ; Copy ISR to 0xFDFD
-    ld hl, _im2_isr_template
-    ld de, 0xFDFD
-    ld bc, _im2_isr_end - _im2_isr_template
-    ldir
-    ; Switch to IM2
-    ld a, 0xFC
-    ld i, a
-    im 2
+    ; --- IM2 removed ---
+    ; IM2 was dead code: frame_wait() uses IM1 exclusively.
+    ; The CRT IM2 setup was overwriting BSS at $FC00+ (bpe_dict, esx_* vars).
+    ; IM1 is the default mode after reset — no setup needed.
     ; Invalidar cache de fila screen/attr
     ld a, 0xFF
     ld (cache_row_y), a
@@ -127,7 +120,7 @@ PUBLIC _draw_indicator
 ; draw_indicator_big removed (big mode eliminated)
 PUBLIC _clear_line
 PUBLIC _clear_zone
-PUBLIC _screen_row_base
+PUBLIC _compute_screen_base
 PUBLIC _screen_line_addr
 PUBLIC _attr_addr
 PUBLIC _st_stricmp
@@ -149,6 +142,9 @@ PUBLIC _main_newline
 PUBLIC _tokenize_params
 PUBLIC _sb_append
 PUBLIC _draw_badge_dither
+PUBLIC _notif_clear
+PUBLIC _notif_draw
+PUBLIC _ikkle_packed
 PUBLIC _in_inkey
 PUBLIC asm_in_inkey
 PUBLIC _nav_push
@@ -156,6 +152,19 @@ PUBLIC _find_empty_channel_slot
 PUBLIC _print_char64
 PUBLIC _draw_big_char
 PUBLIC _font_lut
+PUBLIC _sys_puts_print
+PUBLIC _irc_send_cmd1
+PUBLIC _irc_send_cmd2
+PUBLIC _cfg_put
+PUBLIC _ensure_args
+PUBLIC _fast_u8_to_str
+PUBLIC _print_big_str
+PUBLIC _cfg_kv
+PUBLIC _sb_put_u8_2d
+PUBLIC _puts_u8_nolz
+PUBLIC _input_word_left
+PUBLIC _input_word_right
+PUBLIC _input_delete_word
 
 ; =============================================================================
 ; EXTERNAL VARIABLES AND FUNCTIONS (defined in C or other .asm)
@@ -163,6 +172,7 @@ PUBLIC _font_lut
 EXTERN _caps_lock_mode
 EXTERN _caps_latch
 EXTERN _beep_enabled
+EXTERN _ui_usage
 EXTERN _g_ps64_y
 EXTERN _g_ps64_col
 EXTERN _g_ps64_attr
@@ -200,11 +210,14 @@ EXTERN _main_col
 EXTERN _main_line
 EXTERN _wrap_indent
 
-; Ring buffer (para rb_pop y try_read_line_nodrain)
-EXTERN _ring_buffer
+; Ring buffer — fixed address outside BSS (between BSS and stack)
+PUBLIC _ring_buffer
+defc _ring_buffer = 0xF500
 EXTERN _rb_head
 EXTERN _rb_tail
 EXTERN _rx_line
+PUBLIC _overlay_slot
+defc _overlay_slot = _rx_line   ; alias — mutually exclusive with IRC receive
 EXTERN _rx_pos
 EXTERN _rx_overflow
 EXTERN _rx_last_len
@@ -231,6 +244,8 @@ plf_left_buf: defs 8    ; Buffer temporal para nibbles izquierdos (print_line64_
 plf_str_ptr:  defs 2    ; String pointer temporal (print_line64_fast)
 plf_attr_val: defs 1    ; Atributo a escribir (print_line64_fast)
 plf_y_val:    defs 1    ; Fila Y (print_line64_fast)
+PUBLIC _plf_start_byte
+_plf_start_byte: defs 1 ; Start byte offset (wrap_indent/2, 0=full row)
 cache_scr_base: defs 2  ; Screen base addr cacheada (print_str64_char)
 cache_atr_base: defs 2  ; Attr base addr cacheada (print_str64_char)
 cache_row_y:   defs 1   ; Fila Y del cache (0xFF = inválido)
@@ -245,18 +260,6 @@ SECTION code_user
 ; =============================================================================
 ; UTILIDADES BÁSICAS
 ; =============================================================================
-
-; -----------------------------------------------------------------------------
-; hl_mul32: HL = HL * 32 (used by peephole rule for channels[] indexing)
-; Replaces 5x add hl,hl (5 bytes) with call (3 bytes) saving 2 bytes/site
-; -----------------------------------------------------------------------------
-_hl_mul32:
-    add hl, hl
-    add hl, hl
-    add hl, hl
-    add hl, hl
-    add hl, hl
-    ret
 
 ; -----------------------------------------------------------------------------
 ; channel_flags_ptr: HL = &channels[L].flags
@@ -285,15 +288,27 @@ _a_sext_mul32:
     rlca
     sbc a, a
     ld h, a
-    jp _hl_mul32
+    jr _hl_mul32
 
 ; -----------------------------------------------------------------------------
-; l_mul32: zero-extend L to HL, then HL *= 32
+; l_mul32: zero-extend L to HL, then HL *= 32 — falls through to hl_mul32
 ; copt replaces: ld h,0x00 / 5x add hl,hl (7 bytes -> 3)
 ; -----------------------------------------------------------------------------
 _l_mul32:
     ld h, 0x00
-    jp _hl_mul32
+    ; fall through to _hl_mul32
+
+; -----------------------------------------------------------------------------
+; hl_mul32: HL = HL * 32 (used by peephole rule for channels[] indexing)
+; Replaces 5x add hl,hl (5 bytes) with call (3 bytes) saving 2 bytes/site
+; -----------------------------------------------------------------------------
+_hl_mul32:
+    add hl, hl
+    add hl, hl
+    add hl, hl
+    add hl, hl
+    add hl, hl
+    ret
 
 ; -----------------------------------------------------------------------------
 ; leave_ix: IX epilogue — ld sp,ix / pop ix / ret
@@ -310,16 +325,7 @@ _leave_ix:
 ; -----------------------------------------------------------------------------
 _l_channel_flags_ptr:
     ld h, 0x00
-    add hl, hl
-    add hl, hl
-    add hl, hl
-    add hl, hl
-    add hl, hl
-    ld de, _channels
-    add hl, de
-    ld de, 0x001e
-    add hl, de
-    ret
+    jr _channel_flags_ptr      ; shares body with _channel_flags_ptr (-9 bytes)
 
 ; -----------------------------------------------------------------------------
 ; IX load helpers: HL = (ix+N/ix+N+1) — 7 bytes each, saves 3 bytes per site
@@ -343,6 +349,26 @@ _ld_hl_ix6:
 _ld_hl_ixm4:
     ld l,(ix-4)
     ld h,(ix-3)
+    ret
+PUBLIC _ld_de_ixm2
+_ld_de_ixm2:
+    ld e,(ix-2)
+    ld d,(ix-1)
+    ret
+PUBLIC _ld_hl_ixm5
+_ld_hl_ixm5:
+    ld l,(ix-5)
+    ld h,(ix-4)
+    ret
+PUBLIC _ld_hl_ixm7
+_ld_hl_ixm7:
+    ld l,(ix-7)
+    ld h,(ix-6)
+    ret
+PUBLIC _ld_hl_ixm3
+_ld_hl_ixm3:
+    ld l,(ix-3)
+    ld h,(ix-2)
     ret
 
 ; -----------------------------------------------------------------------------
@@ -368,6 +394,39 @@ _rx_pos_reset:
     ret
 
 ; -----------------------------------------------------------------------------
+; check_status_irc: check_status(LVL_IRC=2) — copt fuses ld l,2 / call
+; Saves 2 bytes per site (13 sites)
+; -----------------------------------------------------------------------------
+EXTERN _check_status
+PUBLIC _check_status_irc
+_check_status_irc:
+    ld l, 2
+    jp _check_status
+
+; -----------------------------------------------------------------------------
+; set_sbd: status_bar_dirty = 1 — copt fuses ld hl,_sbd / ld (hl),1
+; Saves 2 bytes per site (9 sites)
+; -----------------------------------------------------------------------------
+EXTERN _status_bar_dirty
+PUBLIC _set_sbd
+_set_sbd:
+    ld hl, _status_bar_dirty
+    ld (hl), 0x01
+    ret
+
+; -----------------------------------------------------------------------------
+; restore_input: cursor_visible = 1 + redraw_input_full — copt fuses 3-line
+; Saves 5 bytes per site (4 sites)
+; -----------------------------------------------------------------------------
+EXTERN _cursor_visible
+EXTERN _redraw_input_full
+PUBLIC _restore_input
+_restore_input:
+    ld hl, _cursor_visible
+    ld (hl), 0x01
+    jp _redraw_input_full
+
+; -----------------------------------------------------------------------------
 ; void set_border(uint8_t color) __z88dk_fastcall
 ; input: L = color
 ; -----------------------------------------------------------------------------
@@ -377,17 +436,74 @@ _set_border:
     ret
 
 ; -----------------------------------------------------------------------------
+; char *skip_spaces(char *p) __z88dk_fastcall
+; Advances HL past ASCII spaces (0x20). Returns pointer to first non-space.
+; 7 bytes. Replaces 16× inline `while (*p == ' ') p++;` (~8 bytes each)
+; -----------------------------------------------------------------------------
+PUBLIC _skip_spaces
+_skip_spaces:
+    ld a, (hl)
+    cp ' '
+    ret nz
+    inc hl
+    jr _skip_spaces
+
+; -----------------------------------------------------------------------------
+; cdecl cleanup wrappers: EXX saves ret addr in HL' (alt register set).
+; Safe: targets are leaf functions, SDCC never uses EXX, EXX runs between frames,
+; and glyph decompressor's EXX usage doesn't overlap with wrapper call sites.
+; For copy_n (void): jp (hl) returns directly — no push/ret needed.
+; For stricmp/stristr: exx/push/exx/ret swaps return value and ret addr.
+; -----------------------------------------------------------------------------
+
+; COPT-32: st_copy_n (void return — 24 sites, saves 4B each)
+EXTERN _st_copy_n
+PUBLIC _st_copy_n_cleanup
+_st_copy_n_cleanup:
+    pop hl              ; HL = return address
+    exx                 ; save in HL'. Main regs = former alt set.
+    call _st_copy_n     ; params at correct stack positions
+    pop af              ; cleanup param 1 (2 bytes)
+    pop af              ; cleanup param 2 (2 bytes)
+    inc sp              ; cleanup param 3 (1 byte)
+    exx                 ; restore: HL = return address
+    jp (hl)             ; return without push/ret
+
+; COPT-33/34: st_stricmp / st_stristr (HL = return value — 29+10 sites)
+EXTERN _st_stricmp
+PUBLIC _st_stricmp_cleanup
+_st_stricmp_cleanup:
+    pop hl
+    exx
+    call _st_stricmp
+    jr _cdecl2_cleanup
+
+EXTERN _st_stristr
+PUBLIC _st_stristr_cleanup
+_st_stristr_cleanup:
+    pop hl
+    exx
+    call _st_stristr
+    ; fall through
+_cdecl2_cleanup:
+    pop af              ; cleanup param 1
+    pop af              ; cleanup param 2
+    exx                 ; HL = ret addr, HL' (alt) = return value
+    push hl             ; push ret addr
+    exx                 ; HL = return value
+    ret                 ; pop ret addr, return with correct HL
+
+; -----------------------------------------------------------------------------
 ; Common beep core:
 ;   IN:  HL = duration loop count
 ;        C  = tone mask (e.g. 0x10 or 0x20)
-; Uses: A,B,C,HL
+; Uses: A,B,HL (IY not touched — no push/pop needed)
 ; -----------------------------------------------------------------------------
 _beep_core:
-    push iy
 
 beep_loop:
     ld a, l
-    and 0x10
+    and c               ; tone mask from C (was hardcoded 0x10)
     or 0x08
     ld b, a
 
@@ -402,7 +518,6 @@ beep_loop:
     or l
     jr nz, beep_loop
 
-    pop iy
     ret
 
 
@@ -416,7 +531,20 @@ _mention_beep:
     ret z                   ; Si beep_enabled == 0, salir
     ld hl, 2500             ; Más largo
     ld c, 0x18              ; Tono más grave
-    jp _beep_core
+    jr _beep_core
+
+; -----------------------------------------------------------------------------
+; void key_click(void)  -- subtle key click (short single pulse)
+; -----------------------------------------------------------------------------
+PUBLIC _key_click
+EXTERN _keyclick_enabled
+_key_click:
+    ld a, (_keyclick_enabled)
+    or a
+    ret z
+    ld hl, 40
+    ld c, 0x10              ; default tone mask for click
+    jr _beep_core
 
 ; -----------------------------------------------------------------------------
 ; void check_caps_toggle(void)
@@ -425,8 +553,8 @@ _mention_beep:
 _check_caps_toggle:
     ld bc, 0xFEFE
     in a, (c)
-    bit 0, a
-    jr nz, caps_no_combo
+    rra
+    jr c, caps_no_combo
 
     ld bc, 0xF7FE
     in a, (c)
@@ -459,8 +587,8 @@ caps_no_combo:
 _key_shift_held:
     ld bc, 0xFEFE
     in a, (c)
-    bit 0, a
-    jr nz, shift_not_held
+    rra
+    jr c, shift_not_held
 
     ld bc, 0xF7FE
     in a, (c)
@@ -490,22 +618,14 @@ shift_not_held:
 ; Rellena input_cache_char (128 bytes) y input_cache_attr (64 bytes) con 0xFF
 ; -----------------------------------------------------------------------------
 _input_cache_invalidate:
+    ; _input_cache_char (128B @ 0x5B00) + _input_cache_attr (64B @ 0x5B80) son contiguas
     ld hl, _input_cache_char
     ld (hl), 0xFF
     ld d, h
     ld e, l
     inc de
-    ld bc, 127
+    ld bc, 191              ; 128 + 64 - 1 = 191 (ambas zonas en un solo LDIR)
     ldir
-    
-    ld hl, _input_cache_attr
-    ld (hl), 0xFF
-    ld d, h
-    ld e, l
-    inc de
-    ld bc, 63
-    ldir
-    
     ret
 
 ; =============================================================================
@@ -713,17 +833,33 @@ trln_return_0:
 ; GRAPHICS SYSTEM - TABLES
 ; =============================================================================
 
-_screen_row_base:
-    defw 0x4000, 0x4020, 0x4040, 0x4060, 0x4080, 0x40A0, 0x40C0, 0x40E0
-    defw 0x4800, 0x4820, 0x4840, 0x4860, 0x4880, 0x48A0, 0x48C0, 0x48E0
-    defw 0x5000, 0x5020, 0x5040, 0x5060, 0x5080, 0x50A0, 0x50C0, 0x50E0
+; Compute screen row base: HL = screen address for char row A (0-23), scanline 0
+; Formula: H = 0x40 | (y & 0x18), L = (y & 7) * 32
+; Input: A = row (0-23). Output: HL. Clobbers: B.
+_compute_screen_base:
+    ld b, a             ; save y
+    and 0x07            ; y & 7
+    add a, a            ; *2
+    add a, a            ; *4
+    add a, a            ; *8
+    add a, a            ; *16
+    add a, a            ; *32
+    ld l, a             ; L = (y&7) * 32
+    ld a, b             ; restore y
+    and 0x18            ; y & 0x18 (third select)
+    or 0x40             ; | 0x40 (screen base high byte)
+    ld h, a
+    ret
 
-; Tabla de direcciones de atributos (24 filas)
-; Elimina cálculo repetido de 0x5800 + y*32
-_attr_row_base:
-    defw 0x5800, 0x5820, 0x5840, 0x5860, 0x5880, 0x58A0, 0x58C0, 0x58E0
-    defw 0x5900, 0x5920, 0x5940, 0x5960, 0x5980, 0x59A0, 0x59C0, 0x59E0
-    defw 0x5A00, 0x5A20, 0x5A40, 0x5A60, 0x5A80, 0x5AA0, 0x5AC0, 0x5AE0
+; Compute attribute row base: HL = 0x5800 + A*32
+; Input: A = row (0-23). Output: HL. Clobbers: DE.
+_compute_attr_base:
+    ld l, a
+    ld h, 0
+    call _hl_mul32          ; HL = A * 32
+    ld de, 0x5800
+    add hl, de
+    ret
 
 ; =============================================================================
 ; FUENTE COMPRIMIDA - NIBBLE PACKED (Ahorra ~390 bytes vs font64 original)
@@ -759,7 +895,7 @@ SECTION code_user
 ; Input: A = char (ASCII 32-127)
 ; Output: HL = pointer to glyph_buffer with 8 bytes of decompressed glyph
 ; Preserves: IY (required by z88dk)
-; Destroys: AF, BC, DE. Uses alternate HL'/E' via EXX (ISR safe: IM2 ISR only touches AF)
+; Destroys: AF, BC, DE. Uses alternate HL'/E' via EXX (ISR safe: called between frames, not during ISR)
 ; Timing: ~136 t-states/iteration (EXX LUT access, no push/pop)
 ; =============================================================================
 unpack_glyph:
@@ -800,10 +936,11 @@ unpack_not_space:
     ex de, hl            ; DE = compressed source, HL freed
     ld hl, glyph_buffer  ; HL = destination
 
-    ; Setup alternate registers for LUT access (font_lut is ALIGN 16, no carry)
+    ; Setup alternate registers for LUT access (carry-safe: D'=hi, E'=lo)
     exx
-    ld hl, font_lut      ; H' = font_lut high byte (constant for ld a,(hl))
-    ld e, l              ; E' = font_lut low byte (base for add)
+    ld hl, font_lut
+    ld e, l              ; E' = font_lut low byte
+    ld d, h              ; D' = font_lut high byte (for carry fixup)
     exx
 
     ; Unpack 3 bytes -> 6 lines (0-5)
@@ -816,28 +953,34 @@ unpack_loop:
     rrca
     rrca
     rrca
-    rrca                 ; 16 T - A = high nibble in low position
-    and 0x0F             ; 7 T  - Clear upper garbage
+    rrca                 ; A = high nibble in low position
+    and 0x0F
 
-    exx                  ; 4 T  - switch to alt set (H=lut_hi, E=lut_lo)
-    add a, e             ; 4 T  - A = font_lut_lo + nibble (no carry: ALIGN 16)
-    ld l, a              ; 4 T
-    ld a, (hl)           ; 7 T  - LUT lookup
-    exx                  ; 4 T  - back to main set
-    ld (hl), a           ; 7 T  - store to glyph_buffer
-    inc hl               ; 6 T
+    exx                  ; switch to alt set (D'=lut_hi, E'=lut_lo)
+    add a, e             ; A = font_lut_lo + nibble
+    ld l, a
+    ld a, d              ; A = font_lut_hi
+    adc a, 0             ; add carry if low byte overflowed
+    ld h, a
+    ld a, (hl)           ; LUT lookup
+    exx                  ; back to main set
+    ld (hl), a           ; store to glyph_buffer
+    inc hl
 
     ; Low nibble -> line N+1
-    ld a, c              ; 4 T
-    and 0x0F             ; 7 T  - A = low index
+    ld a, c
+    and 0x0F
 
-    exx                  ; 4 T
-    add a, e             ; 4 T
-    ld l, a              ; 4 T
-    ld a, (hl)           ; 7 T
-    exx                  ; 4 T
-    ld (hl), a           ; 7 T
-    inc hl               ; 6 T
+    exx
+    add a, e
+    ld l, a
+    ld a, d
+    adc a, 0
+    ld h, a
+    ld a, (hl)
+    exx
+    ld (hl), a
+    inc hl
 
     inc de               ; 6 T  - Next compressed byte
     djnz unpack_loop     ; 13/8 T
@@ -861,22 +1004,11 @@ unpack_loop:
 ; -----------------------------------------------------------------------------
 _screen_line_addr:
     push iy
-    push ix
-    ld ix, 0
-    add ix, sp
+    call ___sdcc_enter_ix
     
     ld a, (ix+6)
-    add a, a
-    ld l, a
-    ld h, 0
-    ld de, _screen_row_base
-    add hl, de
-    
-    ld a, (hl)
-    inc hl
-    ld h, (hl)
-    ld l, a
-    
+    call _compute_screen_base
+
     ld a, (ix+8)            ; scanline (ORIGINAL)
     add a, h
     ld h, a
@@ -893,28 +1025,17 @@ sla_done:
 
 ; -----------------------------------------------------------------------------
 ; uint8_t* attr_addr(uint8_t y, uint8_t phys_x)
-; Stack: [IX+4]=y, [IX+6]=phys_x (FIX6: solo push ix, SDCC 16-bit args)
+; Stack: [IX+4]=y, [IX+5]=phys_x (SDCC byte-packs two uint8_t)
 ; -----------------------------------------------------------------------------
 _attr_addr:
-    ; OPTIMIZADO: Usa tabla precalculada en lugar de y*32+0x5800
-    push ix
-    ld ix, 0
-    add ix, sp
-    
-    ; Lookup en tabla: _attr_row_base[y]
+    call ___sdcc_enter_ix
+
+    ; Compute attr base: HL = 0x5800 + y*32
     ld a, (ix+4)        ; y
-    add a, a            ; y*2 (tabla de words)
-    ld l, a
-    ld h, 0
-    ld de, _attr_row_base
-    add hl, de
-    ld a, (hl)
-    inc hl
-    ld h, (hl)
-    ld l, a             ; HL = base de atributos de fila
-    
+    call _compute_attr_base
+
     ; Añadir phys_x
-    ld a, (ix+6)        ; phys_x (FIX6: era IX+5)
+    ld a, (ix+5)        ; phys_x (C1 fix: was IX+6)
     add a, l
     ld l, a
     jr nc, aa_done
@@ -935,15 +1056,9 @@ cli_internal:
     push af
     
     ; Calcular dirección de screen
-    ld l, a
-    ld h, 0
-    add hl, hl
-    ld de, _screen_row_base
-    add hl, de
-    
-    ld e, (hl)
-    inc hl
-    ld d, (hl)
+    call _compute_screen_base
+    ld d, h
+    ld e, l
     
     ; Borrar 8 scanlines
     ld b, 8
@@ -961,25 +1076,17 @@ cli_px_loop:
     inc d
     djnz cli_px_loop
     
-    ; Atributos
+    ; Atributos via lookup table (preserva A para clear_zone caller)
     pop af
-    ld l, a
-    ld h, 0
-    add hl, hl
-    add hl, hl
-    add hl, hl
-    add hl, hl
-    add hl, hl
-    ld de, 0x5800
-    add hl, de
-    
+    call _compute_attr_base
+
     ld (hl), c
     ld d, h
     ld e, l
     inc de
     ld bc, 31
     ldir
-    
+
     pop hl
     pop de
     pop bc
@@ -991,9 +1098,7 @@ cli_px_loop:
 ; -----------------------------------------------------------------------------
 _clear_line:
     push iy
-    push ix
-    ld ix, 0
-    add ix, sp
+    call ___sdcc_enter_ix
     
     ld a, (ix+6)
     ld c, (ix+7)
@@ -1009,9 +1114,7 @@ _clear_line:
 ; -----------------------------------------------------------------------------
 _clear_zone:
     push iy
-    push ix
-    ld ix, 0
-    add ix, sp
+    call ___sdcc_enter_ix
     
     ld a, (ix+6)        ; start
     ld b, (ix+7)        ; lines
@@ -1053,29 +1156,13 @@ p64_get_scr_base:
     ret
 p64_scr_miss:
     ld a, (hl)             ; A = g_ps64_y
-    add a, a
-    ld l, a
-    ld h, 0
-    ld de, _screen_row_base
-    add hl, de
-    ld a, (hl)
-    inc hl
-    ld h, (hl)
-    ld l, a                ; HL = screen row base
+    call _compute_screen_base
     ld (cache_scr_base), hl
     ; Actualizar cache_row_y y calcular attr base también
     ld a, (_g_ps64_y)
     ld (cache_row_y), a
     push hl                ; Guardar screen base
-    add a, a
-    ld l, a
-    ld h, 0
-    ld de, _attr_row_base
-    add hl, de
-    ld a, (hl)
-    inc hl
-    ld h, (hl)
-    ld l, a
+    call _compute_attr_base
     ld (cache_atr_base), hl
     pop hl                 ; Devolver screen base
     ret
@@ -1246,23 +1333,14 @@ dbc_valid:
     call unpack_glyph
     ex de, hl
     ld a, (_g_ps64_y)
-    ld l, a
-    ld h, 0
-    add hl, hl
-    ld bc, _screen_row_base
-    add hl, bc
-    ld (dbc_smt+1), hl
-    inc hl
-    inc hl
-    ld (dbc_smb+1), hl
-dbc_smt:
-    ld hl, (_screen_row_base + 0)
+    call _compute_screen_base
     call dbc_add_col
     call dbc_render_top
-dbc_smb:
-    ld hl, (_screen_row_base + 2)
+    ld a, (_g_ps64_y)
+    inc a
+    call _compute_screen_base
     call dbc_add_col
-    jp dbc_render_bot           ; tail call (attrs set by clear_line)
+    jr dbc_render_bot           ; tail call (in range)
 
 dbc_add_col:
     ld a, (_g_ps64_col)
@@ -1310,8 +1388,8 @@ dbc_right_core:
 
 dbc_render_top:
     ld a, (_g_ps64_col)
-    bit 0, a
-    jr nz, dbc_rt_right
+    rra
+    jr c, dbc_rt_right
     ld a, (hl)
     and 0x0F
     ld (hl), a
@@ -1321,7 +1399,7 @@ dbc_render_top:
     ld (hl), a
     inc h
     ld b, 3
-    jp dbc_left_core
+    jr dbc_left_core
 dbc_rt_right:
     ld a, (hl)
     and 0xF0
@@ -1332,12 +1410,12 @@ dbc_rt_right:
     ld (hl), a
     inc h
     ld b, 3
-    jp dbc_right_core
+    jr dbc_right_core
 
 dbc_render_bot:
     ld a, (_g_ps64_col)
-    bit 0, a
-    jr nz, dbc_rb_right
+    rra
+    jr c, dbc_rb_right
     ld b, 3
     call dbc_left_core
     ld a, (hl)
@@ -1360,6 +1438,180 @@ dbc_rb_right:
     ld (hl), a
     ret
 
+; =============================================================================
+; IKKLE-4 FONT DATA (nibble-packed, 128 bytes — uppercase only)
+; =============================================================================
+; Jack Oatley's "Ikkle-4" font (public domain), 4px wide x 4px tall.
+; Only chars 32-95 stored (64 entries). Chars >= 96 folded by renderer.
+; Each byte packs 2 scanlines: high nibble = scanline N, low = scanline N+1.
+; -----------------------------------------------------------------------------
+_ikkle_packed:
+ikkle_packed:
+    DEFB 0x00,0x00,0x88,0x08,0x08,0x00,0xF9,0xF0,0xF9,0xF0,0xF9,0xF0,0xF9,0xF0,0x08,0x00
+    DEFB 0x48,0x84,0x84,0x48,0x08,0x00,0x04,0xE4,0x00,0x0C,0x00,0xC0,0x00,0x08,0x24,0x48
+    DEFB 0xEA,0xAE,0xC4,0x4E,0xE2,0x4E,0xE6,0x2E,0x8A,0xE2,0xEC,0x2C,0xEC,0xAE,0xE2,0x48
+    DEFB 0xEE,0xAE,0xEA,0x6E,0x08,0x08,0x04,0x0C,0x06,0x86,0x0C,0x0C,0x0C,0x2C,0xE6,0x04
+    DEFB 0xF9,0xF0,0xEA,0xEA,0xEE,0xAE,0xC8,0x8C,0xCA,0xAE,0xEC,0x8E,0xE8,0xC8,0xE8,0xAE
+    DEFB 0xAE,0xAA,0x44,0x44,0x44,0x4C,0xAC,0xAA,0x88,0x8C,0xAE,0xEA,0xCA,0xAA,0xEA,0xAE
+    DEFB 0xEA,0xE8,0xEA,0xE2,0xEA,0xCA,0xEC,0x2E,0xE4,0x44,0xAA,0xAE,0xAA,0xA4,0xAA,0xEE
+    DEFB 0xA4,0x4A,0xAE,0x44,0xE6,0x8E,0xC8,0x8C,0x84,0x42,0xC4,0x4C,0x4A,0x00,0x00,0x0C
+
+; =============================================================================
+; NOTIFICATION BAR RENDERER — Ikkle-4 font at row 20 (scanlines 2-5)
+; =============================================================================
+DEFC NOTIF_ROW_BASE = 0x5080
+DEFC NOTIF_ATTR     = 0x5A80
+
+; void notif_clear(void)
+_notif_clear:
+    ld hl, NOTIF_ROW_BASE
+    ld b, 8
+nc_clear_loop:
+    push hl
+    push bc
+    xor a
+    ld (hl), a
+    ld d, h
+    ld e, l
+    inc de
+    ld bc, 31
+    ldir
+    pop bc
+    pop hl
+    inc h
+    djnz nc_clear_loop
+    ld hl, NOTIF_ATTR
+    ld a, (_theme_attrs + TA_MAIN_BG)
+    ld (hl), a
+    ld de, NOTIF_ATTR + 1
+    ld bc, 31
+    ldir
+    ret
+
+; void notif_draw(uint8_t start_col, const char *str, uint8_t attr)
+; Stack: [IX+4]=start_col, [IX+5,6]=str, [IX+7]=attr
+_notif_draw:
+    push ix
+    ld ix, 0
+    add ix, sp
+
+    call _notif_clear
+
+    ld l, (ix+5)
+    ld h, (ix+6)                ; HL = str
+    ld c, (ix+4)                ; C = current column
+
+nd_char_loop:
+    ld a, (hl)
+    or a
+    jp z, nd_done
+
+    push hl
+
+    ld a, c
+    srl a
+    ld b, a                     ; B = phys_x
+
+    ld a, (hl)
+
+    cp 33
+    jr c, nd_set_attr           ; space
+    cp 128
+    jr nc, nd_set_attr
+    cp 96
+    jr c, nd_no_fold
+    sub 32                      ; lowercase -> uppercase
+nd_no_fold:
+
+    sub 32
+    ld e, a
+    ld d, 0
+    sla e
+    rl d
+    push hl
+    ld hl, ikkle_packed
+    add hl, de
+    ld d, (hl)                  ; D = packed byte 0
+    inc hl
+    ld e, (hl)                  ; E = packed byte 1
+    pop hl
+
+    bit 0, c
+    jr nz, nd_odd_col
+
+    ; === EVEN COLUMN ===
+    ld a, d
+    and 0xF0
+    ld l, b
+    set 7, l
+    ld h, 0x52
+    or (hl)
+    ld (hl), a
+    ld a, d
+    and 0x0F
+    rlca \ rlca \ rlca \ rlca
+    inc h
+    or (hl)
+    ld (hl), a
+    ld a, e
+    and 0xF0
+    inc h
+    or (hl)
+    ld (hl), a
+    ld a, e
+    and 0x0F
+    rlca \ rlca \ rlca \ rlca
+    inc h
+    or (hl)
+    ld (hl), a
+    jr nd_set_attr
+
+    ; === ODD COLUMN ===
+nd_odd_col:
+    ld a, d
+    rrca \ rrca \ rrca \ rrca
+    and 0x0F
+    ld l, b
+    set 7, l
+    ld h, 0x52
+    or (hl)
+    ld (hl), a
+    ld a, d
+    and 0x0F
+    inc h
+    or (hl)
+    ld (hl), a
+    ld a, e
+    rrca \ rrca \ rrca \ rrca
+    and 0x0F
+    inc h
+    or (hl)
+    ld (hl), a
+    ld a, e
+    and 0x0F
+    inc h
+    or (hl)
+    ld (hl), a
+
+nd_set_attr:
+    ld l, b
+    ld h, 0x5A
+    set 7, l
+    ld a, (ix+7)
+    ld (hl), a
+
+nd_skip:
+    pop hl
+    inc hl
+    inc c
+    ld a, c
+    cp 64
+    jp c, nd_char_loop
+
+nd_done:
+    pop ix
+    ret
+
 ; -----------------------------------------------------------------------------
 ; void print_line64_fast(uint8_t y, const char *s, uint8_t attr)
 ; Stack layout (con push ix):
@@ -1369,20 +1621,13 @@ dbc_rb_right:
 ; escribe bytes completos (sin AND/OR de preservación), attr fill al final.
 ; -----------------------------------------------------------------------------
 _print_line64_fast:
-    push ix
-    ld ix, 0
-    add ix, sp
+    call ___sdcc_enter_ix
 
     ; --- Calcular screen_row_base[y] una sola vez ---
     ld a, (ix+4)           ; y
-    add a, a
-    ld l, a
-    ld h, 0
-    ld bc, _screen_row_base
-    add hl, bc
-    ld c, (hl)
-    inc hl
-    ld b, (hl)             ; BC = screen base addr de la fila
+    call _compute_screen_base
+    ld b, h
+    ld c, l                ; BC = screen base addr de la fila
 
     ; Guardar attr y string pointer
     ld a, (ix+7)
@@ -1397,6 +1642,18 @@ _print_line64_fast:
     push bc                ; Guardar screen base en stack
     pop hl                 ; HL = screen addr (col 0, scanline 0)
 
+    ; Check start offset (set by caller for wrap_indent support)
+    ld a, (_plf_start_byte)
+    or a
+    jr z, plf_full_row
+    ld c, a
+    ld b, 0
+    add hl, bc
+    ld a, 32
+    sub c
+    ld b, a
+    jr plf_pair_loop
+plf_full_row:
     ld b, 32               ; 32 pares de columnas (= 64 cols)
 
 plf_pair_loop:
@@ -1482,26 +1739,26 @@ plf_write_loop:
     pop bc                 ; Recuperar contador de pares
     djnz plf_pair_loop
 
-    ; --- Attr fill: escribir 32 atributos de golpe ---
+    ; --- Attr fill: write attributes from plf_start_byte onwards ---
     ld a, (plf_y_val)
-    add a, a
-    ld l, a
-    ld h, 0
-    ld bc, _attr_row_base
-    add hl, bc
-    ld c, (hl)
-    inc hl
-    ld b, (hl)
-    ; BC = attr base addr — fill 32 bytes with LDIR
-    ld h, b
-    ld l, c                ; HL = attr addr
+    call _compute_attr_base   ; HL = attr base
+    ld a, (_plf_start_byte)
+    ld c, a
+    ld b, 0
+    add hl, bc             ; Skip indent attrs
     ld a, (plf_attr_val)
     ld (hl), a             ; Write first byte
     ld d, h
     ld e, l
-    inc de                 ; DE = HL + 1
-    ld bc, 31
-    ldir                   ; Copy first byte to remaining 31
+    inc de
+    ld a, 31
+    sub c                  ; 31 - start_byte = remaining
+    ld c, a
+    ld b, 0
+    ldir                   ; Fill remaining attrs
+    ; Reset start offset
+    xor a
+    ld (_plf_start_byte), a
 
     ; Actualizar _g_ps64_col y _g_ps64_y para consistencia
     ld a, 64
@@ -1536,10 +1793,21 @@ _redraw_input_asm:
     xor a
     ld (_g_ps64_col), a
     
-    ; Prompt ">" con ATTR_PROMPT
+    ; Prompt char: '@' if query AND idx>0, '>' otherwise
     ld a, (_theme_attrs + 8)  ; ATTR_PROMPT
     ld (_g_ps64_attr), a
+    ld hl, (_cur_chan_ptr)     ; HL = pointer to current ChannelInfo
+    ld de, 30                  ; offset of flags in ChannelInfo (22+6+2)
+    add hl, de
+    ld a, (hl)                 ; A = flags
+    and 0x02                   ; CH_FLAG_QUERY
     ld l, '>'
+    jr z, ria_not_query
+    ld a, (_current_channel_idx)
+    or a
+    jr z, ria_not_query        ; idx==0 is Server, always '>'
+    ld l, '@'
+ria_not_query:
     call _print_str64_char
     ld hl, _g_ps64_col
     inc (hl)
@@ -1571,7 +1839,7 @@ _redraw_input_asm:
 
     ; B = 64 chars, C ya tiene chars restantes
     ld b, 64
-    jp ria_print_n_chars
+    jr ria_print_n_chars
 
 ; Helper: pinta B chars desde (DE), rellenando con espacios si C=0
 ; B = num chars a pintar, C = chars restantes en buffer, DE = ptr buffer
@@ -1644,24 +1912,13 @@ isp_lh:
 
 _draw_indicator:
     push iy
-    push ix
-    ld ix, 0
-    add ix, sp
+    call ___sdcc_enter_ix
 
     ld a, (ix+6)            ; y
     ld c, (ix+8)            ; attr (byte-packed: y=+6, phys_x=+7, attr=+8)
 
     ; Calcular dirección screen
-    ld l, a
-    ld h, 0
-    add hl, hl
-    ld de, _screen_row_base
-    add hl, de
-
-    ld a, (hl)
-    inc hl
-    ld h, (hl)
-    ld l, a                 ; HL = base de fila
+    call _compute_screen_base
 
     ld e, (ix+7)            ; phys_x (byte-packed)
     ld d, 0
@@ -1680,18 +1937,10 @@ di_pattern_loop:
     inc h                   ; Next scanline
     djnz di_pattern_loop
 
-    ; Calcular dirección atributos
-    pop hl                  ; Discard (we recalculate - cleaner)
+    ; Atributos via lookup table
+    pop hl                  ; Discard saved screen addr
     ld a, (ix+6)            ; y
-    ld l, a
-    ld h, 0
-    add hl, hl
-    add hl, hl
-    add hl, hl
-    add hl, hl
-    add hl, hl
-    ld de, 0x5800
-    add hl, de
+    call _compute_attr_base ; HL = attr base
 
     ld e, (ix+7)            ; phys_x (byte-packed)
     ld d, 0
@@ -1718,7 +1967,7 @@ _st_strlen:
     ; CPIR block scan: 21 T-states/byte vs 36 manual (+41% faster)
     ld d, h
     ld e, l               ; DE = start
-    ld bc, 0x00FF         ; max 255 chars (uint8_t return)
+    ld bc, 0x0100         ; max 256 bytes scanned (finds strings 0-255)
     xor a                 ; A = 0 (search for NUL)
     cpir                  ; scan until match or BC=0
     ; HL = byte after NUL, DE = start
@@ -1734,9 +1983,7 @@ _st_strlen:
 ; Retorna: 0 si iguales, <0 si a<b, >0 si a>b
 ; -----------------------------------------------------------------------------
 _st_stricmp:
-    push ix
-    ld ix, 0
-    add ix, sp
+    call ___sdcc_enter_ix
 
     ld l, (ix+4)
     ld h, (ix+5)            ; HL = a
@@ -1787,25 +2034,11 @@ stricmp_done:
 ; Preserva: BC, DE, HL
 ; -----------------------------------------------------------------------------
 irc_tolower:
-    ; A-Z -> a-z
+    ; RFC 1459: A-Z (65-90) y [\]^ (91-94) son contiguos → rango 65-94
     cp 'A'
-    jr c, irc_tl_check_special
-    cp 'Z' + 1
-    jr nc, irc_tl_check_special
-    add a, 32
-    ret
-irc_tl_check_special:
-    ; RFC 1459: [ -> {, \ -> |, ] -> }, ^ -> ~
-    cp '['
-    jr z, irc_tl_add32
-    cp '\\'
-    jr z, irc_tl_add32
-    cp ']'
-    jr z, irc_tl_add32
-    cp '^'
-    jr z, irc_tl_add32
-    ret
-irc_tl_add32:
+    ret c
+    cp '^' + 1
+    ret nc
     add a, 32
     ret
 
@@ -1816,9 +2049,7 @@ irc_tl_add32:
 ; Stack: [IX+4,5]=hay, [IX+6,7]=needle
 ; -----------------------------------------------------------------------------
 _st_stristr:
-    push ix
-    ld ix, 0
-    add ix, sp
+    call ___sdcc_enter_ix
 
     ld l, (ix+4)
     ld h, (ix+5)            ; HL = hay
@@ -1850,24 +2081,13 @@ sstr_inner:
     ld a, (hl)
     or a
     jr z, sstr_next_pos     ; Fin de hay en medio
-    
-    ; Normalizar A (hay) a mayúscula
-    cp 'a'
-    jr c, sstr_hay_done
-    cp 'z' + 1
-    jr nc, sstr_hay_done
-    sub 32
-sstr_hay_done:
+
+    ; Normalizar via RFC 1459 (audit W08: was ASCII-only)
+    call irc_tolower
     ld b, a
-    
-    ; Normalizar C (needle) a mayúscula
+
     ld a, c
-    cp 'a'
-    jr c, sstr_needle_done
-    cp 'z' + 1
-    jr nc, sstr_needle_done
-    sub 32
-sstr_needle_done:
+    call irc_tolower
     
     cp b
     jr nz, sstr_next_pos    ; No coinciden
@@ -2009,15 +2229,13 @@ stu16_loop:
     push hl
     push af
     
-    ; DE * 10 = DE * 8 + DE * 2
+    ; DE * 10 = (DE * 2 * 2 + DE) * 2 = DE * 5 * 2
     ld l, e
-    ld h, d
+    ld h, d                 ; HL = DE (original)
     add hl, hl              ; *2
-    ld d, h
-    ld e, l
     add hl, hl              ; *4
-    add hl, hl              ; *8
-    add hl, de              ; *10
+    add hl, de              ; *5
+    add hl, hl              ; *10
     
     pop af
     ld e, a
@@ -2076,9 +2294,7 @@ skpto_end:
 ; Stack: [IX+6,7]=s
 ; -----------------------------------------------------------------------------
 _strip_irc_codes:
-    push ix
-    ld ix, 0
-    add ix, sp
+    call ___sdcc_enter_ix
 
     ld l, (ix+4)
     ld h, (ix+5)            ; HL = lectura
@@ -2173,13 +2389,14 @@ usend_loop:
     ld a, (hl)
     or a
     ret z                   ; Fin de string
-    
+
     push hl
     ld l, a
     call _ay_uart_send
     pop hl
     inc hl
     jr usend_loop
+
 
 ; =============================================================================
 ; void reapply_screen_attributes(void)
@@ -2192,43 +2409,32 @@ _reapply_screen_attributes:
     out (0xFE), a
 
     ; 2. Banner row 0 (0x5800 - 32 bytes) BRIGHT 1
-    ld hl, 0x5800
-    ld bc, 32
+    ; P2: HL reuse — after LDIR, HL points to next byte (0x5820)
     ld a, (_theme_attrs + TA_BANNER)
     or 0x40
-    call _fast_fill_attr
-    ; 3. Banner row 1 (0x5820 - 32 bytes) BRIGHT 0
-    ld hl, 0x5820
+    ld hl, 0x5800
     ld bc, 32
+    call _fast_fill_attr
+    ; 3. Banner row 1 — HL already at 0x5820 after LDIR
     ld a, (_theme_attrs + TA_BANNER)
     and 0xBF
+    ld bc, 32
     call _fast_fill_attr
 
-    ; 3. Separador Superior row 2 (0x5840)
+    ; 4. Rows 2-20: sep_top + chat + sep_bot — contiguous, same attr
+    ; P1: 0x5840..0x5AA0 = 608 bytes, all MAIN_BG
     ld hl, 0x5840
-    ld bc, 32
+    ld bc, 608
     ld a, (_theme_attrs + TA_MAIN_BG)
     call _fast_fill_attr
 
-    ; 4. Área Chat rows 3-19 (0x5860 - 17 líneas = 544 bytes)
-    ld hl, 0x5860
-    ld bc, 544
-    ld a, (_theme_attrs + TA_MAIN_BG)
-    call _fast_fill_attr
-
-    ; 5. Separador Inferior (0x5A80)
-    ld hl, 0x5A80
-    ld bc, 32
-    ld a, (_theme_attrs + TA_MAIN_BG)
-    call _fast_fill_attr
-
-    ; 6. Barra Estado (0x5AA0)
+    ; 5. Barra Estado (0x5AA0)
     ld hl, 0x5AA0
     ld bc, 32
     ld a, (_theme_attrs + TA_STATUS)
     call _fast_fill_attr
 
-    ; 7. Input (0x5AC0)
+    ; 6. Input (0x5AC0)
     ld hl, 0x5AC0
     ld bc, 64
     ld a, (_theme_attrs + TA_INPUT_BG)
@@ -2247,21 +2453,15 @@ _reapply_screen_attributes:
 ; -----------------------------------------------------------------------------
 ; Rutina auxiliar: _fast_fill_attr
 ; Rellena BC bytes en (HL) con el valor A.
-; CORREGIDA Y OPTIMIZADA: Elimina el bug de stack (ix+1) y optimiza el flujo.
+; P3: Simplified — all callers pass BC >= 32, so BC==0 checks are dead code.
+; After LDIR: HL = start + BC (points past last byte written).
 ; -----------------------------------------------------------------------------
 _fast_fill_attr:
-    ld d, a                 ; Guardar valor a escribir
-    ld a, b
-    or c                    ; BC == 0?
-    ret z
-    ld (hl), d              ; Escribir primer byte (usar D directamente)
-    dec bc
-    ld a, b
-    or c                    ; BC == 0 después de dec?
-    ret z
+    ld (hl), a              ; Write first byte
     ld d, h
-    ld e, l                 ; DE = HL
+    ld e, l
     inc de                  ; DE = HL+1
+    dec bc                  ; BC = count-1
     ldir
     ret
 
@@ -2347,7 +2547,6 @@ drain_exit:
 ; =============================================================================
 _scroll_main_zone:
     push iy
-    di
 
     ld iyl, 0              ; IYL = scanline offset (0..7)
 
@@ -2362,7 +2561,6 @@ smz_scanline_loop:
     ld d, a
     ld l, 0x80
     ld e, 0x60
-    ld b, 0                ; BC = 128 (C is offset but we need BC=128)
     push bc                ; save offset
     ld bc, 128
     ldir
@@ -2370,17 +2568,7 @@ smz_scanline_loop:
 
     ; BLOQUE 2: Fila 8 -> 7 (Src: 0x4800, Dest: 0x40E0, Len: 32)
     ld a, 0x48
-    add a, c
-    ld h, a
-    ld a, 0x40
-    add a, c
-    ld d, a
-    ld l, 0x00
-    ld e, 0xE0
-    push bc
-    ld bc, 32
-    ldir
-    pop bc
+    call smz_cross_block
 
     ; BLOQUE 3: Filas 9-15 -> 8-14 (Src: 0x4820, Dest: 0x4800, Len: 224)
     ld a, 0x48
@@ -2396,17 +2584,7 @@ smz_scanline_loop:
 
     ; BLOQUE 4: Fila 16 -> 15 (Src: 0x5000, Dest: 0x48E0, Len: 32)
     ld a, 0x50
-    add a, c
-    ld h, a
-    ld a, 0x48
-    add a, c
-    ld d, a
-    ld l, 0x00
-    ld e, 0xE0
-    push bc
-    ld bc, 32
-    ldir
-    pop bc
+    call smz_cross_block
 
     ; BLOQUE 5: Filas 17-19 -> 16-18 (Src: 0x5020, Dest: 0x5000, Len: 96)
     ld a, 0x50
@@ -2436,10 +2614,24 @@ smz_scanline_loop:
     ld a, 19
     call cli_internal
 
-    ei
     pop iy
     ret
 
+; Cross-page scroll helper: copies 32 bytes from page A to page A-8
+; A = src_page, C = scanline offset (preserved via push/pop)
+; Used by blocks 2 and 4 (page boundary crossings: row 8→7, row 16→15)
+smz_cross_block:
+    add a, c            ; src_page + scanline offset
+    ld h, a
+    sub 8               ; dst = src_page - 8 + offset (previous third)
+    ld d, a
+    ld l, 0x00
+    ld e, 0xE0
+    push bc
+    ld bc, 32
+    ldir
+    pop bc
+    ret
 
 ; =============================================================================
 ; void main_newline(void)
@@ -2451,7 +2643,7 @@ smz_scanline_loop:
 ; =============================================================================
 _main_newline:
     ; Suppress output during help overlay
-    ld a, (_help_active)
+    ld a, (_overlay_mode)
     or a
     ret nz
     push ix
@@ -2514,15 +2706,7 @@ mn_indent:
 
     ; --- Calcular screen addr de la fila ---
     ld a, (_main_line)
-    add a, a
-    ld l, a
-    ld h, 0
-    ld de, _screen_row_base
-    add hl, de
-    ld a, (hl)
-    inc hl
-    ld h, (hl)
-    ld l, a             ; HL = screen base de la fila
+    call _compute_screen_base
 
     ; Bytes a borrar = (wrap_indent + 1) / 2  (redondeo arriba)
     ld a, c
@@ -2553,15 +2737,7 @@ mn_indent_byte:
 
     ; --- Escribir atributos ---
     ld a, (_main_line)
-    add a, a
-    ld l, a
-    ld h, 0
-    ld de, _attr_row_base
-    add hl, de
-    ld a, (hl)
-    inc hl
-    ld h, (hl)
-    ld l, a             ; HL = attr base de la fila
+    call _compute_attr_base  ; HL = attr base de la fila
 
     ld a, (_current_attr)
     ld b, c             ; B = wrap_indent (num cols)
@@ -2603,9 +2779,7 @@ mn_ret:
 ; =============================================================================
 _tokenize_params:
     push iy
-    push ix
-    ld ix, 0
-    add ix, sp
+    call ___sdcc_enter_ix
 
     ; Inicializar contador a 0
     xor a
@@ -2715,9 +2889,7 @@ tp_exit:
 ; Stack: [IX+4,5]=dst, [IX+6,7]=src, [IX+8,9]=limit
 ; =============================================================================
 _sb_append:
-    push ix
-    ld ix, 0
-    add ix, sp
+    call ___sdcc_enter_ix
     
     ; Cargar argumentos
     ld l, (ix+4)
@@ -2748,8 +2920,14 @@ sba_loop:
     jr sba_loop
     
 sba_done:
-    ; HL ya contiene el nuevo dst (valor de retorno)
-    pop ix
+    ; HL = return value (new dst pointer)
+    ; Callee cleanup: 6 bytes of params (dst+src+limit)
+    pop ix              ; restore IX
+    pop de              ; DE = return address
+    pop af              ; skip dst (2B)
+    pop af              ; skip src (2B)
+    pop af              ; skip limit (2B)
+    push de             ; push return address back
     ret
 
 ; =============================================================================
@@ -2785,34 +2963,24 @@ _draw_badge_dither:
 
 dbd_row:
     ; Dibuja dither en B celdas a partir de HL
+    ; P4: pattern computed in-place via scf/rla instead of lookup table
+    ; Generates: 00, 01, 03, 07, 0F, 1F, 3F, 7F (triangle ramp)
 dbd_cell_loop:
     push bc
     push hl
-    ld de, dbd_pattern
+    xor a                   ; A = 0x00 (first scanline value)
     ld b, 8
 dbd_scanline:
-    ld a, (de)
-    ld (hl), a
-    inc de
-    inc h
+    ld (hl), a              ; write current value
+    inc h                   ; next scanline
+    scf                     ; carry = 1
+    rla                     ; rotate left through carry: 0→1→3→7→F→1F→3F→7F
     djnz dbd_scanline
     pop hl
     inc hl
     pop bc
     djnz dbd_cell_loop
     ret
-
-; Patrón de triángulo inferior-derecho (8 bytes)
-; PAPER = fondo (izquierda), INK = triángulo (derecha)
-dbd_pattern:
-    defb 0x00               ; ........
-    defb 0x01               ; .......X
-    defb 0x03               ; ......XX
-    defb 0x07               ; .....XXX
-    defb 0x0F               ; ....XXXX
-    defb 0x1F               ; ...XXXXX
-    defb 0x3F               ; ..XXXXXX
-    defb 0x7F               ; .XXXXXXX
 
 ; =============================================================================
 ; OPTIMIZED C FUNCTIONS REPLACEMENT
@@ -2950,7 +3118,7 @@ mptp_div_done:
     ld a, c
     add a, '0'
     ld l, a
-    jp _main_putc           ; tail call
+    jr _main_putc           ; tail call (in range)
 
 ; -----------------------------------------------------------------------------
 ; void main_putc(char c) __z88dk_fastcall
@@ -2960,7 +3128,7 @@ mptp_div_done:
 PUBLIC _main_putc
 _main_putc:
     ; Suppress output during help overlay
-    ld a, (_help_active)
+    ld a, (_overlay_mode)
     or a
     ret nz
     ld a, l
@@ -3105,13 +3273,15 @@ mpwr_cut_common:
     push bc                      ; next_start
 
     ; Imprimir segmento (start = DE)
-    ; Fast path: si estamos al inicio de línea y sin indent, usar print_line64_fast
+    ; Fast path: si estamos al inicio de línea, usar print_line64_fast
     ld a, (_main_col)
     or a
     jr nz, mpwr_print_puts
+
+    ; Set start byte offset from wrap_indent (0 if no indent)
     ld a, (_wrap_indent)
-    or a
-    jr nz, mpwr_print_puts
+    srl a                        ; indent_bytes = wrap_indent / 2
+    ld (_plf_start_byte), a
 
     ; Args para _print_line64_fast: [y][start_lo][start_hi][attr]
     ld a, (_current_attr)
@@ -3179,23 +3349,21 @@ mpwr_abort:
 ; HL = string
 ; -----------------------------------------------------------------------------
 
-EXTERN _help_active
+EXTERN _overlay_mode
 PUBLIC _main_puts
 _main_puts:
     ; Suppress output during help overlay
-    ld a, (_help_active)
+    ld a, (_overlay_mode)
     or a
     ret nz
     ; HL = string pointer
     ; Initialize BPE return stack (empty)
-    push hl
-    ld hl, bpe_rstack
-    ld (bpe_rsp), hl
-    pop hl
     ; Optimización: cargar globals una vez y mantener en registros
     ; B = main_col, C = current_attr, D/E = string pointer
     ld d, h
     ld e, l             ; DE = puntero string
+    ld hl, bpe_rstack
+    ld (bpe_rsp), hl
     
     ld a, (_main_line)
     ld (_g_ps64_y), a
@@ -3214,7 +3382,7 @@ puts_opt_loop:
     jp nc, puts_bpe_expand ; >= 0x80: BPE token, expand from dictionary
 
     cp 10
-    jp z, puts_opt_nl   ; '\n' -> newline
+    jr z, puts_opt_nl   ; '\n' -> newline
 
     ; Chequear wrap
     ld h, a             ; H = caracter (temporal)
@@ -3285,7 +3453,7 @@ puts_sp_done:
     pop de               ; restore string pointer
     inc b                ; main_col++
     inc de               ; next char
-    jp puts_opt_loop
+    jr puts_opt_loop
 
 puts_opt_char:
     ; Emitir caracter normal sin re-cargar globals
@@ -3299,7 +3467,7 @@ puts_opt_char:
     pop bc
     inc b               ; main_col++
     inc de              ; siguiente caracter
-    jp puts_opt_loop
+    jr puts_opt_loop
 
 puts_opt_wrap:
     ; Necesitamos wrap - sincronizar y llamar main_newline
@@ -3310,14 +3478,8 @@ puts_opt_wrap:
     call _main_newline
     pop hl
     pop de
-    ; Recargar globals post-newline (main_newline clobbers BC, changes main_line/col)
-    ld a, (_main_line)
-    ld (_g_ps64_y), a
-    ld a, (_current_attr)
-    ld c, a             ; FIX: restore C = attr (clobbered by main_newline)
-    ld a, (_main_col)
-    ld b, a
-    jp puts_opt_emit
+    call puts_reload_nl
+    jr puts_opt_emit
 
 puts_opt_nl:
     ; '\n' - sincronizar col y llamar newline
@@ -3326,13 +3488,19 @@ puts_opt_nl:
     push de
     call _main_newline
     pop de
-    ; Recargar globals
+    inc de
+    call puts_reload_nl
+    jp puts_opt_loop
+
+puts_reload_nl:
+    ; Shared reload after newline (main_newline clobbers BC)
     ld a, (_main_line)
     ld (_g_ps64_y), a
+    ld a, (_current_attr)
+    ld c, a
     ld a, (_main_col)
     ld b, a
-    inc de
-    jp puts_opt_loop
+    ret
 
 ; --- BPE expansion for puts_opt ---
 ; Token >= 0x80 found in A: push continuation (DE+1) to BPE stack,
@@ -3343,8 +3511,16 @@ puts_bpe_expand:
     ; B = main_col, C = current_attr — MUST be preserved!
     inc de                  ; advance past the token
     push bc                 ; save B=col, C=attr
-    ; Push continuation address (DE) onto BPE return stack
+    ; W8 fix: check rstack overflow before push (8 levels = 16 bytes)
     ld hl, (bpe_rsp)
+    push de                 ; save continuation address
+    ld de, bpe_rstack + 16
+    or a
+    sbc hl, de
+    add hl, de              ; restore HL = bpe_rsp
+    pop de                  ; restore continuation address
+    jr nc, puts_bpe_overflow
+    ; Push continuation address (DE) onto BPE return stack
     ld (hl), e
     inc hl
     ld (hl), d
@@ -3363,6 +3539,11 @@ puts_bpe_expand:
     ex de, hl               ; DE = &bpe_dict[(token-0x80)*3]
     pop bc                  ; restore B=col, C=attr
     jp puts_opt_loop         ; continue reading from dict entry
+
+puts_bpe_overflow:
+    ; W8: rstack full — treat token as literal '?', skip it
+    pop bc                  ; restore B=col, C=attr
+    jp puts_opt_loop         ; continue with DE (already advanced past token)
 
 puts_bpe_pop:
     ; Null byte hit: end of string or end of BPE dict entry
@@ -3562,6 +3743,7 @@ stcn_term:
 ; Prints two strings consecutively - saves one CALL overhead per site
 PUBLIC _main_puts2
 EXTERN _main_puts
+EXTERN _main_print
 _main_puts2:
     pop bc          ; ret
     pop hl          ; a
@@ -3606,9 +3788,11 @@ _irc_send_cmd_internal:
     push hl
     push bc
     
-    ; Send cmd
+    ; Send cmd (audit W02: preserve DE=p1 — ay_uart_send clobbers DE)
+    push de
     call _uart_send_string
-    
+    pop de
+
     ; Check p1
     ld a, d
     or e
@@ -3714,17 +3898,23 @@ SECTION code_user
 ; Preserves IY. Sets IX = HL (esxDOS needs both).
 ; -----------------------------------------------------------------------------
 _esx_fopen:
+    ld b, 0x01          ; FA_READ
+    jr esx_open_common
+
+_esx_fcreate:
+    ld b, 0x0E          ; FA_WRITE | FA_CREATE_AL (0x02 write + 0x0C create/trunc)
+
+esx_open_common:
     push iy
     push ix
     push hl
     pop ix              ; IX = HL = path (esxDOS wants both)
     ld a, '*'           ; default drive
-    ld b, 0x01          ; FA_READ
     rst 8
     defb 0x9A           ; F_OPEN
-    jr nc, esxfo_ok
+    jr nc, esx_open_ok
     xor a               ; error → handle = 0
-esxfo_ok:
+esx_open_ok:
     ld (_esx_handle), a
     pop ix
     pop iy
@@ -3771,28 +3961,7 @@ _esx_fclose:
     pop iy
     ret
 
-; -----------------------------------------------------------------------------
-; void esx_fcreate(const char *path) __z88dk_fastcall
-; Input:  HL = path string
-; Output: _esx_handle = file handle (0 on error)
-; Creates file for writing (FA_WRITE | FA_CREATE_AL = 0x0C)
-; -----------------------------------------------------------------------------
-_esx_fcreate:
-    push iy
-    push ix
-    push hl
-    pop ix              ; IX = HL = path
-    ld a, '*'           ; default drive
-    ld b, 0x0C          ; FA_WRITE | FA_CREATE_AL
-    rst 8
-    defb 0x9A           ; F_OPEN
-    jr nc, esxfc_ok
-    xor a               ; error → handle = 0
-esxfc_ok:
-    ld (_esx_handle), a
-    pop ix
-    pop iy
-    ret
+; esx_fcreate: now merged with esx_fopen above (esx_open_common)
 
 ; -----------------------------------------------------------------------------
 ; void esx_fwrite(void)
@@ -3811,6 +3980,10 @@ _esx_fwrite:
     ld bc, (_esx_count)
     rst 8
     defb 0x9E           ; F_WRITE
+    jr nc, efw_ok
+    ld bc, 0            ; Error: 0 bytes written
+efw_ok:
+    ld (_esx_result), bc ; Save bytes actually written
     pop ix
     pop iy
     ret
@@ -3856,7 +4029,7 @@ u8a_loop:
     ld a, (hl) : or a : jp z, u8a_done
     inc hl
     ld a, '?'
-    jp u8a_store
+    jp u8a_store             ; jp: jr out of range after smart-quote fix
 
 ; Smart quotes: E2 80 98/99 → apostrophe (39), E2 80 9C/9D → double quote (34)
 u8a_3byte:
@@ -3870,20 +4043,23 @@ u8a_3byte:
     ld a, (hl) : or a : jr z, u8a_done
     inc hl
     or 0x01                  ; pair 98/99→99, 9C/9D→9D
+    ld c, a                  ; save OR'd byte3 (fix: A clobbered by ld)
     cp 0x99
     ld a, 39                 ; apostrophe for smart single quotes
-    jp z, u8a_store
-    ld a, 34                 ; double quote for smart double quotes (cp 0x99 didn't match → must be 0x9D)
-    jp u8a_store
-    ld a, '?'
-    jp u8a_store
+    jr z, u8a_store
+    ld a, c                  ; restore OR'd byte3
+    cp 0x9D
+    ld a, 34                 ; double quote for smart double quotes
+    jr z, u8a_store
+    ld a, '?'                ; audit L11: unknown E2 80 XX → '?' not '"'
+    jr u8a_store
 
 u8a_skip3:
     inc hl
-    ld a, (hl) : or a : jp z, u8a_done
+    ld a, (hl) : or a : jr z, u8a_done
 u8a_skip2:
     inc hl
-    ld a, (hl) : or a : jp z, u8a_done
+    ld a, (hl) : or a : jr z, u8a_done
 u8a_skip1:
     inc hl
     ld a, '?'
@@ -4340,8 +4516,10 @@ rk_rep_lr:
     jr z, rk_rep_ud
     cp RK_KEY_DOWN
     jr z, rk_rep_ud
-    ; Other keys: no repeat
-    ld l, 0
+    ; Other keys: standard repeat
+    ld a, 3
+    ld (_repeat_timer), a
+    ld l, b
     ret
 
 rk_rep_lr_emit:
@@ -4612,6 +4790,15 @@ PUBLIC _set_attr_priv
 PUBLIC _set_attr_chan
 PUBLIC _set_attr_nick
 PUBLIC _set_attr_join
+; Fused set_attr + main_puts/main_print (copt targets)
+PUBLIC _sys_puts
+PUBLIC _err_puts
+PUBLIC _priv_puts
+PUBLIC _nick_puts
+PUBLIC _join_puts
+PUBLIC _sys_print
+PUBLIC _err_print
+PUBLIC _priv_print
 EXTERN _current_attr
 ; theme_attrs offsets: 9=SERVER/SYS 15=ERROR 4=PRIV 2=CHAN 11=NICK 10=JOIN
 
@@ -4642,6 +4829,116 @@ _set_attr_join:
 set_attr_common:
     ld (_current_attr), a
     ret
+
+; -----------------------------------------------------------------------------
+; set_nick_color: per-nick deterministic color from hash
+; Input: HL = nick string pointer (__z88dk_fastcall)
+; If nick_color_mode == 0, falls back to set_attr_nick (mono theme)
+; Hash: add+rlc3 (best distribution across 6 colors)
+; -----------------------------------------------------------------------------
+PUBLIC _set_nick_color
+EXTERN _nick_color_mode
+_set_nick_color:
+    ld a, (_nick_color_mode)
+    or a
+    jr nz, snc_hash
+    ld a, (_theme_attrs + 11)
+    ld (_current_attr), a
+    ret
+snc_hash:
+    ld d, 0
+snc_loop:
+    ld a, (hl)
+    or a
+    jr z, snc_done
+    add a, d
+    rlca
+    rlca
+    rlca
+    ld d, a
+    inc hl
+    jr snc_loop
+snc_done:
+    ld a, d
+snc_mod6:
+    cp 6
+    jr c, snc_ink
+    sub 6
+    jr snc_mod6
+snc_ink:
+    inc a
+    ld d, a
+    ld a, (_theme_attrs + 11)
+    ld e, a
+    and 0x38
+    rrca
+    rrca
+    rrca
+    cp d
+    jr nz, snc_ok
+    inc d
+snc_ok:
+    ld a, e
+    and 0xF8
+    or d
+    ld (_current_attr), a
+    ret
+
+; -----------------------------------------------------------------------------
+; Fused set_attr + main_puts (copt targets, HL = string)
+; Each entry: ld a, theme offset → fall through to attr_puts
+; -----------------------------------------------------------------------------
+_sys_puts:
+    ld a, (_theme_attrs + 9)
+    jr attr_puts
+_err_puts:
+    ld a, (_theme_attrs + 15)
+    jr attr_puts
+_priv_puts:
+    ld a, (_theme_attrs + 4)
+    jr attr_puts
+_nick_puts:
+    ld a, (_theme_attrs + 11)
+    jr attr_puts
+_join_puts:
+    ld a, (_theme_attrs + 10)
+attr_puts:
+    ld (_current_attr), a
+    jp _main_puts
+
+; Fused set_attr + main_print (copt targets, HL = string)
+_sys_print:
+    ld a, (_theme_attrs + 9)
+    jr attr_print
+_err_print:
+    ld a, (_theme_attrs + 15)
+    jr attr_print
+_priv_print:
+    ld a, (_theme_attrs + 4)
+attr_print:
+    ld (_current_attr), a
+    jp _main_print
+
+; -----------------------------------------------------------------------------
+; copt fused call targets for frequent ld hl,const / call fn patterns
+; -----------------------------------------------------------------------------
+EXTERN _uart_send_string
+PUBLIC _puts_colon_sp
+PUBLIC _uart_sp_colon
+PUBLIC _uart_privmsg
+EXTERN _SB_COLON_SP
+EXTERN _S_SP_COLON
+EXTERN _S_PRIVMSG
+
+_puts_colon_sp:
+    ld hl, _SB_COLON_SP
+    jp _main_puts
+_uart_sp_colon:
+    ld hl, _S_SP_COLON
+    jp _uart_send_string
+_uart_privmsg:
+    ld hl, _S_PRIVMSG
+    jp _uart_send_string
 
 ; =============================================================================
 ; COMPACT KEYBOARD READER (replaces z88dk in_inkey)
@@ -4769,23 +5066,555 @@ ik_keytable:
     defb  32,0xFF,'.',',','*'      ; row 7
 
 ; =============================================================================
-; IM2 ISR TEMPLATE - Copied to 0xFCFC during CRT init
-; Increments FRAMES low byte (23672) for HALT-based timing
+; WORD NAVIGATION — SS+LEFT/RIGHT/BACKSPACE
 ; =============================================================================
-_im2_isr_template:
-    push af
-    ld a, (23672)           ; FRAMES low byte
+
+EXTERN _cursor_pos
+EXTERN _line_len
+EXTERN _cursor_hide
+EXTERN _cursor_show
+EXTERN _redraw_input_from
+EXTERN _text_shift_left
+
+; uint8_t key_ss_arrow(void)
+; Reads raw keyboard ports for SS + CS + key combos.
+; Returns: 0=none, 1=SS+LEFT, 2=SS+RIGHT, 3=SS+BACKSPACE
+PUBLIC _key_ss_arrow
+_key_ss_arrow:
+    ; Check Symbol Shift (0x7FFE bit 1)
+    ld a, 0x7F
+    in a, (0xFE)
+    bit 1, a
+    ld hl, 0
+    ret nz              ; SS not pressed → 0
+    ; Check Caps Shift (0xFEFE bit 0) — needed for arrow keys
+    ld a, 0xFE
+    in a, (0xFE)
+    bit 0, a
+    ret nz              ; CS not pressed → 0
+    ; Check key 5 = LEFT (0xF7FE bit 4)
+    ld a, 0xF7
+    in a, (0xFE)
+    bit 4, a
+    jr nz, ksa_not_left
+    ld l, 1             ; SS+LEFT → 1
+    ret
+ksa_not_left:
+    ; Check key 8 = RIGHT (0xEFFE bit 2)
+    ld a, 0xEF
+    in a, (0xFE)
+    bit 2, a
+    jr nz, ksa_not_right
+    ld l, 2             ; SS+RIGHT → 2
+    ret
+ksa_not_right:
+    ; Check key 0 = BACKSPACE (0xEFFE bit 0)
+    ; A still has 0xEFFE result from above
+    bit 0, a
+    ret nz              ; 0 not pressed → 0
+    ld l, 3             ; SS+BACKSPACE → 3
+    ret
+
+; wb_left_clean: A = pos → A = new pos (word boundary left, pointer walking)
+wb_left_clean:
+    or a
+    ret z
+    ld c, a
+    ld e, a
+    ld d, 0
+    ld hl, _line_buffer
+    add hl, de
+    ; Phase 1: skip spaces backward
+wbl_sp:
+    dec hl
+    ld a, (hl)
+    cp ' '
+    jr nz, wbl_wd
+    dec c
+    jr nz, wbl_sp
+    xor a
+    ret
+    ; Phase 2: skip non-spaces backward
+wbl_wd:
+    dec c
+    jr nz, wbl_wd2
+    xor a               ; FIX: return 0 when reaching start of line
+    ret
+wbl_wd2:
+    dec hl
+    ld a, (hl)
+    cp ' '
+    jr nz, wbl_wd
+    ld a, c
+    ret
+
+; wb_right: A = pos → A = new pos (word boundary right, pointer walking)
+wb_right:
+    ld c, a
+    ld e, a
+    ld d, 0
+    ld hl, _line_buffer
+    add hl, de
+    ld a, (_line_len)
+    ld b, a
+wbr_wd:
+    ld a, c
+    cp b
+    jr nc, wbr_done
+    ld a, (hl)
+    cp ' '
+    jr z, wbr_sp
+    inc hl
+    inc c
+    jr wbr_wd
+wbr_sp:
+    ld a, c
+    cp b
+    jr nc, wbr_done
+    ld a, (hl)
+    cp ' '
+    jr nz, wbr_done
+    inc hl
+    inc c
+    jr wbr_sp
+wbr_done:
+    ld a, c
+    ret
+
+; void input_word_left(void)
+_input_word_left:
+    ld a, (_cursor_pos)
+    or a
+    ret z
+    call wb_left_clean
+    jr wm_apply
+
+; void input_word_right(void)
+_input_word_right:
+    ld a, (_cursor_pos)
+    call wb_right
+
+; Common tail: A = new_pos, apply cursor move
+wm_apply:
+    ld c, a
+    ld a, (_cursor_pos)
+    cp c
+    ret z
+    push bc
+    call _cursor_hide
+    pop bc
+    ld a, c
+    ld (_cursor_pos), a
+    jp _cursor_show
+
+; void input_delete_word(void)
+_input_delete_word:
+    ld a, (_cursor_pos)
+    or a
+    ret z
+    call wb_left_clean      ; A = new_pos (word boundary)
+    ld c, a                 ; C = new_pos
+    ld a, (_cursor_pos)
+    cp c
+    ret z
+    sub c
+    ld b, a                 ; B = del_count = cursor_pos - new_pos
+    push bc
+    call _cursor_hide
+    pop bc                  ; B = del_count, C = new_pos
+    ; LDIR: copy line_buffer[cursor_pos..line_len] to line_buffer[new_pos..]
+    push bc
+    ld a, c
+    add a, b                ; A = cursor_pos = new_pos + del_count
+    ld e, a
+    ld d, 0
+    ld hl, _line_buffer
+    add hl, de              ; HL = source = &line_buffer[cursor_pos]
+    ld e, c                 ; E = new_pos
+    push hl
+    ld hl, _line_buffer
+    add hl, de
+    ex de, hl               ; DE = dest = &line_buffer[new_pos]
+    pop hl                  ; HL = source
+    ld a, (_line_len)
+    sub c
+    sub b                   ; A = line_len - cursor_pos
+    inc a                   ; +1 for NUL terminator
+    ld c, a
+    ld b, 0                 ; BC = byte count
+    ldir
+    pop bc                  ; B = del_count, C = new_pos
+    ld a, (_line_len)
+    sub b
+    ld (_line_len), a
+    ld a, c
+    ld (_cursor_pos), a
+    ld l, c
+    jp _redraw_input_from
+
+; =============================================================================
+; FATAL MESSAGE — prints to screen using ROM font, then loops forever
+; void fatal_msg(const char *msg) __z88dk_fastcall  — never returns
+; Writes directly to VRAM (0x4000) + attrs (0x5800). No ROM calls needed.
+; Uses Spectrum ROM font at 0x3D00 (hardcoded, no sysvar dependency).
+; =============================================================================
+PUBLIC _fatal_msg
+_fatal_msg:
+    ; HL = message string (fastcall). Never returns.
+    ; Set border red
+    ld a, 2
+    out (254), a
+    ; Clear entire screen: pixels (6144B) + attrs (768B) = 6912 bytes at 0x4000
+    push hl
+    ld hl, 0x4000
+    ld (hl), 0
+    ld d, h
+    ld e, l
+    inc de
+    ld bc, 6911
+    ldir
+    ; Set attrs for row 11 (32 cells at 0x5960): BRIGHT + RED paper + WHITE ink
+    ld hl, 0x5960
+    ld a, 0x57
+    ld b, 32
+fm_attr:
+    ld (hl), a
+    inc hl
+    djnz fm_attr
+    pop hl               ; HL = message
+    ; Count string length
+    push hl
+    ld b, 0
+fm_len:
+    ld a, (hl)
+    or a
+    jr z, fm_ctr
+    inc b
+    inc hl
+    jr fm_len
+fm_ctr:
+    pop hl               ; HL = message start
+    ; Center: start col = (32 - len) / 2
+    ld a, 32
+    sub b
+    srl a
+    ; Row 11 scanline 0: H=0x48|(11&0x18>>3)<<3=0x48, L=(11&7)<<5=0x60
+    ; Actually: row 11 → third=1 (8-15), row_in_third=3
+    ; H = 0x40 | (third << 3) | scanline = 0x48 | 0 = 0x48
+    ; L = (row_in_third << 5) | col = (3 << 5) | col = 0x60 | col
+    or 0x60              ; A = 0x60 | start_col (row 11, scanline 0 base)
+    ld d, a              ; D = low byte base for row 11
+fm_char:
+    ld a, (hl)
+    or a
+    jr z, fm_done
+    push hl
+    sub 32
+    ld l, a
+    ld h, 0
+    add hl, hl
+    add hl, hl
+    add hl, hl           ; HL = (char-32) * 8
+    ld bc, 0x3D00
+    add hl, bc            ; HL = glyph address
+    ; Write 8 scanlines: H=0x48+S, L=D (column)
+    ld e, d               ; E = column (preserved across scanlines)
+    ld b, 8
+    ld c, 0x48            ; C = high byte base for row 11
+fm_scan:
+    ld a, (hl)
+    push hl
+    ld h, c
+    ld l, e
+    ld (hl), a
+    pop hl
+    inc hl
+    inc c                 ; next scanline
+    djnz fm_scan
+    inc d                 ; next column
+    pop hl
+    inc hl
+    jr fm_char
+fm_done:
+    jr fm_done
+
+; =============================================================================
+; FRAMELESS ASM CALLEE FUNCTIONS (dev43 optimization)
+; =============================================================================
+
+; void sys_puts_print(const char *label, const char *value) __z88dk_callee
+; set_attr_sys(); main_puts(label); main_print(value);
+_sys_puts_print:
+    pop bc              ; return address
+    pop hl              ; label
+    pop de              ; value
+    push bc             ; save return address FIRST (bottom)
+    push de             ; save value SECOND (top)
+    call _set_attr_sys  ; only touches A — HL preserved
+    call _main_puts     ; HL = label (fastcall)
+    pop hl              ; value (top of stack)
+    jp _main_print      ; tail call — ret pops saved return address
+
+; void irc_send_cmd1(const char *cmd, const char *p1) __z88dk_callee
+; Calls cdecl irc_send_cmd_internal(cmd, p1, NULL)
+_irc_send_cmd1:
+    pop hl              ; ret addr
+    pop de              ; cmd
+    pop bc              ; p1
+    push hl             ; save ret addr
+    push ix             ; save IX (irc_send_cmd_internal clobbers it via pop ix)
+    ld hl, 0
+    push hl             ; p2 = NULL
+    push bc             ; p1
+    push de             ; cmd
+    call _irc_send_cmd_internal
+    pop af              ; cleanup cmd
+    pop af              ; cleanup p1
+    pop af              ; cleanup p2
+    pop ix              ; restore IX
+    ret                 ; return via saved addr
+
+; void irc_send_cmd2(const char *cmd, const char *p1, const char *p2) __z88dk_callee
+; Calls cdecl irc_send_cmd_internal(cmd, p1, p2)
+_irc_send_cmd2:
+    pop hl              ; ret addr
+    pop de              ; cmd
+    pop bc              ; p1
+    ex (sp), hl         ; HL = p2, (SP) = ret addr
+    push ix             ; save IX
+    push hl             ; p2
+    push bc             ; p1
+    push de             ; cmd
+    call _irc_send_cmd_internal
+    pop af              ; cleanup cmd
+    pop af              ; cleanup p1
+    pop af              ; cleanup p2
+    pop ix              ; restore IX
+    ret                 ; return via saved addr
+
+; char *cfg_put(char *p, const char *s) __z88dk_callee
+; Copies s to p, returns pointer past last byte written.
+_cfg_put:
+    pop bc              ; return address
+    pop de              ; p (dest)
+    pop hl              ; s (src)
+    push bc             ; restore return addr
+cfg_put_loop:
+    ld a, (hl)
+    or a
+    jr z, cfg_put_done
+    ld (de), a
+    inc hl
+    inc de
+    jr cfg_put_loop
+cfg_put_done:
+    ex de, hl           ; HL = advanced dest pointer (return value)
+    ret
+
+; uint8_t ensure_args(const char *args, const char *usage) __z88dk_callee
+; Returns 1 if args non-empty, else calls ui_usage(usage) and returns 0.
+_ensure_args:
+    pop bc              ; return address
+    pop hl              ; args
+    pop de              ; usage
+    push bc             ; restore return addr
+    ld a, h
+    or l
+    jr z, ea_fail       ; args == NULL
+    ld a, (hl)
+    or a
+    jr z, ea_fail       ; *args == '\0'
+    ld l, 1             ; return 1
+    ret
+ea_fail:
+    ex de, hl           ; HL = usage (fastcall arg for ui_usage)
+    call _ui_usage
+    ld l, 0             ; return 0
+    ret
+
+; void fast_u8_to_str(char *buf, uint8_t val) __z88dk_callee
+; Writes 2 ASCII digits (tens, units) to buf. No null terminator.
+_fast_u8_to_str:
+    pop hl              ; return address
+    pop de              ; DE = buf
+    pop bc              ; C = val (1B param, reads 1B extra from caller)
+    dec sp              ; FIX: compensate extra byte consumed by pop
+    push hl             ; restore return addr
+    ld a, '0'           ; tens digit
+    ld h, d
+    ld l, e             ; HL = buf
+fu8_div10:
+    ld b, a             ; save tens
+    ld a, c
+    sub 10
+    jr c, fu8_done
+    ld c, a             ; val -= 10
+    ld a, b
+    inc a               ; tens++
+    jr fu8_div10
+fu8_done:
+    ld (hl), b          ; buf[0] = tens
+    inc hl
+    ld a, c
+    add a, '0'
+    ld (hl), a          ; buf[1] = units
+    ret
+
+; void print_big_str(uint8_t y, uint8_t col, const char *s, uint8_t attr) __z88dk_callee
+; Sets g_ps64_y, g_ps64_col, g_ps64_attr, then loops calling draw_big_char per char.
+; Stack: [ret 2B] [y 1B] [col 1B] [s 2B] [attr 1B] = 7 bytes
+_print_big_str:
+    pop de              ; DE = return addr
+    pop bc              ; C = y, B = col (two uint8_t, byte-packed in one pop)
+    pop hl              ; HL = s (pointer, 2B)
+    ld a, c
+    ld (_g_ps64_y), a
+    ld a, b
+    ld (_g_ps64_col), a
+    ; attr is 1 byte remaining on stack
+    pop bc              ; C = attr (1B param, reads 1B extra from caller)
+    dec sp              ; FIX: compensate extra byte consumed by pop
+    push de             ; push return addr back
+    ld a, c
+    ld (_g_ps64_attr), a
+pbs_loop:
+    ld a, (hl)
+    or a
+    ret z               ; null → done, ret to caller
+    push hl             ; save string pointer
+    ld l, a             ; fastcall arg for draw_big_char
+    call _draw_big_char
+    ld hl, _g_ps64_col
+    inc (hl)            ; g_ps64_col++
+    pop hl              ; restore string pointer
+    inc hl              ; next char
+    jr pbs_loop
+
+; char *cfg_kv(char *p, const char *key, const char *val) __z88dk_callee
+; Writes key, then val (or digit if val<=9), then \r\n. Returns advanced pointer.
+_cfg_kv:
+    pop hl              ; return addr
+    pop de              ; p
+    pop bc              ; key (BC)
+    ex (sp), hl         ; HL = val, (SP) = return addr
+    push hl             ; save val
+    push de             ; save p
+    ; Call cfg_put(p, key): needs p in DE, key in HL (but cfg_put is callee...)
+    ; Actually cfg_put pops its own args. We need to set up the stack for it.
+    ; cfg_put callee stack: [ret] [p] [s] — it pops both + ret
+    ; Simpler: inline the copy loop
+    ex de, hl           ; HL = p
+    ld d, b
+    ld e, c             ; DE = key
+ckv_copy_key:
+    ld a, (de)
+    or a
+    jr z, ckv_key_done
+    ld (hl), a
+    inc hl
+    inc de
+    jr ckv_copy_key
+ckv_key_done:
+    ; HL = p (advanced past key)
+    pop af              ; discard saved p (we have HL now)
+    pop de              ; DE = val
+    ; Check if val <= 9 (small int → single digit)
+    ld a, d
+    or a
+    jr nz, ckv_string   ; high byte != 0 → real pointer
+    ld a, e
+    cp 10
+    jr nc, ckv_string   ; val >= 10 → real pointer
+    ; val is 0-9: write single digit
+    add a, '0'
+    ld (hl), a
+    inc hl
+    jr ckv_crlf
+ckv_string:
+    ; HL = p (dest), DE = val (src) — no swap needed
+ckv_copy_val:
+    ld a, (de)          ; read from val (source)
+    or a
+    jr z, ckv_crlf
+    ld (hl), a          ; write to p (dest)
+    inc hl
+    inc de
+    jr ckv_copy_val
+ckv_crlf:
+    ld (hl), 13         ; \r
+    inc hl
+    ld (hl), 10         ; \n
+    inc hl              ; HL = return value (advanced pointer)
+    ret
+
+; char *sb_put_u8_2d(char *p, uint8_t v) __z88dk_callee
+; Writes 1 digit if v<10, 2 digits if v>=10. Returns advanced pointer in HL.
+_sb_put_u8_2d:
+    pop bc              ; return addr
+    pop hl              ; HL = p
+    pop de              ; E = v (1B param, reads 1B extra from caller)
+    dec sp              ; FIX: compensate extra byte consumed by pop
+    push bc             ; restore return addr
+    ld a, e
+    cp 10
+    jr c, sb2d_one
+    ; v >= 10: write '1' + (v-10)
+    ld (hl), '1'
+    inc hl
+    sub 10
+sb2d_one:
+    add a, '0'
+    ld (hl), a
+    inc hl              ; HL = next position (return value)
+    ret
+
+; void puts_u8_nolz(uint8_t v) __z88dk_fastcall
+; Prints uint8 without leading zero. L = value.
+_puts_u8_nolz:
+    ld a, '0'
+    ld c, l             ; C = value
+pu8_div:
+    ld b, a             ; B = tens char
+    ld a, c
+    sub 10
+    jr c, pu8_print
+    ld c, a
+    ld a, b
     inc a
-    ld (23672), a
-    pop af
+    jr pu8_div
+pu8_print:
+    ; B = tens char, C = remainder
+    ld a, b
+    cp '0'
+    jr z, pu8_skip_tens
+    ld l, a             ; fastcall arg
+    push bc
+    call _main_putc
+    pop bc
+pu8_skip_tens:
+    ld a, c
+    add a, '0'
+    ld l, a             ; fastcall arg
+    jp _main_putc       ; tail call
+
+; =============================================================================
+; FRAME WAIT — Wait for next frame (50Hz sync via IM1 ROM ISR)
+; ROM ISR at $0038 increments FRAMES (23672) and scans keyboard.
+; =============================================================================
+PUBLIC _frame_wait
+_frame_wait:
+    push iy
+    ld iy, 0x5C3A      ; ROM ISR expects IY = system variables
     ei
-    reti
-_im2_isr_end:
+    halt                ; wait for next frame interrupt (exact 50Hz)
+    di
+    pop iy              ; restore IY for SDCC
+    ret
 
 ; =============================================================================
 ; SYSTEM RAM HIJACKING - Variables mapped to unused ZX system areas
-; Protected by IM2: divMMC automapper no longer triggers on every interrupt.
-; Printer Buffer and CHANS are safe during normal operation.
+; IM1 mode: ROM ISR runs via divMMC automapper at $0038.
+; Printer Buffer and CHANS tested safe during normal IM1 operation.
 ; esxDOS calls (RST 8) may still touch these areas — tested safe in practice
 ; because esxDOS file I/O does not use Printer Buffer/CHANS as scratch.
 ; Zeroed during CRT init (code_crt_init section above)
