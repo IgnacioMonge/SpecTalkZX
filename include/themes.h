@@ -1,6 +1,6 @@
 /*
  * themes.h - Visual theme definitions for SpecTalk ZX
- * SpecTalk ZX v1.0 - IRC Client for ZX Spectrum
+ * SpecTalk ZX - IRC Client for ZX Spectrum
  * Copyright (C) 2026 M. Ignacio Monge Garcia
  *
  * This program is free software; you can redistribute it and/or modify
@@ -30,7 +30,6 @@ uint8_t banner;
     uint8_t msg_chan;
     uint8_t msg_self;
     uint8_t msg_priv;
-    uint8_t msg_priv_inv;
     uint8_t main_bg;
     uint8_t input;
     uint8_t input_bg;
@@ -40,87 +39,17 @@ uint8_t banner;
     uint8_t msg_nick;
     uint8_t msg_time;    // Timestamp color
     uint8_t msg_topic;
+    uint8_t msg_motd;    // MOTD color
     uint8_t error;
     uint8_t ind_red;     // Status indicators
     uint8_t ind_yellow;
     uint8_t ind_green;
     uint8_t border;
+    // Badge colors (5 cells, top row attrs with BRIGHT)
+    uint8_t badge[5];
 } Theme;
 
-// Tabla de themes
-static const Theme themes[] = {
-    // THEME 1: DEFAULT (Blue/Cyan)
-    {
-        "Default",
-        (PAPER_BLUE  | INK_WHITE | BRIGHT),    // banner
-        (PAPER_WHITE | INK_BLUE),              // status
-        (PAPER_BLACK | INK_CYAN | BRIGHT),     // msg_chan
-        (PAPER_BLACK | INK_YELLOW | BRIGHT),   // msg_self
-        (PAPER_BLACK | INK_GREEN | BRIGHT),    // msg_priv
-        (PAPER_GREEN | INK_BLACK | BRIGHT),    // msg_priv_inv
-        (PAPER_BLACK | INK_WHITE),             // main_bg
-        (PAPER_CYAN  | INK_BLUE),             // input
-        (PAPER_CYAN  | INK_BLACK),             // input_bg
-        (PAPER_CYAN  | INK_BLUE),              // prompt
-        (PAPER_BLACK | INK_WHITE),             // msg_server
-        (PAPER_BLACK | INK_MAGENTA),           // msg_join
-        (PAPER_BLACK | INK_MAGENTA | BRIGHT),  // msg_nick
-        (PAPER_BLACK | INK_CYAN | BRIGHT),     // msg_time
-        (PAPER_BLACK | INK_YELLOW | BRIGHT),   // msg_topic
-        (PAPER_BLACK | INK_RED | BRIGHT),      // error
-        (PAPER_WHITE | INK_RED),               // ind_network
-        (PAPER_WHITE | INK_YELLOW),            // ind_yellow
-        (PAPER_WHITE | INK_GREEN),             // ind_green
-        INK_BLACK                              // border
-    },
-    // THEME 2: TERMINAL (Green Monochrome)
-    {
-        "The Terminal",
-        (PAPER_GREEN | INK_BLACK | BRIGHT),    // banner
-        (PAPER_GREEN | INK_BLACK),             // status
-        (PAPER_BLACK | INK_GREEN),    // msg_chan
-        (PAPER_BLACK | INK_GREEN | BRIGHT),    // msg_self
-        (PAPER_BLACK | INK_GREEN | BRIGHT),    // msg_priv
-        (PAPER_GREEN | INK_BLACK | BRIGHT),    // msg_priv_inv
-        (PAPER_BLACK | INK_GREEN),             // main_bg
-        (PAPER_GREEN | INK_BLACK),             // input
-        (PAPER_GREEN | INK_BLACK),             // input_bg
-        (PAPER_GREEN | INK_BLACK),             // prompt
-        (PAPER_BLACK | INK_GREEN),             // msg_server
-        (PAPER_BLACK | INK_GREEN),             // msg_join
-        (PAPER_BLACK | INK_GREEN | BRIGHT),    // msg_nick
-        (PAPER_BLACK | INK_GREEN),             // msg_time
-        (PAPER_BLACK | INK_GREEN | BRIGHT),    // msg_topic
-        (PAPER_BLACK | INK_RED | BRIGHT),      // error
-        (PAPER_GREEN | INK_RED),      // ind_network
-        (PAPER_GREEN | INK_YELLOW),   // ind_yellow
-        (PAPER_GREEN | INK_BLACK),    // ind_green
-        INK_BLACK                              // border
-    },
-    // THEME 3: COLORFUL (The Commander - Blue)
-    {
-        "The Commander",
-        (PAPER_RED   | INK_WHITE | BRIGHT),    // banner
-        (PAPER_CYAN  | INK_BLACK | BRIGHT),    // status
-        (PAPER_BLUE  | INK_CYAN | BRIGHT),     // msg_chan
-        (PAPER_BLUE  | INK_YELLOW | BRIGHT),   // msg_self
-        (PAPER_BLUE  | INK_GREEN | BRIGHT),    // msg_priv
-        (PAPER_GREEN | INK_BLUE | BRIGHT),     // msg_priv_inv
-        (PAPER_BLUE  | INK_WHITE),             // main_bg
-        (PAPER_WHITE | INK_BLUE),              // input
-        (PAPER_WHITE | INK_BLUE),              // input_bg
-        (PAPER_WHITE | INK_BLUE),              // prompt
-        (PAPER_BLUE  | INK_WHITE),             // msg_server
-        (PAPER_BLUE  | INK_MAGENTA),           // msg_join
-        (PAPER_BLUE  | INK_MAGENTA | BRIGHT),  // msg_nick
-        (PAPER_BLUE  | INK_WHITE | BRIGHT),    // msg_time
-        (PAPER_BLUE  | INK_YELLOW | BRIGHT),   // msg_topic
-        (PAPER_BLUE  | INK_RED | BRIGHT),      // error
-        (PAPER_CYAN  | INK_RED | BRIGHT),      // ind_network
-        (PAPER_CYAN  | INK_YELLOW | BRIGHT),   // ind_yellow
-        (PAPER_CYAN  | INK_GREEN | BRIGHT),    // ind_green
-        INK_BLUE                               // border
-    }
-};
+// Theme data is now loaded at runtime from SPECTALK.DAT into theme_raw[]
+#define THEME_COUNT 3
 
 #endif
