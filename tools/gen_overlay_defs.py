@@ -41,11 +41,9 @@ REQUIRED_FUNCTIONS = [
     '_cfg_put',
     '_cfg_kv',
 
-    # Input / frame sync / dither / globe (for globe animation)
+    # Input / frame sync used by overlays
     '_in_inkey',
     '_frame_wait',
-    '_fill_dither_rows',
-    '_render_globe',
 
     # Screen output (for save status messages)
     '_main_puts',

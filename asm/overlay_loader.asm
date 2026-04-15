@@ -1,7 +1,7 @@
 ;; overlay_loader.asm — Load and execute overlays from esxDOS
 ;; All overlays packed in SPECTALK.OVL (4 × 2048B blocks).
 ;; OVL code loaded into ring_buffer (2048B) for execution.
-;; overlay_slot (576B) is available as scratch data buffer for overlays.
+;; overlay_slot (512B, aliased to rx_line) available as scratch data buffer for overlays.
 
 SECTION code_user
 
@@ -16,6 +16,7 @@ EXTERN _esx_result
 EXTERN _ui_err
 EXTERN _uart_drain_to_buffer
 EXTERN _rx_overflow
+EXTERN _overlay_exit_full
 EXTERN ___sdcc_enter_ix
 
 ; void overlay_exec(uint8_t ovl_id, uint8_t entry_id) __z88dk_callee
@@ -84,6 +85,18 @@ ovl_read_ok:
     ld e, (hl)
     inc hl
     ld d, (hl)          ; DE = absolute entry address
+    ; Reject corrupted entry pointers outside the loaded 2K overlay block.
+    push de
+    ex de, hl
+    ld de, _ring_buffer
+    or a
+    sbc hl, de          ; HL = entry - ring_buffer
+    jr c, ovl_bad_entry
+    ld de, 2048
+    or a
+    sbc hl, de          ; offset >= 2048?
+    jr nc, ovl_bad_entry
+    pop de
 
     ; Clear rx_overflow so overlay return starts with clean UART state
     xor a
@@ -98,12 +111,17 @@ ovl_read_ok:
     push de             ; push caller's return address back
     jp (hl)             ; jump to overlay — its ret goes back to caller
 
+ovl_bad_entry:
+    pop de
+    jr ovl_fail
+
 ovl_fail:
     pop ix
     pop de              ; ret addr
     inc sp
     inc sp
     push de
+    call _overlay_exit_full
     ld hl, ovl_err_msg
     jp _ui_err          ; tail call
 
@@ -113,6 +131,9 @@ ovl_fail:
 PUBLIC _overlay_call
 _overlay_call:
     ld      a, l             ; entry_id (fastcall: param in L)
+    ld      hl, _ring_buffer
+    cp      (hl)             ; entry_id < entry_count?
+    ret     nc               ; invalid/corrupt table -> ignore safely
     add     a, a             ; *2 (entry table is word-indexed)
     ld      e, a
     ld      d, 0
@@ -121,13 +142,29 @@ _overlay_call:
     ld      e, (hl)
     inc     hl
     ld      d, (hl)          ; DE = entry function address
+    ; Reject corrupt entry pointers outside the resident overlay block.
+    push    de
+    ex      de, hl
+    ld      de, _ring_buffer
+    or      a
+    sbc     hl, de
+    jr      c, ovl_call_bad
+    ld      de, 2048
+    or      a
+    sbc     hl, de
+    jr      nc, ovl_call_bad
+    pop     de
     ex      de, hl
     jp      (hl)             ; jump — overlay's ret returns to caller
+
+ovl_call_bad:
+    pop     de
+    ret
 
 ovl_filename:
     DEFM "SPECTALK.OVL"
     DEFB 0
 
 ovl_err_msg:
-    DEFM "No overlay file"
+    DEFM "Overlay load failed"
     DEFB 0

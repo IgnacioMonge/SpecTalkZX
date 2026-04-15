@@ -106,13 +106,16 @@ endef
 # ------------------------------------------------------------
 # Phony targets
 # ------------------------------------------------------------
-.PHONY: all check clean bpe build trim overlay info help release RELEASE nobpe
+.PHONY: all check clean bpe build trim overlay info help release RELEASE nobpe copydat
 
 # ------------------------------------------------------------
 # Default pipeline
 # ------------------------------------------------------------
 all: check clean bpe build trim overlay info
-nobpe: check clean build trim overlay info
+nobpe: check clean build trim overlay info copydat
+
+copydat:
+	@cp src/SPECTALK.DAT $(BUILD_DIR)/SPECTALK.DAT 2>/dev/null || true
 
 help:
 	$(call HR)
@@ -275,7 +278,7 @@ overlay: $(MAP)
 		exit 1; \
 	fi; \
 	echo "  overlay_slot = 0x$$SLOT"; \
-	$(PYTHON) tools/gen_overlay_defs.py $(MAP) > $(OVL_DEFS); \
+	$(PYTHON) tools/gen_overlay_defs.py $(MAP) > $(OVL_DEFS) || exit 1; \
 	echo "  overlay_defs.asm generated"; \
 	zcc +z80 -clib=sdcc_iy --no-crt --opt-code-size \
 		-Ioverlay -c $(OVL_SRC) -o $(BUILD_DIR)/spectalk_ovl.o 2>&1 || exit 1; \

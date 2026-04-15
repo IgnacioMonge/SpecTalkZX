@@ -77,14 +77,18 @@ void status_render_ovl(void)
 
     /* Uptime */
     print_str64(r, 2, ss_up, a_nick);
-    { char ubuf[8];
+    { char ubuf[12];
+      char *p = ubuf;
       uint16_t m = uptime_minutes;
-      uint8_t h = 0;
+      uint16_t h = 0;
       while (m >= 60) { m -= 60; h++; }
-      fast_u8_to_str(ubuf, h);
-      ubuf[2] = 'h'; ubuf[3] = ' ';
-      fast_u8_to_str(ubuf + 4, (uint8_t)m);
-      ubuf[6] = 'm'; ubuf[7] = 0;
+      p = u16_to_dec(p, h);
+      *p++ = 'h';
+      *p++ = ' ';
+      fast_u8_to_str(p, (uint8_t)m);
+      p += 2;
+      *p++ = 'm';
+      *p = 0;
       print_str64(r++, 11, ubuf, a_chan);
     }
 
@@ -122,7 +126,6 @@ extern char *cfg_put(char *p, const char *s) __z88dk_callee;
 extern char *cfg_kv(char *p, const char *key, const char *val) __z88dk_callee;
 extern void esx_fcreate(const char *path) __z88dk_fastcall;
 extern void esx_fwrite(void);
-extern char *u16_to_dec(char *dst, uint16_t v);
 extern void main_puts(const char *s) __z88dk_fastcall;
 extern void main_print(const char *s) __z88dk_fastcall;
 extern void set_attr_sys(void);
@@ -203,13 +206,21 @@ void save_config_ovl(void)
     tmp[2] = 0;
     p = cfg_put(p, tmp); *p++ = '\r'; *p++ = '\n';
 
-    if (p < (char *)overlay_slot + 500) /* W1 guard: leave room for CSV */
+    /* Capacity guard: leave 12B headroom for CSV trailing bytes.
+     * Explicit OVERLAY_SLOT_SIZE so future key additions fail loudly. */
+    if (p < (char *)overlay_slot + (OVERLAY_SLOT_SIZE - 12))
         p = cfg_put_csv(p, "friends", (const char *)friend_nicks, IRC_NICK_SIZE, MAX_FRIENDS);
-    if (p < (char *)overlay_slot + 500)
+    if (p < (char *)overlay_slot + (OVERLAY_SLOT_SIZE - 12))
         p = cfg_put_csv(p, "ignores", (const char *)ignore_list, 16, ignore_count);
 
     set_attr_sys();
     main_puts("Saving config... ");
+
+    /* Final bounds check: abort write if any earlier phase overflowed the slot. */
+    if (p > (char *)overlay_slot + OVERLAY_SLOT_SIZE) {
+        ui_err("Config too large");
+        goto done;
+    }
 
     esx_fcreate(CK_PRI);
     if (!esx_handle) esx_fcreate(CK_ALT);

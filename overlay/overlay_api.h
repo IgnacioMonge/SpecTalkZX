@@ -32,6 +32,7 @@ extern void input_cache_invalidate(void);
 /* ===== String/number utilities ===== */
 
 extern uint8_t st_strlen(const char *s) __z88dk_fastcall;
+extern char *u16_to_dec(char *dst, uint16_t v);
 extern void fast_u8_to_str(char *buf, uint8_t val) __z88dk_callee;
 
 /* ===== esxDOS file I/O ===== */
@@ -55,6 +56,7 @@ extern uint8_t  config_dirty;
 extern uint8_t  notif_enabled;
 
 /* Buffers */
+#define OVERLAY_SLOT_SIZE 512     /* MUST match RX_LINE_SIZE (spectalk.h) — aliased */
 extern uint8_t  overlay_slot[];   /* 512B scratch buffer (aliased to rx_line) */
 extern uint8_t  ring_buffer[];    /* 2048B — overlay code lives here */
 extern uint16_t rb_head;
