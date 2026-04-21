@@ -182,6 +182,7 @@ extern void print_line64_fast(uint8_t y, const char *s, uint8_t attr);
 extern void notif_draw(uint8_t start_col, const char *str, uint8_t attr);
 extern void notif_clear(void);
 void notif_center(const char *str, uint8_t attr);
+void notif_cancel_current(void);
 extern uint16_t notif_timeout;
 extern uint8_t notif_is_pm;
 extern char last_pm_nick[];

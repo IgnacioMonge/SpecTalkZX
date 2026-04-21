@@ -548,6 +548,7 @@ static void h_part(void)
     if (idx >= 0) {
         if (st_stricmp(pkt_usr, irc_nick) == 0) {
             remove_channel((uint8_t)idx);
+            notif_cancel_current();
             notify2(S_YOU_LEFT, chan, ATTR_MSG_JOIN);
         } else {
             channel_dec_users(idx);

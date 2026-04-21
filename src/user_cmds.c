@@ -583,6 +583,7 @@ static void cmd_part(const char *args) __z88dk_fastcall
         irc_send_cmd2(S_PART_CMD, cname_ptr, reason);
     }
 
+    notif_cancel_current();
     notify2(S_YOU_LEFT, cname_ptr, ATTR_MSG_JOIN);
 
     // remove_channel() YA llama a draw_status_bar()
