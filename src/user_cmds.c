@@ -224,11 +224,11 @@ static void cmd_connect(const char *args) __z88dk_fastcall
         server_len = (uint8_t)(sep - args);
         port = sep + 1;
         port = (const char *)skip_spaces((char *)port);
-        if (!*port) port = S_DEFAULT_PORT;
     } else {
         server_len = st_strlen(args);
-        port = S_DEFAULT_PORT;
+        port = NULL;
     }
+    if (!port || !*port) port = S_DEFAULT_PORT;
     
     if (server_len > sizeof(irc_server) - 1) server_len = sizeof(irc_server) - 1;
     memcpy(irc_server, args, server_len);
@@ -547,9 +547,7 @@ static void cmd_join(const char *args) __z88dk_fastcall
     if (find_empty_channel_slot() == -1) { ui_err(S_MAXWIN); main_print("Use /close or /part first."); return; }
 
     irc_send_cmd1("JOIN", lookup);
-    st_copy_n(temp_input + 64, lookup, 56);
-    nb_init("Joining "); nb(temp_input + 64); NB_END();
-    notify(temp_input, ATTR_MSG_JOIN);
+    notify2("Joining ", lookup, ATTR_MSG_JOIN);
 }
 
 static void cmd_part(const char *args) __z88dk_fastcall

@@ -16,6 +16,7 @@ Snapshots progresivos en `Development/dev-1.3.7.N/`.
 | + overlay exit RX reset hardening | 35,844 | +125 |
 | + `ABOUT` keepalive fix | 35,861 | +142 |
 | + `/mode` wrapper | 36,025 | +306 |
+| + post-`/mode` shrink round | 36,006 | +287 |
 
 ### Functional fixes
 
@@ -79,6 +80,14 @@ Snapshots progresivos en `Development/dev-1.3.7.N/`.
 - **Verificación**: `make` OK el 2026-04-22, `build/SpecTalkZX.tap` = 36,025B
 - **Coste**: +164B vs la build anterior de 35,861B
 
+#### Post-`/mode` shrink round
+- **Shrink**:
+  - `src/irc_handlers.c` añade `notify3()` para secuencias repetidas `nb_init/nb/nb/NB_END`
+  - `src/user_cmds.c` hace que `/join` reutilice `notify2()` en vez de reconstruir la misma notificación a mano
+  - `src/user_cmds.c` colapsa el default duplicado de `irc_port` en `cmd_connect()`
+- **Verificación**: `make` OK el 2026-04-22, `build/SpecTalkZX.tap` = 36,006B
+- **Ahorro medido**: `36,025B -> 36,006B` (`-19B`)
+
 ### Hardening & defensas (audit-z80 Codex 2026-04-12)
 
 #### Doc `overlay_slot` unificada a 512B
@@ -132,8 +141,6 @@ Total: **−327B** vs baseline post-audit (35,861 → 35,534)
 ### Pending opportunities (rendimientos decrecientes)
 
 - `jp` → `jr` en `main_print_wrapped_ram` (~1–3B)
-- `notify3()` helper para secuencias `nb_init/nb/nb/NB_END` en `src/irc_handlers.c` (~15–30B)
-- Revisar doble default de `irc_port` en `src/spectalk.c` (muy pequeño)
 
 ### Known open bugs
 

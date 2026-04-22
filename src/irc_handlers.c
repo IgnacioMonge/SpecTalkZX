@@ -68,6 +68,13 @@ static void notify2(const char *a, const char *b, uint8_t attr) __z88dk_callee
     notify(temp_input, attr);
 }
 
+// 3-piece notification builder for stable strings/pointers already outside temp_input.
+static void notify3(const char *a, const char *b, const char *c, uint8_t attr) __z88dk_callee
+{
+    nb_init(a); nb(b); nb(c); NB_END();
+    notify(temp_input, attr);
+}
+
 // Helper: Marcar actividad en canales no activos (Deduplicated logic)
 static void mark_channel_activity(uint8_t idx) __z88dk_fastcall
 
@@ -216,10 +223,11 @@ static void h_mode(void)
 
         /* Human-readable for +b/-b (ban/unban), notify() for the rest */
         if (mode_text[0] && mode_text[1] == 'b' && (mode_text[0] == '+' || mode_text[0] == '-')) {
-            nb_init(pkt_usr);
-            nb(mode_text[0] == '+' ? " sets ban on " : " removes ban on ");
-            { const char *mask = irc_param(2); nb(*mask ? mask : target); } NB_END();
-            notify(temp_input, ATTR_MSG_SYS);
+            { const char *mask = irc_param(2);
+              notify3(pkt_usr,
+                      mode_text[0] == '+' ? " sets ban on " : " removes ban on ",
+                      *mask ? mask : target,
+                      ATTR_MSG_SYS); }
         } else {
             set_attr_sys();
             main_puts2(pkt_usr, " sets mode ");
@@ -318,8 +326,7 @@ static void h_privmsg_notice(void)
                 channels[(uint8_t)idx].flags |= CH_FLAG_MENTION;
                 status_bar_dirty = 1;
                 mention_beep();
-                nb_init(pkt_usr); nb(" mentioned you in "); nb(target); NB_END();
-                notify(temp_input, ATTR_MSG_NICK);
+                notify3(pkt_usr, " mentioned you in ", target, ATTR_MSG_NICK);
             }
 
             if ((uint8_t)idx != current_channel_idx) return;
@@ -896,8 +903,7 @@ static void h_numeric_366(void)
     // Batch friend notification (accumulated during 353 chunks)
     if (names_friend_pos > 0) {
         mention_beep();
-        nb_init(names_friend_buf); nb(" in "); nb(msg_chan); NB_END();
-        notify(temp_input, ATTR_MSG_NICK);
+        notify3(names_friend_buf, " in ", msg_chan, ATTR_MSG_NICK);
         names_friend_pos = 0;
     }
 
