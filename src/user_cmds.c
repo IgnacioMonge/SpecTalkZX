@@ -53,6 +53,26 @@ static void cut_at_space(char *p) __z88dk_fastcall
     if (sp) *sp = 0;
 }
 
+static uint8_t confirm_disconnect(void)
+{
+    uint8_t tmout = 250;  // ~5s timeout
+
+    ui_err("Disconnect (y/n)?");
+    while (tmout--) {
+        uint8_t k = in_inkey();
+        frame_wait();
+        uart_drain_to_buffer();
+        while (try_read_line_nodrain()) rx_pos = 0;
+        if (k == 'y' || k == 'Y') return 1;
+        if (k == 'n' || k == 'N' || !tmout) {
+            ui_err(S_CANCELLED);
+            return 0;
+        }
+    }
+
+    return 0;
+}
+
 // =============================================================================
 // INTERNAL HELPERS
 // =============================================================================
@@ -190,21 +210,11 @@ static void cmd_connect(const char *args) __z88dk_fastcall
 
     if (connection_state >= STATE_TCP_CONNECTED) {
         ui_err("Already connected.");
+        if (!confirm_disconnect()) return;
         set_attr_sys();
-        main_print("Disconnect? (y/n)");
-        { uint8_t tmout = 250;  // audit M01: ~5s timeout
-        while (tmout--) {
-            uint8_t k = in_inkey();
-            frame_wait(); uart_drain_to_buffer();
-            while (try_read_line_nodrain()) { rx_pos = 0; }
-            if (k == 'n' || k == 'N' || !tmout) { main_print(S_CANCELLED); return; }
-            if (k == 'y' || k == 'Y') {
-                main_print("Disconnecting...");
-                force_disconnect();
-                draw_status_bar(); draw_status_bar_real();
-                break;
-            }
-        } }
+        main_print("Disconnecting...");
+        force_disconnect();
+        draw_status_bar(); draw_status_bar_real();
     }
     
     sep = strchr(args, ' ');
@@ -648,6 +658,8 @@ void cmd_quit(const char *args) __z88dk_fastcall
 
     // Nivel 1: Solo requiere TCP
     if (!check_status(LVL_TCP)) return;
+
+    if (!confirm_disconnect()) return;
 
     set_attr_sys();
 

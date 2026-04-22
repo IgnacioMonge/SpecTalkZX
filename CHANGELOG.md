@@ -12,6 +12,7 @@ Snapshots progresivos en `Development/dev-1.3.7.N/`.
 | + NiCK + cfg_apply + audit fixes | 35,861 | +142 |
 | + shrink round (dedup+data+copt+arch+OVL2) | 35,534 | −185 |
 | + ikkle footer PART/BPE fix (optimized) | 35,817 | +98 |
+| + `/quit` disconnect confirmation guard | 35,844 | +125 |
 
 ### Functional fixes
 
@@ -34,6 +35,15 @@ Snapshots progresivos en `Development/dev-1.3.7.N/`.
   - la versión intermedia que añadía expansión BPE genérica en `notify()` se retiró por coste; el fix final queda estrecho al caso real
 - **Verificación**: `make` OK el 2026-04-22, `build/SpecTalkZX.tap` = 35,817B
 - **Coste neto actual**: +283B vs `35,534B` pre-fix; recuperación de `-377B` frente a la versión genérica de 36,194B
+
+#### `/quit` disconnect confirmation guard
+- **Bug/UI gap**: `/quit` desconectaba inmediatamente, sin guard de seguridad. El usuario esperaba confirmación `Disconnect (y/n)?` en rojo antes de cerrar la sesión.
+- **Fix**:
+  - `src/user_cmds.c` añade `confirm_disconnect()` como helper compartido con timeout de ~5s
+  - `/quit` ahora exige confirmación antes de enviar `QUIT`
+  - `/connect` reutiliza el mismo helper cuando ya hay una conexión activa, unificando prompt y comportamiento
+- **Verificación**: `make` OK el 2026-04-22, `build/SpecTalkZX.tap` = 35,844B
+- **Coste**: +27B vs la build anterior de 35,817B
 
 #### Overlay ABOUT keepalive audit
 - **Bug confirmado por auditoría**: con `OVERLAY_ABOUT` abierto, el main loop pausa el emisor de `PING :keepalive` / `PING :lag` y `overlay_keepalive()` solo responde a `PING` del servidor; descarta `PONG` y el resto del tráfico IRC.
@@ -88,7 +98,7 @@ Total: **−327B** vs baseline post-audit (35,861 → 35,534)
 - `tools/gen_overlay_defs.py` añade esos símbolos al ABI generado
 - `overlay/spectalk_ovl4.c` reutiliza claves residentes en `save_config_ovl()`; ahorro verificado: **1954B → 1796B** (`-158B`)
 - `overlay/spectalk_ovl2.c` reutiliza las mismas claves residentes para labels de config idénticas; build verificada en **1968B**
-- El TAP queda en **35,817B** tras la optimización posterior del fix de footer; `SPECTALK.OVL` sigue empaquetado a tamaño fijo
+- El TAP queda en **35,844B** tras el guard adicional de `/quit`; `SPECTALK.OVL` sigue empaquetado a tamaño fijo
 
 ### Pending opportunities (rendimientos decrecientes)
 
