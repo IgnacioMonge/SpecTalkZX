@@ -2,7 +2,7 @@
 
 ## [Unreleased] — Uncommitted WIP
 
-**Local build verificado con `make` el 2026-04-21.** No hay commit todavía.
+**Local build verificado con `make` el 2026-04-22.** No hay commit todavía.
 Snapshots progresivos en `Development/dev-1.3.7.N/`.
 
 ### TAP size progression
@@ -11,7 +11,7 @@ Snapshots progresivos en `Development/dev-1.3.7.N/`.
 | v1.3.7.1 (committed) | 35,719 | — |
 | + NiCK + cfg_apply + audit fixes | 35,861 | +142 |
 | + shrink round (dedup+data+copt+arch+OVL2) | 35,534 | −185 |
-| + ikkle footer PART/BPE fix | 36,194 | +475 |
+| + ikkle footer PART/BPE fix (optimized) | 35,817 | +98 |
 
 ### Functional fixes
 
@@ -27,12 +27,18 @@ Snapshots progresivos en `Development/dev-1.3.7.N/`.
 - **Coste**: +64B
 
 #### Ikkle footer PART/BPE fix
-- **Bug**: con `!notif 1`, salir de un canal podía mostrar `You hav????CHANNEL` en el footer. El prefijo `S_YOU_LEFT` podía llegar comprimido con BPE y `notify()` copiaba bytes raw a `notif_buf` sin expandir tokens
+- **Bug**: con `!notif 1`, salir de un canal podía mostrar `You hav????CHANNEL` en el footer. La causa real era `notify2(S_YOU_LEFT, ...)`: si `S_YOU_LEFT` entraba comprimido con BPE, `notify2()` concatenaba bytes raw en `temp_input`.
 - **Fix**:
-  - `src/spectalk.c` expande tokens BPE dentro de `notify()` antes de poblar `notif_buf` y compara contra la versión ya expandida para deduplicar bien
   - `src/user_cmds.c`, `src/irc_handlers.c` y `src/spectalk.c` cancelan la notificación activa antes de mostrar `You have left ...`
-  - `tools/bpe_build.py` saca `S_YOU_LEFT` de `SAFE_CONSTANTS` como defensa extra
-- **Verificación**: `make` OK el 2026-04-21, `build/SpecTalkZX.tap` = 36,194B
+  - `tools/bpe_build.py` saca `S_YOU_LEFT` de `SAFE_CONSTANTS`, de modo que `notify2()` vuelve a concatenar ASCII plano
+  - la versión intermedia que añadía expansión BPE genérica en `notify()` se retiró por coste; el fix final queda estrecho al caso real
+- **Verificación**: `make` OK el 2026-04-22, `build/SpecTalkZX.tap` = 35,817B
+- **Coste neto actual**: +283B vs `35,534B` pre-fix; recuperación de `-377B` frente a la versión genérica de 36,194B
+
+#### Overlay ABOUT keepalive audit
+- **Bug confirmado por auditoría**: con `OVERLAY_ABOUT` abierto, el main loop pausa el emisor de `PING :keepalive` / `PING :lag` y `overlay_keepalive()` solo responde a `PING` del servidor; descarta `PONG` y el resto del tráfico IRC.
+- **Impacto**: en servidores que esperan actividad originada por el cliente, abrir About durante varios minutos puede seguir acabando en timeout/disconnect aunque el scanner ligero responda a `PING` entrante.
+- **Estado**: confirmado en código el 2026-04-21; sigue abierto.
 
 ### Hardening & defensas (audit-z80 Codex 2026-04-12)
 
@@ -71,10 +77,18 @@ Total: **−327B** vs baseline post-audit (35,861 → 35,534)
 
 - BSS guard: **729B libres** antes de ring_buffer ($F36E → $F500)
 - OVL1: 1385/2048
-- OVL2: 2034/2048 (+13B headroom recuperados)
+- OVL2: 1968/2048
 - OVL3: 1591/2048
-- OVL4: 1961/2048
+- OVL4: 1796/2048
 - SPECTALK.OVL: 8192B fijo
+
+### Overlay string dedup round (shrink-z80 Codex, 2026-04-21)
+
+- `overlay/overlay_api.h` exporta claves `K_*` del core residente para overlays
+- `tools/gen_overlay_defs.py` añade esos símbolos al ABI generado
+- `overlay/spectalk_ovl4.c` reutiliza claves residentes en `save_config_ovl()`; ahorro verificado: **1954B → 1796B** (`-158B`)
+- `overlay/spectalk_ovl2.c` reutiliza las mismas claves residentes para labels de config idénticas; build verificada en **1968B**
+- El TAP queda en **35,817B** tras la optimización posterior del fix de footer; `SPECTALK.OVL` sigue empaquetado a tamaño fijo
 
 ### Pending opportunities (rendimientos decrecientes)
 

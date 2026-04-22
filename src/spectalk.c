@@ -2369,55 +2369,6 @@ void notif_cancel_current(void)
     notif_is_pm = 0;
 }
 
-static char *notif_append_expanded(char *dst, const char *src, char *end)
-{
-    const char *stack[4];
-    uint8_t sp = 0;
-    uint8_t c;
-
-    for (;;) {
-        c = (uint8_t)*src++;
-        if (c == 0) {
-            if (sp == 0) break;
-            src = stack[--sp];
-            continue;
-        }
-        if (c >= 0x80) {
-            if (sp >= 4) continue;
-            stack[sp++] = src;
-            src = (const char *)&bpe_dict[(c - 0x80) * 3];
-            continue;
-        }
-        if (dst < end) *dst++ = (char)c;
-    }
-
-    *dst = 0;
-    return dst;
-}
-
-static uint8_t notif_equals_expanded(const char *expanded, const char *src)
-{
-    const char *stack[4];
-    uint8_t sp = 0;
-    uint8_t c;
-
-    for (;;) {
-        c = (uint8_t)*src++;
-        if (c == 0) {
-            if (sp == 0) return *expanded == 0;
-            src = stack[--sp];
-            continue;
-        }
-        if (c >= 0x80) {
-            if (sp >= 4) continue;
-            stack[sp++] = src;
-            src = (const char *)&bpe_dict[(c - 0x80) * 3];
-            continue;
-        }
-        if (*expanded++ != (char)c) return 0;
-    }
-}
-
 // Notification slide-in state
 // notif_buf[64] declared in irc_handlers.c (SCU order: irc_handlers before spectalk)
 // Also aliased as names_friend_buf for NAMES friend accumulation (disjoint lifetimes)
@@ -2430,7 +2381,7 @@ void notify(const char *msg, uint8_t attr)
 {
     if (notif_enabled) {
         if (notif_timeout && notif_buf[0]) {
-            if (notif_equals_expanded(notif_buf, msg)) return;
+            if (st_stricmp(notif_buf, msg) == 0) return;
             { char *sep = strchr(notif_buf, 1);
               char *d, *end = notif_buf + 62;
               if (sep) {
@@ -2440,10 +2391,11 @@ void notify(const char *msg, uint8_t attr)
                 d = notif_buf + st_strlen(notif_buf);
               }
               if (d + 3 < end) { *d++ = ' '; *d++ = '-'; *d++ = 1; }
-              notif_append_expanded(d, msg, end);
+              while (*msg && d < end) *d++ = *msg++;
+              *d = 0;
             }
         } else {
-            notif_append_expanded(notif_buf, msg, notif_buf + 62);
+            st_copy_n(notif_buf, msg, 62);
         }
         // Strip '#'/'&' and UTF-8 on notif_buf (audit W04: never write through const msg)
         { char *r = notif_buf, *w = notif_buf;

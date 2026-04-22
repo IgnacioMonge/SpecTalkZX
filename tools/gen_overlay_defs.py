@@ -78,6 +78,9 @@ REQUIRED_VARIABLES = [
 
     # Shared strings
     '_K_DAT', '_S_APPDESC',
+    '_K_NICK', '_K_SERVER', '_K_PORT', '_K_PASS', '_K_NKPASS',
+    '_K_AUTOCONN', '_K_THEME', '_K_AUTOAWAY', '_K_BEEP', '_K_NCOLOR',
+    '_K_TRAFFIC', '_K_TS', '_K_CFG_PRI', '_K_CFG_ALT', '_K_TZ', '_K_NOTIF',
 
     # Config variables (read-only from overlay)
     '_irc_nick', '_irc_server', '_irc_port', '_irc_pass', '_nickserv_pass', '_nickserv_nick',

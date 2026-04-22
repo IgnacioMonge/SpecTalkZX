@@ -95,6 +95,24 @@ extern char     friend_nicks[][18];   /* MAX_FRIENDS(5) x IRC_NICK_SIZE(18) */
 extern char     ignore_list[][16];
 extern uint8_t  ignore_count;
 
+/* Shared config-key strings from resident core */
+extern const char K_NICK[];
+extern const char K_SERVER[];
+extern const char K_PORT[];
+extern const char K_PASS[];
+extern const char K_NKPASS[];
+extern const char K_AUTOCONN[];
+extern const char K_THEME[];
+extern const char K_AUTOAWAY[];
+extern const char K_BEEP[];
+extern const char K_NCOLOR[];
+extern const char K_TRAFFIC[];
+extern const char K_TS[];
+extern const char K_CFG_PRI[];
+extern const char K_CFG_ALT[];
+extern const char K_TZ[];
+extern const char K_NOTIF[];
+
 /* ===== Theme attribute indices (must match spectalk.h) ===== */
 #define TATTR_MSG_CHAN   2
 #define TATTR_MSG_SYS    9      /* = ATTR_MSG_SERVER */

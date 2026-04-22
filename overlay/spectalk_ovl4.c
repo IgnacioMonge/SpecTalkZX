@@ -132,23 +132,7 @@ extern void set_attr_sys(void);
 extern void ui_err(const char *s) __z88dk_fastcall;
 
 static const char CK_HDR[]  = "; SpecTalkZX config\r\n";
-static const char CK_SRV[]  = "server=";
-static const char CK_PORT[] = "port=";
-static const char CK_NICK[] = "nick=";
-static const char CK_PASS[] = "pass=";
-static const char CK_NKP[]  = "nickpass=";
 static const char CK_NKS[]  = "nickserv=";
-static const char CK_THM[]  = "theme=";
-static const char CK_BEEP[] = "beep=";
-static const char CK_NCOL[] = "nickcolor=";
-static const char CK_TRAF[] = "traffic=";
-static const char CK_TS[]   = "timestamps=";
-static const char CK_ACON[] = "autoconnect=";
-static const char CK_NTIF[] = "notif=";
-static const char CK_AWAY[] = "autoaway=";
-static const char CK_TZ[]   = "tz=";
-static const char CK_PRI[]  = "/SYS/CONFIG/SPECTALK.CFG";
-static const char CK_ALT[]  = "/SYS/SPECTALK.CFG";
 
 static char *cfg_put_csv(char *p, const char *key,
                          const char *list, uint8_t elem_size, uint8_t count) __z88dk_callee
@@ -172,31 +156,31 @@ void save_config_ovl(void)
 
     p = cfg_put(p, CK_HDR);
 
-    if (irc_server[0])    p = cfg_kv(p, CK_SRV, irc_server);
-    if (irc_port[0])      p = cfg_kv(p, CK_PORT, irc_port);
-    if (irc_nick[0])      p = cfg_kv(p, CK_NICK, irc_nick);
-    if (irc_pass[0])      p = cfg_kv(p, CK_PASS, irc_pass);
-    if (nickserv_pass[0]) p = cfg_kv(p, CK_NKP, nickserv_pass);
+    if (irc_server[0])    p = cfg_kv(p, K_SERVER, irc_server);
+    if (irc_port[0])      p = cfg_kv(p, K_PORT, irc_port);
+    if (irc_nick[0])      p = cfg_kv(p, K_NICK, irc_nick);
+    if (irc_pass[0])      p = cfg_kv(p, K_PASS, irc_pass);
+    if (nickserv_pass[0]) p = cfg_kv(p, K_NKPASS, nickserv_pass);
     if (nickserv_nick[0]) p = cfg_kv(p, CK_NKS, nickserv_nick);
 
     /* W15: cfg_kv small-int trick — values 0-9 passed as (const char*)(uint16_t)N.
      * cfg_kv ASM detects D==0 && E<10 and writes single ASCII digit.
      * CONSTRAINT: all values below MUST be 0-9. */
-    p = cfg_kv(p, CK_THM, (const char *)(uint16_t)current_theme);
-    p = cfg_kv(p, CK_BEEP, (const char *)(uint16_t)beep_enabled);
+    p = cfg_kv(p, K_THEME, (const char *)(uint16_t)current_theme);
+    p = cfg_kv(p, K_BEEP, (const char *)(uint16_t)beep_enabled);
     p = cfg_kv(p, "click=", (const char *)(uint16_t)keyclick_enabled);
-    p = cfg_kv(p, CK_NCOL, (const char *)(uint16_t)nick_color_mode);
-    p = cfg_kv(p, CK_TRAF, (const char *)(uint16_t)show_traffic);
-    p = cfg_kv(p, CK_TS, (const char *)(uint16_t)show_timestamps);
-    p = cfg_kv(p, CK_ACON, (const char *)(uint16_t)autoconnect);
-    p = cfg_kv(p, CK_NTIF, (const char *)(uint16_t)notif_enabled);
+    p = cfg_kv(p, K_NCOLOR, (const char *)(uint16_t)nick_color_mode);
+    p = cfg_kv(p, K_TRAFFIC, (const char *)(uint16_t)show_traffic);
+    p = cfg_kv(p, K_TS, (const char *)(uint16_t)show_timestamps);
+    p = cfg_kv(p, K_AUTOCONN, (const char *)(uint16_t)autoconnect);
+    p = cfg_kv(p, K_NOTIF, (const char *)(uint16_t)notif_enabled);
 
     if (autoaway_minutes) {
         fast_u8_to_str(tmp, autoaway_minutes); tmp[2] = 0;
-        p = cfg_kv(p, CK_AWAY, tmp);
+        p = cfg_kv(p, K_AUTOAWAY, tmp);
     }
 
-    p = cfg_put(p, CK_TZ);
+    p = cfg_put(p, K_TZ);
     if (sntp_tz < 0) {
         *p++ = '-';
         fast_u8_to_str(tmp, (uint8_t)(-sntp_tz));
@@ -222,8 +206,8 @@ void save_config_ovl(void)
         goto done;
     }
 
-    esx_fcreate(CK_PRI);
-    if (!esx_handle) esx_fcreate(CK_ALT);
+    esx_fcreate(K_CFG_PRI);
+    if (!esx_handle) esx_fcreate(K_CFG_ALT);
     if (!esx_handle) { ui_err("Cannot write config"); goto done; }
 
     esx_buf = (uint16_t)overlay_slot;

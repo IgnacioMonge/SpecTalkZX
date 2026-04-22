@@ -74,18 +74,9 @@ void globe_tick_ovl(void)
  * ENTRY 1 — Config display
  * ================================================================ */
 
-static const char cl_nick[]  = "nick=";
-static const char cl_srv[]   = "server=";
-static const char cl_port[]  = "port=";
-static const char cl_pass[]  = "pass=";
 static const char cl_nkp[]   = "nick pass=";
-static const char cl_theme[] = "theme=";
-static const char cl_beep[]  = "beep=";
 static const char cl_click[] = "click=";
 static const char cl_ncol[]  = "nick color=";
-static const char cl_traf[]  = "traffic=";
-static const char cl_ts[]    = "timestamps=";
-static const char cl_acon[]  = "autoconnect=";
 static const char cl_away[]  = "auto away=";
 static const char cl_tz[]    = "timezone=";
 
@@ -122,21 +113,21 @@ void config_render_ovl(void)
     g_ps64_y = overlay_header("Config");
     cfg_col = 2;
 
-    cfg_item(cl_nick, irc_nick[0] ? (const char*)irc_nick : cv_notset);
-    cfg_item(cl_srv, irc_server[0] ? (const char*)irc_server : cv_notset);
-    cfg_item(cl_port, irc_port);
-    cfg_item(cl_pass, irc_pass[0] ? cv_set : cv_notset);
+    cfg_item(K_NICK, irc_nick[0] ? (const char*)irc_nick : cv_notset);
+    cfg_item(K_SERVER, irc_server[0] ? (const char*)irc_server : cv_notset);
+    cfg_item(K_PORT, irc_port);
+    cfg_item(K_PASS, irc_pass[0] ? cv_set : cv_notset);
     cfg_item(cl_nkp, nickserv_pass[0] ? cv_set : cv_notset);
     buf[0] = '0' + current_theme; buf[1] = 0;
-    cfg_item(cl_theme, buf);
-    cfg_item(cl_beep, beep_enabled ? cv_on : cv_off);
+    cfg_item(K_THEME, buf);
+    cfg_item(K_BEEP, beep_enabled ? cv_on : cv_off);
     cfg_item(cl_click, keyclick_enabled ? cv_on : cv_off);
     cfg_item(cl_ncol, nick_color_mode ? cv_on : cv_off);
-    cfg_item(cl_traf, show_traffic ? cv_on : cv_off);
-    cfg_item(cl_ts, show_timestamps == 0 ? cv_off :
+    cfg_item(K_TRAFFIC, show_traffic ? cv_on : cv_off);
+    cfg_item(K_TS, show_timestamps == 0 ? cv_off :
                     show_timestamps == 1 ? cv_on : cv_smart);
-    cfg_item(cl_acon, autoconnect ? cv_on : cv_off);
-    cfg_item("notif=", notif_enabled ? cv_on : cv_off);
+    cfg_item(K_AUTOCONN, autoconnect ? cv_on : cv_off);
+    cfg_item(K_NOTIF, notif_enabled ? cv_on : cv_off);
 
     if (autoaway_minutes) {
         fast_u8_to_str(buf, autoaway_minutes); buf[2] = 'm'; buf[3] = 0;
