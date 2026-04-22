@@ -31,10 +31,9 @@ _st_strlen:
 _st_stricmp:
     call ___sdcc_enter_ix
 
-    ld l, (ix+4)
-    ld h, (ix+5)            ; HL = a
-    ld e, (ix+6)
-    ld d, (ix+7)            ; DE = b
+    call _ld_hl_ix6
+    ex de, hl               ; DE = b
+    call _ld_hl_ix4         ; HL = a
 
 stricmp_loop:
     ld a, (hl)
@@ -61,10 +60,9 @@ stricmp_loop:
 stricmp_diff:
     ; Extender signo a 16 bits
     ld l, a
-    ld h, 0
-    bit 7, l
-    jr z, stricmp_done
-    dec h
+    add a, a
+    sbc a, a
+    ld h, a
     jr stricmp_done
 
 stricmp_equal:
@@ -97,10 +95,9 @@ irc_tolower:
 _st_stristr:
     call ___sdcc_enter_ix
 
-    ld l, (ix+4)
-    ld h, (ix+5)            ; HL = hay
-    ld e, (ix+6)
-    ld d, (ix+7)            ; DE = needle
+    call _ld_hl_ix6
+    ex de, hl               ; DE = needle
+    call _ld_hl_ix4         ; HL = hay
     
     ; Validar needle
     ld a, d
@@ -178,7 +175,7 @@ _u16_to_dec:
     push bc
     
     push ix
-    ld ix, 0                ; IXL = flag "ya imprimimos algo"
+    ld ixl, 0               ; IXL = flag "ya imprimimos algo"
     
     ld bc, -10000
     call u16_digit
@@ -199,7 +196,7 @@ _u16_to_dec3:
     push bc
 
     push ix
-    ld ix, 0                ; IXL = flag "ya imprimimos algo"
+    ld ixl, 0               ; IXL = flag "ya imprimimos algo"
 
 u16_common_1000:
     ld bc, -1000
@@ -240,19 +237,14 @@ u16_sub_loop:
     jr nz, u16_do_print
     
     ; Es cero - ?ya imprimimos algo?
-    push af
     ld a, ixl
     or a
-    jr nz, u16_print_zero
-    pop af
-    ret                     ; Suprimir cero inicial
-
-u16_print_zero:
-    pop af
+    ret z                   ; Suprimir cero inicial
+    ld a, '0'
 u16_do_print:
     ld (de), a
     inc de
-    ld ixl, 1               ; Marcar que ya imprimimos
+    inc ixl                 ; Cualquier valor no cero sirve como flag
     ret
 
 ; -----------------------------------------------------------------------------
@@ -273,7 +265,8 @@ stu16_loop:
     
     ; DE = DE * 10 + A
     push hl
-    push af
+    ld c, a
+    ld b, 0
     
     ; DE * 10 = (DE * 2 * 2 + DE) * 2 = DE * 5 * 2
     ld l, e
@@ -283,10 +276,7 @@ stu16_loop:
     add hl, de              ; *5
     add hl, hl              ; *10
     
-    pop af
-    ld e, a
-    ld d, 0
-    add hl, de
+    add hl, bc
     ex de, hl               ; DE = nuevo acumulador
     
     pop hl
@@ -342,8 +332,7 @@ skpto_end:
 _strip_irc_codes:
     call ___sdcc_enter_ix
 
-    ld l, (ix+4)
-    ld h, (ix+5)            ; HL = lectura
+    call _ld_hl_ix4         ; HL = lectura
     ld d, h
     ld e, l                 ; DE = escritura
 
@@ -489,9 +478,7 @@ _reapply_screen_attributes:
     ; 8. AVISAR A TODOS LOS SISTEMAS DE REPINTADO
     ld hl, _force_status_redraw   ; Avisa al renderizador interno
     ld (hl), 1
-    
-    ld hl, _status_bar_dirty      ; Avisa al bucle Main de C <--- CR?TICO
-    ld (hl), 1
+    call _set_sbd                ; Avisa al bucle Main de C <--- CR?TICO
 
     pop iy
     ret
@@ -548,15 +535,14 @@ _uart_drain_to_buffer:
 
     ld a, (_uart_drain_limit)
     or a
-    jr z, drain_setup_safety
+    jr nz, drain_set_limit
 
+    ; Caso l?mite=0 -> Usar seguridad de 255 iteraciones (suficiente)
+    dec a
+
+drain_set_limit:
     ; Caso con l?mite (ej: 32 bytes) - usar IYL como contador
     ld iyl, a
-    jr drain_loop_start
-
-drain_setup_safety:
-    ; Caso l?mite=0 -> Usar seguridad de 255 iteraciones (suficiente)
-    ld iyl, 255
 
 drain_loop_start:
     ; 2. ?Hay datos disponibles?
@@ -786,10 +772,6 @@ mn_indent_byte:
     call _compute_attr_base  ; HL = attr base de la fila
 
     ld a, (_current_attr)
-    ld b, c             ; B = wrap_indent (num cols)
-    inc b
-    srl b               ; B = ceil(wrap_indent/2) = attrs a escribir
-    jr z, mn_indent_attr_done
 mn_indent_attr:
     ld (hl), a
     inc hl
@@ -797,7 +779,7 @@ mn_indent_attr:
 mn_indent_attr_done:
 
     ; Actualizar main_col y g_ps64_col/y/attr para consistencia
-    ld a, (_wrap_indent)
+    ld a, c
     ld (_main_col), a
     ld (_g_ps64_col), a
     ld a, (_main_line)
@@ -832,8 +814,7 @@ _tokenize_params:
     ld (_irc_param_count), a
 
     ; HL = par (string a trocear)
-    ld l, (ix+6)
-    ld h, (ix+7)
+    call _ld_hl_ix6
 
     ; Comprobar string nulo
     ld a, h
@@ -843,18 +824,14 @@ _tokenize_params:
     or a
     jr z, tp_exit               ; OPT: jp?jr
 
-    ; B = max_params (si es 0, usar 10 por defecto)
+    ; B = max_params (0 => 10 por defecto, resto clamp a 1..10)
     ld a, (ix+8)
-    or a
-    jr nz, tp_check_max
-    ld a, 10                ; IRC_MAX_PARAMS default
-
-tp_check_max:
-    cp 11                   ; > 10?
+    dec a
+    cp 10
     jr c, tp_max_ok
-    ld a, 10
-
+    ld a, 9
 tp_max_ok:
+    inc a
     ld b, a                 ; B = slots restantes (1..10)
 
     ; IY = puntero al array de punteros (_irc_params)
@@ -938,10 +915,9 @@ _sb_append:
     call ___sdcc_enter_ix
     
     ; Cargar argumentos
-    ld l, (ix+4)
-    ld h, (ix+5)            ; HL = dst
-    ld e, (ix+6)
-    ld d, (ix+7)            ; DE = src
+    call _ld_hl_ix6
+    ex de, hl               ; DE = src
+    call _ld_hl_ix4         ; HL = dst
     ld c, (ix+8)
     ld b, (ix+9)            ; BC = limit
     
@@ -983,13 +959,11 @@ sba_done:
 ; phys_x = 32 - count (autom?tico)
 ; =============================================================================
 _draw_badge_dither:
-    ld a, l
-    push af                 ; guardar count para fila 1
-
-    ld b, l                 ; B = count
     ld a, 32
     sub l
     ld c, a                 ; C = phys_x (preservado entre filas)
+    ld b, l                 ; B = count
+    push bc                 ; guardar count + phys_x para fila 1
 
     ; --- Fila 0: base 0x4000 ---
     ld hl, 0x4000
@@ -999,12 +973,9 @@ _draw_badge_dither:
     call dbd_row
 
     ; --- Fila 1: base 0x4020 ---
-    pop af
-    ld b, a                 ; restaurar count
+    pop bc                  ; restaurar count (B) + phys_x (C)
     ld hl, 0x4020
-    ld e, c                 ; C preservado
-    ld d, 0
-    add hl, de
+    add hl, de              ; DE sigue siendo phys_x
     ; fall through
 
 dbd_row:

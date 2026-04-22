@@ -802,11 +802,17 @@ plf_right_ok:
     ex de, hl              ; DE = pointer to right glyph
 
     ; --- Combinar y escribir 8 scanlines ---
+    ; Keep vertical alignment identical to _print_str64_char():
+    ; blank top scanline, then render glyph rows 0..6 into scanlines 1..7.
     pop hl                 ; HL = screen addr
     push hl                ; Re-guardar para avanzar despu?s
 
+    xor a
+    ld (hl), a             ; scanline 0 stays blank like per-char rendering
+    inc h
+
     ld ix, plf_left_buf
-    ld b, 8
+    ld b, 7
 plf_write_loop:
     ld a, (ix+0)           ; Nibble alto del char izquierdo
     ld c, a
