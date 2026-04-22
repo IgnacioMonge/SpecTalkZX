@@ -1,0 +1,15 @@
+# Local tooling / notes
+.claude/
+AGENTS.md
+CLAUDE.md
+Development/
+
+# Build artifacts
+build/
+SpecTalkZX
+SpecTalkZX.map
+src/SPECTALK.DAT
+tools/__pycache__/
+
+# Obsolete local asset
+tools/Ikkle 4.ttf
