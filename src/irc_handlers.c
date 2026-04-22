@@ -264,9 +264,15 @@ static void h_privmsg_notice(void)
         }
     }
 
-    // Durante búsqueda activa, NOTICE del servidor puede ser rate limit
-    if (is_server && pagination_active) {
-        ui_err(pkt_txt);
+    // Durante búsqueda activa, NOTICE del servidor puede ser rate limit.
+    // Filtrar drenaje (state=1) para evitar basura de búsqueda cancelada anterior.
+    // Imprimir en main area debajo de "Searching..." (visible con notif on/off),
+    // y marcar flag para que h_end_of_list no diga "No matches" falsamente.
+    if (is_server && pagination_active && search_flush_state != 1) {
+        search_saw_server_notice = 1;
+        if (main_col) main_newline();
+        set_attr_sys();
+        main_print(pkt_txt);
         return;
     }
 
@@ -933,8 +939,11 @@ static void h_end_of_list(void)
     set_attr_sys();
     if (pagination_count > 0) {
         main_print(data_lost ? "Done (incomplete)" : "Done");
+    } else if (search_saw_server_notice) {
+        // NOTICE ya se imprimió vía h_privmsg_notice con newline final;
+        // no añadir mensaje falso. Cursor ya está en línea limpia.
     } else if (search_header_rcvd == 1 || search_mode == SEARCH_USER) {
-        main_print("-- No matches --");
+        main_print("No matches");
     } else {
         ui_err("Search denied");
     }
@@ -1177,8 +1186,10 @@ static void h_default_cmd(void)
         p++;
     }
 
-    // FIX: Suprimir output de comandos no reconocidos durante búsqueda activa
-    if (pagination_active && search_mode != SEARCH_NONE) return;
+    // FIX: Suprimir output de comandos no reconocidos durante búsqueda activa.
+    // Incluye fase de drenaje (state=1) donde search_mode todavía es SEARCH_NONE
+    // para evitar "><" garbage de búsqueda cancelada anterior.
+    if (pagination_active) return;
     
     set_attr_sys();
     main_puts2(">< ", pkt_cmd);

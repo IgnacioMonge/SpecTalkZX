@@ -210,6 +210,7 @@ uint8_t search_flush_state;
 static uint8_t search_flush_stable;      // Frames con buffer vacío consecutivos
 static uint8_t search_pending_type;      // Tipo de comando pendiente
 uint8_t search_header_rcvd;              // Flag: recibimos 321/352 header (no rate-limited)
+uint8_t search_saw_server_notice;        // Flag: server NOTICE durante pagination (rate limit, etc.)
 // NOTA: Usamos search_pattern[] para almacenar el argumento pendiente (ahorra 32 bytes)
 
 // SEARCH state
@@ -1010,7 +1011,7 @@ uint8_t pagination_pause(void)
     uint8_t ui_throttle = 1;
 
     // Mostrar prompt en row 20 con ikkle-4 font (frees MAIN_END for chat)
-    notif_center("-- MORE: ANY KEY | BREAK: CANCEL --", ATTR_MSG_SYS);
+    notif_center("- MORE: ANY KEY | BREAK: CANCEL -", ATTR_MSG_SYS);
 
     while (in_inkey() != 0) { frame_wait(); uart_drain_to_buffer(); }
     while ((key = in_inkey()) == 0) {
@@ -1182,6 +1183,7 @@ void cancel_search_state(void)
     search_flush_stable = 0;
     search_pending_type = 0;
     search_header_rcvd = 0;
+    search_saw_server_notice = 0;
 
     cursor_visible = 1;
     redraw_input_full();
@@ -1242,9 +1244,9 @@ void start_search_command(uint8_t type, const char *arg) __z88dk_callee
     start_pagination();
     search_index = 0;
     
-    // 4. Mostrar feedback inmediato
+    // 4. Mostrar feedback inmediato (sin newline: resultado se concatena)
     set_attr_sys();
-    main_print("Searching...");
+    main_puts("Searching... ");
     
     // 5. Vaciar TODOS los buffers y comenzar fase de drenaje
     flush_all_rx_buffers();
@@ -2907,10 +2909,13 @@ void main(void)
                         // Hay datos - descartar y reiniciar contador
                         search_flush_stable = 0;
                         flush_all_rx_buffers();
-                        
-                        // Timeout solo cuando hay datos persistentes (~3s)
+
+                        // Timeout solo cuando hay datos persistentes (~3s).
+                        // Flush final antes de enviar nuevo LIST para evitar
+                        // basura residual de listado previo rendering en main area.
                         if (++pagination_timeout > 150) {
                             search_flush_state = 2;
+                            flush_all_rx_buffers();
                             send_pending_search_command();
                             pagination_timeout = 0;
                         }
@@ -2920,7 +2925,7 @@ void main(void)
                 else if (search_flush_state == 2) {
                     if (++pagination_timeout > 250) {
                         search_data_lost = 1;
-                        ui_err("-- Timeout (incomplete) --");
+                        ui_err("Timeout (incomplete)");
                         cancel_search_state();
                     }
                 }

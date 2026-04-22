@@ -576,7 +576,8 @@ static void cmd_part(const char *args) __z88dk_fastcall
     }
 
     if (idx <= 0 || idx >= MAX_CHANNELS || !(channels[idx].flags & CH_FLAG_ACTIVE)) {
-        ui_err(idx == 0 ? "Cannot part Status" : "Not in that channel");
+        set_attr_err();
+        main_print(idx == 0 ? "Cannot part Status" : "Not in that channel");
         return;
     }
 
