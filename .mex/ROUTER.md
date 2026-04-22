@@ -2,16 +2,17 @@
 
 ## Project State
 - Date: 2026-04-22
-- Recent task: SAFE + SPECULATIVE shrink round after `/shrink-z80 scan`. Applied MICRO-01 (2× redundant `or a` overlay_loader), extended MICRO-02 (2× `call _rx_pos_reset` in hand-written ASM), REF-05 (CMD_TABLE direct pointer to `irc_check_friends_online`), REF-02 (9 sites `set_attr_err+main_print` → `ui_err`), REF-06 (new `reset_rx_state` ASM helper, 3 sites), REF-16 (`enter_overlay_mode` C helper, 5 sites), DUP-02 (`S_MODE_SP_SCR` BPE-compressed shared const, 2 sites in irc_handlers), DATA-09 (indicator patterns overlap with shared 0x00 boundary bytes, 40B→35B). Net **-63B**.
-- Latest committed checkpoint: `27e581b` (`Shrink notifications and join/connect paths`)
-- Build status: `make` completes successfully. All overlays fit, BSS guard OK.
-- Current verified TAP from `make`: `35943B` on 2026-04-22 (`-63B` vs start of session `36006B`, `-129B` vs `v1.3.7`).
+- Recent task: Search UX follow-up after the SAFE shrink round. Commit `f01a480` cleaned up LIST/WHO messages (`No matches`, `Timeout (incomplete)`), moved server rate-limit NOTICEs into the main area, suppressed stale parser garbage during drain, added a final drain flush, and reverted one `ui_err` consolidation in `cmd_part` after a real-hardware reset. Commit `cd7a41e` put the first LIST/WHO result on the row below `Searching...`, renamed BREAK cancel to `Cancelled (incomplete)` when overflow already happened, and added `post_cancel_quiet` plus a `/search` throttle to avoid flood disconnects after cancel. Prior shrink checkpoint `08729cf` remains the `-63B` SAFE pass.
+- Latest committed checkpoint: `cd7a41e` (`Search UX: result on new line, cancel incomplete marker, flood throttle`)
+- Build status: local `make` reached the final OK summary on 2026-04-22. All overlays fit; BSS guard OK (180B free).
+- Current verified TAP from `make`: `36083B` on 2026-04-22.
 - Current overlay sizes: unchanged (`SPCTLK1.OVL` 1385B, `SPCTLK2.OVL` 1968B, `SPCTLK3.OVL` 1591B, `SPCTLK4.OVL` 1796B).
-- Audit highlight: SAFE-only pass recovered 53B without changing behavior. Discarded: DATA-01/03/04/07 (conflict with BPE pipeline or overlay API), ARCH-05 (+4B — boolean cost > dedup), REF-19 (`__z88dk_callee` ABI composition non-trivial).
+- Audit highlight: the SAFE-only shrink pass in `08729cf` stayed intact; the two Search UX fixes deliberately spent bytes to stabilize LIST/WHO behavior on real hardware and strict IRC networks.
 
 ## Resume Here
-- Build green, TAP 35953B. Changes still in working tree (uncommitted).
-- Key changes: new `_reset_rx_state` and `enter_overlay_mode` helpers, `ui_err` consolidation, 2× `_rx_pos_reset` reuse in hand-written ASM, CMD_TABLE direct `irc_check_friends_online`, `K_MODE_SP`/`S_MODE_SP_SCR` shared consts, indicator patterns with overlapped storage (shared 0x00 rows).
+- No code changes are pending beyond this router refresh. Latest work is committed in `f01a480` and `cd7a41e`.
+- Key Search UX changes: `Searching... ` now shares a line only with the final summary while the first actual result starts on a fresh row; server NOTICEs during LIST/WHO print in the main area; stale drain fragments and post-cancel `><` garbage are suppressed; BREAK shows `Cancelled (incomplete)` when overflow already occurred; a short post-cancel quiet window blocks immediate repeat `/search` so the server does not drop us for flood.
+- Hardware follow-up worth rechecking: BREAK cancel on `/list` or `/who`, immediate retry showing `Wait a moment before searching again`, rate-limit NOTICE placement on its own row, no stray `><` lines after cancel, and `cmd_part` no longer resetting hardware.
 - Pending hardware test checklist (CLAUDE.md): banner, `/connect`, channel join, send/recv, `!about`/`!config`/`!status`, EDIT switcher, esxDOS, 2-3 min stability.
 - Next likely work items if development resumes in 48K mode: real auto-reconnect, more useful WHOIS output, less-limited `/list`, or tiny IRC wrappers like `/invite` and `/notice`.
 
