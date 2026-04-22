@@ -364,6 +364,7 @@ extern uint8_t search_mode;
 extern uint8_t search_flush_state;    // 0=idle, 1=draining, 2=command sent
 extern uint8_t search_header_rcvd;    // Flag: server sent 321/352 (not rate-limited)
 extern uint8_t search_saw_server_notice; // Flag: server NOTICE during search (rate limit)
+extern uint8_t post_cancel_quiet;        // Countdown post-cancel to suppress h_default_cmd
 extern char search_pattern[SEARCH_PATTERN_SIZE];
 extern uint16_t search_index;
 

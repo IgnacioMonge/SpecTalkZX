@@ -270,7 +270,7 @@ static void h_privmsg_notice(void)
     // y marcar flag para que h_end_of_list no diga "No matches" falsamente.
     if (is_server && pagination_active && search_flush_state != 1) {
         search_saw_server_notice = 1;
-        if (main_col) main_newline();
+        main_newline();         // siempre: garantiza línea propia debajo de "Searching..."
         set_attr_sys();
         main_print(pkt_txt);
         return;
@@ -973,6 +973,9 @@ static void h_numeric_322_352(void)
     search_header_rcvd = 2;
     pagination_timeout = 0;
 
+    // Primera entrada: saltar a línea nueva si "Searching... " dejó cursor mid-línea
+    if (pagination_count == 0 && main_col) main_newline();
+
     if (search_mode == SEARCH_CHAN) { // 322
         chan = irc_param(1);
         users = irc_param(2);
@@ -1186,10 +1189,10 @@ static void h_default_cmd(void)
         p++;
     }
 
-    // FIX: Suprimir output de comandos no reconocidos durante búsqueda activa.
-    // Incluye fase de drenaje (state=1) donde search_mode todavía es SEARCH_NONE
-    // para evitar "><" garbage de búsqueda cancelada anterior.
-    if (pagination_active) return;
+    // FIX: Suprimir output de comandos no reconocidos durante búsqueda activa
+    // (incluye fase de drenaje donde search_mode es SEARCH_NONE) y durante la
+    // ventana de silencio post-cancel (residuos de lista cancelada).
+    if (pagination_active || post_cancel_quiet) return;
     
     set_attr_sys();
     main_puts2(">< ", pkt_cmd);

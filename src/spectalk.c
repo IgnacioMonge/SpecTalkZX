@@ -211,6 +211,7 @@ static uint8_t search_flush_stable;      // Frames con buffer vacío consecutivo
 static uint8_t search_pending_type;      // Tipo de comando pendiente
 uint8_t search_header_rcvd;              // Flag: recibimos 321/352 header (no rate-limited)
 uint8_t search_saw_server_notice;        // Flag: server NOTICE durante pagination (rate limit, etc.)
+uint8_t post_cancel_quiet;               // Frames restantes tras BREAK cancel para suprimir h_default_cmd
 // NOTA: Usamos search_pattern[] para almacenar el argumento pendiente (ahorra 32 bytes)
 
 // SEARCH state
@@ -1050,11 +1051,18 @@ uint8_t pagination_pause(void)
 
     if (key == 3) {  // BREAK = cancelar
         notif_clear();
-        print_line64_fast(MAIN_END, S_CANCELLED, ATTR_ERROR);
+        // "Cancelled (incomplete)" si hubo buffer overflow antes del cancel.
+        print_line64_fast(MAIN_END,
+                          search_data_lost ? "Cancelled (incomplete)" : S_CANCELLED,
+                          ATTR_ERROR);
         main_line = MAIN_END;
         main_col = 64;
         flush_all_rx_buffers();
         cancel_search_state();
+        // Ventana de silencio en h_default_cmd para evitar "><" garbage
+        // de residuos de la lista cancelada (IRC no permite cancelar LIST
+        // server-side). No usamos flush_frames porque desconectaría.
+        post_cancel_quiet = 100;
         return 1;
     }
 
@@ -1233,9 +1241,16 @@ static void send_pending_search_command(void)
 // Fase 2: Envía el comando y procesa respuestas normalmente.
 void start_search_command(uint8_t type, const char *arg) __z88dk_callee
 {
+    // Throttle: rechazar búsqueda durante ventana post-cancel para evitar que
+    // el servidor nos desconecte por flood (múltiples LIST rápidos).
+    if (post_cancel_quiet) {
+        ui_err("Wait a moment before searching again");
+        return;
+    }
+
     // 1. Cancelar búsqueda previa si la había
     cancel_search_state();
-    
+
     // 2. Guardar argumento en search_pattern (arg ya viene truncado por caller)
     st_copy_n(search_pattern, arg ? arg : "", sizeof(search_pattern));
     search_pending_type = type;
@@ -2750,6 +2765,12 @@ void main(void)
             uint8_t elapsed = now_lo - last_frames_lo;  // wraps correctly (uint8)
             last_frames_lo = now_lo;
             tick_accum += elapsed;
+            // Post-cancel quiet window (suppresses h_default_cmd garbage from
+            // residuos de lista cancelada). Decremento independiente de ticks.
+            if (post_cancel_quiet) {
+                if (post_cancel_quiet <= elapsed) post_cancel_quiet = 0;
+                else post_cancel_quiet -= elapsed;
+            }
             // Notification slide-in animation (3 chars/frame, right to left)
             // Skip during overlays: overlay footer is static, don't overwrite it
             if (notif_slide_pos < notif_slide_len && !overlay_mode) {
