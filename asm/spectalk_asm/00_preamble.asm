@@ -1,0 +1,265 @@
+;;
+;; spectalk_asm.asm - Optimized assembly routines for SpecTalk ZX
+;; SpecTalk ZX - IRC Client for ZX Spectrum
+;; Copyright (C) 2026 M. Ignacio Monge Garcia
+;;
+;; This program is free software; you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License version 2 as
+;; published by the Free Software Foundation.
+;;
+;; This program is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+;; GNU General Public License for more details.
+;;
+;; You should have received a copy of the GNU General Public License
+;; along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+; =============================================================================
+; BSS ZEROING - runs before main() via code_crt_init
+; Allows the TAP binary to be truncated before BSS (saving ~4KB of zeros)
+; =============================================================================
+SECTION code_crt_init
+EXTERN __data_compiler_tail
+EXTERN __bss_compiler_tail
+EXTERN ___sdcc_enter_ix
+EXTERN _cur_chan_ptr
+EXTERN _current_channel_idx
+    ld hl, __bss_compiler_tail
+    ld de, __data_compiler_tail
+    or a
+    sbc hl, de          ; HL = total size to zero
+    ld b, h
+    ld c, l             ; BC = size
+    ld a, b
+    or c
+    jr z, bss_zero_skip ; W10: skip if BSS size = 0
+    ex de, hl           ; HL = start address (1 byte vs 2)
+    ld (hl), 0
+    ld d, h
+    ld e, l
+    inc de              ; DE = start + 1
+    dec bc              ; BC = size - 1
+    ldir
+bss_zero_skip:
+    ; OPT-SHRINK: zero_fill_256 subroutine saves 5B for 2 identical fills
+    ; Zero Printer Buffer: 0x5B00..0x5BFF (256 bytes)
+    ld hl, 0x5B00
+    call zero_fill_256
+    ; Zero CHANS workspace: 0x5CB6..0x5DB5 (256 bytes)
+    ld hl, 0x5CB6
+    call zero_fill_256
+    ; Zero UDG area: 0xFF58..0xFFF1 (154 bytes)
+    ld hl, 0xFF58
+    ld (hl), 0
+    ld d, h
+    ld e, l
+    inc de
+    ld bc, 153
+    ldir
+    ; --- IM2 removed ---
+    ; IM2 was dead code: frame_wait() uses IM1 exclusively.
+    ; The CRT IM2 setup was overwriting BSS at $FC00+ (bpe_dict, esx_* vars).
+    ; IM1 is the default mode after reset ? no setup needed.
+    ; Invalidar cache de fila screen/attr
+    ld a, 0xFF
+    ld (cache_row_y), a
+    jr bss_zero_done         ; skip past subroutine
+
+; OPT-SHRINK: zero-fill 256 bytes from HL (saves 5B for 2 identical fills)
+zero_fill_256:
+    ld (hl), 0
+    ld d, h
+    ld e, l
+    inc de
+    ld bc, 255
+    ldir
+    ret
+
+bss_zero_done:
+
+SECTION code_user
+
+; =============================================================================
+; CONSTANTS - Video and Memory Addresses
+; =============================================================================
+VIDEO_BASE      EQU 0x4000      ; Screen memory base
+ATTR_BASE       EQU 0x5800      ; Attribute memory base
+SCREEN_WIDTH    EQU 32          ; Physical screen width in characters
+SCREEN_HEIGHT   EQU 24          ; Physical screen height in rows
+
+; =============================================================================
+; CONSTANTS - Ring Buffer
+; =============================================================================
+; WARNING-M14: Estas constantes DEBEN coincidir con spectalk.h
+; RING_BUFFER_SIZE=2048, RING_BUFFER_MASK=0x07FF
+RING_SIZE       EQU 2048        ; == RING_BUFFER_SIZE  (spectalk.h:85)
+RING_MASK       EQU 0x07FF      ; == RING_BUFFER_MASK  (spectalk.h:86)
+RX_LINE_MAX     EQU 510         ; == RX_LINE_SIZE - 2  (spectalk.h:103)
+
+; =============================================================================
+; PUBLIC FUNCTIONS (visible from C)
+; =============================================================================
+PUBLIC _esx_detect
+PUBLIC _hl_mul32
+PUBLIC _a_sext_mul32
+PUBLIC _l_mul32
+PUBLIC _channel_flags_ptr
+PUBLIC _l_channel_flags_ptr
+PUBLIC _rx_pos_reset
+PUBLIC _reset_rx_state
+PUBLIC _leave_ix
+PUBLIC _ld_hl_ix4
+PUBLIC _ld_hl_ixm2
+PUBLIC _ld_hl_ix6
+PUBLIC _ld_hl_ixm4
+PUBLIC _st_hl_ix4
+PUBLIC _st_hl_ixm2
+PUBLIC _set_border
+PUBLIC _check_caps_toggle
+PUBLIC _key_shift_held
+PUBLIC _input_cache_invalidate
+PUBLIC _print_str64_char
+PUBLIC _print_line64_fast
+PUBLIC _draw_indicator
+; draw_indicator_big removed (big mode eliminated)
+PUBLIC _clear_line
+PUBLIC _clear_zone
+PUBLIC _compute_screen_base
+PUBLIC _screen_line_addr
+PUBLIC _attr_addr
+PUBLIC _st_stricmp
+PUBLIC _st_stristr
+PUBLIC _u16_to_dec
+PUBLIC _u16_to_dec3
+PUBLIC _str_to_u16
+PUBLIC _skip_to
+PUBLIC _uart_send_string
+PUBLIC _strip_irc_codes
+PUBLIC _rb_pop
+PUBLIC _rb_push
+PUBLIC _try_read_line_nodrain
+PUBLIC _reapply_screen_attributes
+PUBLIC _cls_fast
+PUBLIC _uart_drain_to_buffer
+PUBLIC _scroll_main_zone
+PUBLIC _main_newline
+PUBLIC _tokenize_params
+PUBLIC _sb_append
+PUBLIC _draw_badge_dither
+PUBLIC _notif_clear
+PUBLIC _notif_draw
+PUBLIC _ikkle_packed
+PUBLIC _in_inkey
+PUBLIC asm_in_inkey
+PUBLIC _nav_push
+PUBLIC _find_empty_channel_slot
+PUBLIC _print_char64
+PUBLIC _draw_big_char
+PUBLIC _font_lut
+PUBLIC _sys_puts_print
+PUBLIC _irc_send_cmd1
+PUBLIC _irc_send_cmd2
+PUBLIC _cfg_put
+PUBLIC _ensure_args
+PUBLIC _fast_u8_to_str
+PUBLIC _print_big_str
+PUBLIC _cfg_kv
+PUBLIC _sb_put_u8_2d
+PUBLIC _puts_u8_nolz
+PUBLIC _input_word_left
+PUBLIC _input_word_right
+PUBLIC _input_delete_word
+
+; =============================================================================
+; EXTERNAL VARIABLES AND FUNCTIONS (defined in C or other .asm)
+; =============================================================================
+EXTERN _caps_lock_mode
+EXTERN _caps_latch
+EXTERN _beep_enabled
+EXTERN _ui_usage
+EXTERN _g_ps64_y
+EXTERN _g_ps64_col
+EXTERN _g_ps64_attr
+EXTERN _ay_uart_send
+EXTERN _theme_attrs
+; theme_attrs[] offsets (must match spectalk.h #defines)
+TA_BANNER   EQU 0
+TA_STATUS   EQU 1
+TA_MSG_CHAN  EQU 2
+TA_MAIN_BG  EQU 5
+TA_INPUT_BG EQU 7
+TA_BORDER   EQU 19
+EXTERN _current_attr
+EXTERN _irc_params
+EXTERN _irc_param_count
+EXTERN _force_status_redraw
+EXTERN _status_bar_dirty
+EXTERN _uart_drain_limit
+EXTERN _ay_uart_ready   ; Retorna L=1 si hay datos
+; _line_buffer, _temp_input, _input_cache_char/attr: via defc at end of file
+; (mapped to system RAM: Printer Buffer, CHANS workspace)
+EXTERN _irc_pass
+EXTERN _nickserv_pass
+EXTERN _network_name
+EXTERN _ay_uart_read    ; Retorna byte en L
+EXTERN _irc_is_away
+EXTERN _buffer_pressure
+EXTERN _ping_latency
+EXTERN _pagination_active
+EXTERN _pagination_lines
+EXTERN _pagination_pause
+; _main_newline is implemented below in this file
+; EXTERN _main_newline
+EXTERN _main_col
+EXTERN _main_line
+EXTERN _wrap_indent
+
+; Ring buffer ? fixed address outside BSS (between BSS and stack)
+PUBLIC _ring_buffer
+defc _ring_buffer = 0xF500
+EXTERN _rb_head
+EXTERN _rb_tail
+EXTERN _rx_line
+PUBLIC _overlay_slot
+defc _overlay_slot = _rx_line   ; alias ? mutually exclusive with IRC receive
+EXTERN _rx_pos
+EXTERN _rx_overflow
+EXTERN _rx_last_len
+
+; Ignore list (para is_ignored)
+EXTERN _ignore_list
+EXTERN _ignore_count
+; _big_status removed (big mode eliminated)
+
+; =============================================================================
+; RING BUFFER CONSTANTS
+; Size: 2048 bytes (MUST match RING_BUFFER_SIZE in spectalk.h)
+; =============================================================================
+DEFC RB_MASK_H = 0x07   ; High byte mask for 2048 (0x0800)
+                         ; WARNING: If RING_BUFFER_SIZE changes in C,
+                         ; this MUST be updated: 2048?0x07, 4096?0x0F, etc.
+
+; =============================================================================
+; VARIABLES BSS (Buffer para descompresi?n de fuente)
+; =============================================================================
+SECTION bss_user
+glyph_buffer: defs 8    ; Buffer temporal para glifo descomprimido
+plf_left_buf: defs 8    ; Buffer temporal para nibbles izquierdos (print_line64_fast)
+plf_str_ptr:  defs 2    ; String pointer temporal (print_line64_fast)
+plf_attr_val: defs 1    ; Atributo a escribir (print_line64_fast)
+plf_y_val:    defs 1    ; Fila Y (print_line64_fast)
+PUBLIC _plf_start_byte
+_plf_start_byte: defs 1 ; Start byte offset (wrap_indent/2, 0=full row)
+cache_scr_base: defs 2  ; Screen base addr cacheada (print_str64_char)
+cache_atr_base: defs 2  ; Attr base addr cacheada (print_str64_char)
+cache_row_y:   defs 1   ; Fila Y del cache (0xFF = inv?lido)
+
+; BPE decompression state (dict is after theme_raw for contiguous SPECTALK.DAT load)
+bpe_rstack:   defs 16   ; Return stack for BPE expansion (8 levels x 2 bytes)
+bpe_rsp:      defs 2    ; Current position in bpe_rstack
+
+
+SECTION code_user
+
+

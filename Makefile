@@ -24,6 +24,7 @@ TAP     = $(BUILD_DIR)/$(OUTPUT).tap
 MAP     = $(OUTPUT).map
 BUILD_DIR = build
 LOG     = $(BUILD_DIR)/build.log
+BPE_STAMP = $(BUILD_DIR)/.bpe.stamp
 
 # ------------------------------------------------------------
 # Sources
@@ -34,8 +35,19 @@ C_SOURCES    = src/main_build.c
 # Build options
 # ------------------------------------------------------------
 ASM_SOURCES  = asm/divmmc_uart.asm asm/spectalk_asm.asm asm/overlay_loader.asm
+ASM_MODULE_SOURCES := $(wildcard asm/spectalk_asm/*.asm)
+ASM_DEP_SOURCES = $(ASM_SOURCES) $(ASM_MODULE_SOURCES)
+BPE_INPUTS = src/spectalk.c src/irc_handlers.c src/user_cmds.c include/spectalk.h \
+             src/SPECTALK.DAT src/SPECTALK_HELP.txt overlay/overlay_api.h \
+             tools/bpe_build.py tools/bpe_compress.py
 ZORG        = 24000
 STACK_SIZE  = 512
+
+ifeq ($(SKIP_BPE),1)
+TAP_PREP :=
+else
+TAP_PREP = $(BPE_STAMP)
+endif
 
 EXTRA_CFLAGS ?=
 BUILD_PROFILE ?= NORMAL
@@ -106,13 +118,26 @@ endef
 # ------------------------------------------------------------
 # Phony targets
 # ------------------------------------------------------------
-.PHONY: all check clean bpe build trim overlay info help release RELEASE nobpe copydat
+.PHONY: all check clean bpe build restore_bpe trim overlay info help release RELEASE nobpe copydat
 
 # ------------------------------------------------------------
 # Default pipeline
 # ------------------------------------------------------------
-all: check clean bpe build trim overlay info
-nobpe: check clean build trim overlay info copydat
+all:
+	@status=0; \
+	$(MAKE) --no-print-directory check || status=$$?; \
+	if [ "$$status" -eq 0 ]; then $(MAKE) --no-print-directory clean || status=$$?; fi; \
+	if [ "$$status" -eq 0 ]; then $(MAKE) --no-print-directory $(BPE_STAMP) || status=$$?; fi; \
+	if [ "$$status" -eq 0 ]; then $(MAKE) --no-print-directory $(TAP) || status=$$?; fi; \
+	if [ "$$status" -eq 0 ]; then $(MAKE) --no-print-directory trim overlay info || status=$$?; fi; \
+	$(MAKE) --no-print-directory restore_bpe || exit $$?; \
+	exit $$status
+
+nobpe:
+	@$(MAKE) --no-print-directory check
+	@$(MAKE) --no-print-directory clean
+	@$(MAKE) --no-print-directory SKIP_BPE=1 $(TAP)
+	@$(MAKE) --no-print-directory SKIP_BPE=1 trim overlay info copydat
 
 copydat:
 	@cp src/SPECTALK.DAT $(BUILD_DIR)/SPECTALK.DAT 2>/dev/null || true
@@ -124,7 +149,7 @@ help:
 	@printf "  make release    - Release build (max optimization)\n"
 	@printf "  make check      - Preflight dependency checks\n"
 	@printf "  make clean      - Remove build artifacts\n"
-	@printf "  make build      - Build $(TAP)\n"
+	@printf "  make build      - Run BPE prep + build $(TAP) + restore sources\n"
 	@printf "  make info       - Print build info (requires $(TAP))\n"
 	@printf "\nOptions:\n"
 	@printf "  NO_COLOR=1      - Disable ANSI colors\n"
@@ -144,7 +169,7 @@ check:
 		for t in zcc wc sh; do \
 			command -v "$$t" >/dev/null 2>&1 || { echo "[ERR] Missing tool: $$t"; fail=1; }; \
 		done; \
-		for f in $(C_SOURCES) $(ASM_SOURCES); do \
+		for f in $(C_SOURCES) $(ASM_DEP_SOURCES); do \
 			[ -f "$$f" ] || { echo "[ERR] Missing file: $$f"; fail=1; }; \
 		done; \
 		[ "$$fail" = "0" ] || exit 2; \
@@ -168,7 +193,7 @@ clean:
 		cp $(BUILD_DIR)/bpe_originals/SPECTALK.DAT src/ 2>/dev/null || true; \
 	fi
 	@rm -f "$(OUTPUT)" "$(OUTPUT).tap" "$(TAP)" "$(MAP)" "$(LOG)" "$(BUILD_DIR)/SPECTALK.DAT" *.o *.bin *.sym 2>/dev/null || true
-	@rm -rf "$(BUILD_DIR)/bpe_src" "$(BUILD_DIR)/bpe_final" "$(BUILD_DIR)/bpe_dict.bin" "$(BUILD_DIR)/bpe_originals" 2>/dev/null || true
+	@rm -rf "$(BUILD_DIR)/bpe_src" "$(BUILD_DIR)/bpe_final" "$(BUILD_DIR)/bpe_dict.bin" "$(BUILD_DIR)/bpe_originals" "$(BPE_STAMP)" 2>/dev/null || true
 	$(call OK,Clean complete.)
 	$(call HR)
 
@@ -177,7 +202,9 @@ clean:
 # Reads src/*.c (originals), generates build/bpe_final/*.c (compressed)
 # Also generates SPECTALK.DAT with BPE dict inserted
 # ------------------------------------------------------------
-bpe:
+bpe: $(BPE_STAMP)
+
+$(BPE_STAMP): $(BPE_INPUTS)
 	$(call STEP,2/4,BPE compression)
 	@mkdir -p $(BUILD_DIR)/bpe_originals
 	@cp src/spectalk.c src/irc_handlers.c src/user_cmds.c $(BUILD_DIR)/bpe_originals/
@@ -185,22 +212,22 @@ bpe:
 	@cp src/SPECTALK.DAT $(BUILD_DIR)/bpe_originals/
 	@cp overlay/overlay_api.h $(BUILD_DIR)/bpe_originals/
 	@$(PYTHON) tools/bpe_build.py
+	@printf "ok\n" > "$(BPE_STAMP)"
 	$(call OK,BPE complete.)
 	$(call HR)
 
 # ------------------------------------------------------------
 # BUILD phase (only place where zcc is invoked)
 # ------------------------------------------------------------
-build: $(TAP)
+build:
+	@status=0; \
+	$(MAKE) --no-print-directory $(BPE_STAMP) || status=$$?; \
+	if [ "$$status" -eq 0 ]; then $(MAKE) --no-print-directory $(TAP) || status=$$?; fi; \
+	$(MAKE) --no-print-directory restore_bpe || exit $$?; \
+	exit $$status
 
-$(TAP): $(C_SOURCES) $(ASM_SOURCES)
-	$(call STEP,3/4,Build)
-	@echo "Compiling SpecTalkZX..."
-	@echo "UART mode: $(UART_DESC)"
-	@if [ "$(BUILD_PROFILE)" = "RELEASE" ]; then printf "$(C_BOLD)$(C_YEL)Build profile: RELEASE$(C_RESET)\n"; fi
-	@echo "Log: $(LOG)"
-	@build_rc=0; $(BUILD_CMD) 2>&1 | tee "$(LOG)" || build_rc=$$?; \
-	if [ -d "$(BUILD_DIR)/bpe_originals" ]; then \
+restore_bpe:
+	@if [ -d "$(BUILD_DIR)/bpe_originals" ]; then \
 		cp $(BUILD_DIR)/bpe_originals/spectalk.c src/; \
 		cp $(BUILD_DIR)/bpe_originals/irc_handlers.c src/; \
 		cp $(BUILD_DIR)/bpe_originals/user_cmds.c src/; \
@@ -215,6 +242,15 @@ $(TAP): $(C_SOURCES) $(ASM_SOURCES)
 		fi; \
 		rm -rf $(BUILD_DIR)/bpe_originals; \
 	fi; \
+	rm -f "$(BPE_STAMP)"
+
+$(TAP): $(C_SOURCES) $(ASM_DEP_SOURCES) $(TAP_PREP)
+	$(call STEP,3/4,Build)
+	@echo "Compiling SpecTalkZX..."
+	@echo "UART mode: $(UART_DESC)"
+	@if [ "$(BUILD_PROFILE)" = "RELEASE" ]; then printf "$(C_BOLD)$(C_YEL)Build profile: RELEASE$(C_RESET)\n"; fi
+	@echo "Log: $(LOG)"
+	@build_rc=0; $(BUILD_CMD) 2>&1 | tee "$(LOG)" || build_rc=$$?; \
 	if [ "$$build_rc" -ne 0 ]; then \
 		printf "$(C_RED)[FAILED]$(C_RESET) Compilation errors (see $(LOG)):\n"; \
 		tail -20 "$(LOG)"; \

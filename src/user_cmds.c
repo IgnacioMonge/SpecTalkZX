@@ -275,22 +275,29 @@ do_connect:
     
     // Query SNTP time while still in AT command mode (before CIPMODE=1)
     // sntp_init() was called at startup — config persists in ESP8266
+    // Retry up to 3x: ESP may return "1970" on first query if NTP not yet synced.
     if (sntp_init_sent) {
         uint8_t sntp_wait;
-        uart_send_line(S_AT_SNTPTIME);
-        // Wait for response and parse it
-        for (sntp_wait = 0; sntp_wait < 100; sntp_wait++) {
-            frame_wait(); uart_drain_to_buffer();
-            if (in_inkey() == 7) break;  // audit M03: BREAK cancel
-            if (try_read_line_nodrain()) {
-                // FIX P0-1: Verificar longitud antes de acceder a índices
-                if (rx_last_len >= 2) {
-                    if (rx_line[0] == '+' && rx_line[1] == 'C') {
-                        sntp_process_response(rx_line);
+        uint8_t sntp_try;
+        for (sntp_try = 0; sntp_try < 3 && !sntp_queried; sntp_try++) {
+            if (sntp_try) {
+                // Delay ~1s between retries so ESP can sync NTP in background
+                for (sntp_wait = 50; sntp_wait; sntp_wait--) frame_wait();
+                if (in_inkey() == 7) break;
+            }
+            uart_send_line(S_AT_SNTPTIME);
+            for (sntp_wait = 0; sntp_wait < 100; sntp_wait++) {
+                frame_wait(); uart_drain_to_buffer();
+                if (in_inkey() == 7) { sntp_try = 99; break; }  // BREAK cancel all
+                if (try_read_line_nodrain()) {
+                    if (rx_last_len >= 2) {
+                        if (rx_line[0] == '+' && rx_line[1] == 'C') {
+                            sntp_process_response(rx_line);
+                        }
+                        if (rx_line[0] == 'O' && rx_line[1] == 'K') { rx_pos = 0; break; }
                     }
-                    if (rx_line[0] == 'O' && rx_line[1] == 'K') { rx_pos = 0; break; }
+                    rx_pos = 0;
                 }
-                rx_pos = 0;
             }
         }
         rx_pos = 0;

@@ -1,0 +1,1037 @@
+; =============================================================================
+; GRAPHICS SYSTEM - TABLES
+; =============================================================================
+
+; Compute screen row base: HL = screen address for char row A (0-23), scanline 0
+; Formula: H = 0x40 | (y & 0x18), L = (y & 7) * 32
+; Input: A = row (0-23). Output: HL. Clobbers: B.
+_compute_screen_base:
+    ld b, a             ; save y
+    and 0x07            ; y & 7
+    add a, a            ; *2
+    add a, a            ; *4
+    add a, a            ; *8
+    add a, a            ; *16
+    add a, a            ; *32
+    ld l, a             ; L = (y&7) * 32
+    ld a, b             ; restore y
+    and 0x18            ; y & 0x18 (third select)
+    or 0x40             ; | 0x40 (screen base high byte)
+    ld h, a
+    ret
+
+; Compute attribute row base: HL = 0x5800 + A*32
+; Input: A = row (0-23). Output: HL. Clobbers: DE.
+_compute_attr_base:
+    ld l, a
+    call _l_mul32           ; HL = A * 32
+    ld de, 0x5800
+    add hl, de
+    ret
+
+; =============================================================================
+; FUENTE COMPRIMIDA - NIBBLE PACKED (Ahorra ~390 bytes vs font64 original)
+; =============================================================================
+; Solo 10 valores ?nicos en toda la fuente original:
+; 0x00, 0x22, 0x44, 0x55, 0x66, 0x88, 0xAA, 0xCC, 0xEE, 0xFF
+; Lines 6 and 7 of each glyph are ALWAYS 0x00 (se regeneran en runtime)
+; Each glyph: 3 compressed bytes (6 nibbles = l?neas 0-5)
+
+; Data loaded from SPECTALK.DAT at startup (font + themes)
+; Layout: [10 LUT][288 glyphs][75 theme_raw] = 373 bytes contiguous
+SECTION bss_user
+ALIGN 16
+_font_lut:
+font_lut:
+    defs 10
+font64_packed:
+    defs 288
+PUBLIC _theme_raw
+_theme_raw:
+    defs 75
+; BPE dictionary: contiguous with font_lut+font64_packed+theme_raw for single SPECTALK.DAT read
+; Layout in DAT: [10 LUT][288 glyphs][75 themes][318 bpe_dict][help text]
+PUBLIC _bpe_dict
+_bpe_dict:
+bpe_dict:
+    defs 318              ; 106 entries x 3 bytes (b1, b2, 0x00)
+
+SECTION code_user
+
+; =============================================================================
+; GLYPH DECOMPRESSOR
+; Input: A = char (ASCII 32-127)
+; Output: HL = pointer to 8-byte glyph data (glyph_buffer or blank_glyph)
+; Preserves: IY (required by z88dk)
+; Destroys: AF, BC, DE. Uses alternate HL'/E' via EXX (ISR safe: called between frames, not during ISR)
+; Timing: ~136 t-states/iteration (EXX LUT access, no push/pop)
+; =============================================================================
+blank_glyph:
+    defb 0, 0, 0, 0, 0, 0, 0, 0
+
+unpack_glyph:
+    ; Calculate offset: (char - 32) * 3
+    sub 32
+    jr nz, unpack_not_space
+    ; --- Space short-circuit: return immutable zero glyph ---
+    ld hl, blank_glyph
+    ret
+unpack_not_space:
+    ld l, a
+    ld h, 0
+    ld c, l
+    ld b, h
+    add hl, hl          ; *2
+    add hl, bc          ; *3
+    ld bc, font64_packed
+    add hl, bc          ; HL = pointer to compressed glyph (3 bytes)
+
+    ; Use DE as pointer to compressed source (faster than IX)
+    ex de, hl            ; DE = compressed source, HL freed
+    ld hl, glyph_buffer  ; HL = destination
+
+    ; Setup alternate registers for LUT access.
+    ; font_lut is ALIGN 16 and nibble index is 0..15, so low-byte add never carries.
+    exx
+    ld de, font_lut      ; D' = lut hi, E' = lut lo
+    exx
+
+    ; Unpack 3 bytes -> 6 lines (0-5)
+    ld b, 3
+unpack_loop:
+    ld a, (de)           ; 7 T - Read compressed byte
+    ld c, a              ; 4 T - Save copy
+
+    ; High nibble -> line N
+    rrca
+    rrca
+    rrca
+    rrca                 ; A = high nibble in low position
+    and 0x0F
+
+    exx                  ; switch to alt set (D'=lut_hi, E'=lut_lo)
+    add a, e             ; A = font_lut_lo + nibble
+    ld l, a
+    ld h, d
+    ld a, (hl)           ; LUT lookup
+    exx                  ; back to main set
+    ld (hl), a           ; store to glyph_buffer
+    inc hl
+
+    ; Low nibble -> line N+1
+    ld a, c
+    and 0x0F
+
+    exx
+    add a, e
+    ld l, a
+    ld h, d
+    ld a, (hl)
+    exx
+    ld (hl), a
+    inc hl
+
+    inc de               ; 6 T  - Next compressed byte
+    djnz unpack_loop     ; 13/8 T
+
+    ; Lines 6 and 7 always 0x00
+    xor a
+    ld (hl), a
+    inc hl
+    ld (hl), a
+
+    ld hl, glyph_buffer
+    ret
+
+; =============================================================================
+; GRAPHICS SYSTEM - FUNCTIONS
+; =============================================================================
+
+; -----------------------------------------------------------------------------
+; uint8_t* screen_line_addr(uint8_t y, uint8_t phys_x, uint8_t scanline)
+; Stack: [IX+4]=y, [IX+5]=phys_x, [IX+6]=scanline (sdcc_iy byte-packed)
+; -----------------------------------------------------------------------------
+_screen_line_addr:
+    call ___sdcc_enter_ix
+    
+    ld a, (ix+4)
+    call _compute_screen_base
+
+    ld e, (ix+5)            ; phys_x
+    ld d, (ix+6)            ; scanline (high byte offset)
+    add hl, de
+
+    pop ix
+    ret
+
+; -----------------------------------------------------------------------------
+; uint8_t* attr_addr(uint8_t y, uint8_t phys_x)
+; Stack: [IX+4]=y, [IX+5]=phys_x (SDCC byte-packs two uint8_t)
+; -----------------------------------------------------------------------------
+_attr_addr:
+    call ___sdcc_enter_ix
+
+    ; Compute attr base: HL = 0x5800 + y*32
+    ld a, (ix+4)        ; y
+    call _compute_attr_base
+
+    ; A?adir phys_x
+    ld c, (ix+5)        ; phys_x
+    ld b, 0
+    add hl, bc
+
+    pop ix
+    ret
+
+; -----------------------------------------------------------------------------
+; Rutina interna para clear_line/clear_zone
+; input: A = line Y, C = atributo
+; Preserva: IX, IY (ya preservados por caller)
+; -----------------------------------------------------------------------------
+cli_internal:
+    push bc
+    push de
+    push hl
+    push af
+    
+    ; Calcular direcci?n de screen
+    call _compute_screen_base
+    ld d, h
+    ld e, l
+    
+    ; Borrar 8 scanlines
+    ld b, 8
+cli_px_loop:
+    push de
+    push bc
+    ld h, d
+    ld l, e
+    ld (hl), 0
+    inc e
+    ld bc, 31
+    ldir
+    pop bc
+    pop de
+    inc d
+    djnz cli_px_loop
+    
+    ; Atributos via lookup table (preserva A para clear_zone caller)
+    pop af
+    call _compute_attr_base
+
+    ld (hl), c
+    ld d, h
+    ld e, l
+    inc de
+    ld bc, 31
+    ldir
+
+    pop hl
+    pop de
+    pop bc
+    ret
+
+; -----------------------------------------------------------------------------
+; void clear_line(uint8_t y, uint8_t attr)
+; Stack: [IX+4]=y, [IX+5]=attr
+; -----------------------------------------------------------------------------
+_clear_line:
+    call ___sdcc_enter_ix
+    
+    ld a, (ix+4)
+    ld c, (ix+5)
+    call cli_internal
+    
+    pop ix
+    ret
+
+; -----------------------------------------------------------------------------
+; void clear_zone(uint8_t start, uint8_t lines, uint8_t attr)
+; Stack: [IX+4]=start, [IX+5]=lines, [IX+6]=attr (sdcc_iy byte-packed)
+; -----------------------------------------------------------------------------
+_clear_zone:
+    call ___sdcc_enter_ix
+    
+    ld a, (ix+4)        ; start
+    ld b, (ix+5)        ; lines
+    ld c, (ix+6)        ; attr
+    
+    ; Si lines == 0, salir
+    ld d, a
+    ld a, b
+    or a
+    jr z, cz_done
+    ld a, d
+    
+cz_loop:
+    call cli_internal
+    inc a
+    djnz cz_loop
+
+cz_done:
+    pop ix
+    ret
+
+; =============================================================================
+; IMPRESI?N 64 COLUMNAS
+; =============================================================================
+
+; -----------------------------------------------------------------------------
+; Cache helper: devuelve base de fila screen usando cache y refresca attr en miss.
+; Input: (none, usa _g_ps64_y y cache_row_y)
+; Output: HL = base addr
+; Destroys: AF, DE (solo si cache miss)
+; -----------------------------------------------------------------------------
+p64_get_scr_base:
+    ld a, (cache_row_y)
+    ld hl, _g_ps64_y
+    cp (hl)
+    jr nz, p64_scr_miss
+    ld hl, (cache_scr_base)
+    ret
+p64_scr_miss:
+    ld a, (hl)             ; A = g_ps64_y
+    ld (cache_row_y), a
+    push af
+    call _compute_screen_base
+    ld (cache_scr_base), hl
+    pop af
+    push hl                ; Guardar screen base
+    call _compute_attr_base
+    ld (cache_atr_base), hl
+    pop hl                 ; Devolver screen base
+    ret
+
+; -----------------------------------------------------------------------------
+; void print_str64_char(uint8_t ch) __z88dk_fastcall
+; Draw a 4-pixel character usando fuente 64 columnas
+; Input: L = ASCII character
+; No preserva: AF, BC, DE, HL
+; Preserva: IY (no lo usa)
+; -----------------------------------------------------------------------------
+_print_str64_char:
+    ; Validate character
+    ld a, l
+    cp 32
+    jr c, p64_use_space
+    cp 128
+    jr c, p64_calc_font
+p64_use_space:
+    ld a, 32
+
+p64_calc_font:
+    ; A contains validated character (32-127)
+    ; --- Space short-circuit: borrado directo sin unpack_glyph ---
+    cp 32
+    jr nz, p64_not_space
+
+    ; Obtener screen base (cache o lookup)
+    call p64_get_scr_base   ; HL = screen row base
+    ld a, (_g_ps64_col)
+    ld b, a
+    srl a
+    ld e, a
+    ld d, 0
+    add hl, de              ; HL = direcci?n pantalla
+
+    ; Space clear (8 scanlines): C = nibble preserve mask
+    ; Even col (bit0=0) → AND 0x0F ; odd col (bit0=1) → AND 0xF0
+    bit 0, b
+    ld c, 0xF0
+    jr nz, p64_space_clear
+    ld c, 0x0F
+p64_space_clear:
+    ld b, 8
+p64_space_loop:
+    ld a, (hl)
+    and c
+    ld (hl), a
+    inc h
+    djnz p64_space_loop
+    jr p64_set_attr
+
+p64_not_space:
+    ; Descomprimir glifo a glyph_buffer
+    call unpack_glyph       ; Input: A = char, Output: HL = glyph_buffer
+    push hl                 ; Guardar puntero fuente descomprimida
+
+    ; Obtener screen base (cache o lookup)
+    call p64_get_scr_base   ; HL = screen row base
+
+    ; Sumar col/2
+    ld a, (_g_ps64_col)
+    ld b, a                 ; Guardar col (paridad) temporalmente
+    srl a
+    ld e, a
+    ld d, 0
+    add hl, de              ; HL = direcci?n pantalla
+
+    pop de                  ; DE = puntero fuente (glyph_buffer)
+
+    ; Decidir lado izquierdo o derecho
+    bit 0, b
+    jr nz, p64_right
+
+    ; === LADO IZQUIERDO (columna par) ===
+    ld a, (hl)
+    and 0x0F                ; Conservar nibble derecho
+    ld (hl), a
+    inc h
+
+    ld b, 7
+p64_left_loop:
+    ld a, (de)
+    and 0xF0                ; Tomar nibble izquierdo de fuente
+    ld c, a
+    ld a, (hl)
+    and 0x0F                ; Conservar nibble derecho de pantalla
+    or c
+    ld (hl), a
+    inc de
+    inc h
+    djnz p64_left_loop
+    jr p64_set_attr
+
+p64_right:
+    ; === LADO DERECHO (columna impar) ===
+    ld a, (hl)
+    and 0xF0                ; Conservar nibble izquierdo
+    ld (hl), a
+    inc h
+
+    ld b, 7
+p64_right_loop:
+    ld a, (de)
+    and 0x0F                ; Tomar nibble derecho de fuente
+    ld c, a
+    ld a, (hl)
+    and 0xF0                ; Conservar nibble izquierdo de pantalla
+    or c
+    ld (hl), a
+    inc de
+    inc h
+    djnz p64_right_loop
+
+p64_set_attr:
+    ; cache_atr_base queda v?lida tras p64_get_scr_base
+    ld hl, (cache_atr_base)
+
+    ld a, (_g_ps64_col)
+    srl a
+    ld c, a
+    add hl, bc
+
+    ; Escribir atributo solo si cambia (evita store redundante)
+    ld a, (_g_ps64_attr)
+    cp (hl)
+    ret z
+    ld (hl), a
+    ret
+
+; -----------------------------------------------------------------------------
+; -----------------------------------------------------------------------------
+; void draw_big_char(uint8_t ch) __z88dk_fastcall
+; Double-height 4px character renderer for banner.
+; Input: L = char. Uses: _g_ps64_y (top row), _g_ps64_col, _g_ps64_attr
+; Destroys: AF, BC, DE, HL. Preserves: IY
+_draw_big_char:
+    ld a, l
+    cp 32
+    jr c, dbc_force_space
+    cp 128
+    jr c, dbc_valid
+dbc_force_space:
+    ld a, 32
+dbc_valid:
+    call unpack_glyph
+    ex de, hl
+    ld a, (_g_ps64_y)
+    push af
+    call _compute_screen_base
+    call dbc_add_col
+    call dbc_render_top
+    pop af
+    inc a
+    call _compute_screen_base
+    call dbc_add_col
+    jr dbc_render_bot           ; tail call (in range)
+
+dbc_add_col:
+    ld a, (_g_ps64_col)
+    srl a
+    ld c, a
+    ld b, 0
+    add hl, bc
+    ret
+
+dbc_left_core:
+    ld a, (de)
+    and 0xF0
+    ld c, a
+    ld a, (hl)
+    and 0x0F
+    or c
+    ld (hl), a
+    inc h
+    ld a, (hl)
+    and 0x0F
+    or c
+    ld (hl), a
+    inc h
+    inc de
+    djnz dbc_left_core
+    ret
+
+dbc_right_core:
+    ld a, (de)
+    and 0x0F
+    ld c, a
+    ld a, (hl)
+    and 0xF0
+    or c
+    ld (hl), a
+    inc h
+    ld a, (hl)
+    and 0xF0
+    or c
+    ld (hl), a
+    inc h
+    inc de
+    djnz dbc_right_core
+    ret
+
+; Shared: mask 2 scanlines with C (preserve nibble), advance HL
+; Trailing inc h is harmless for bot callers (HL not used after ret).
+dbc_mask_2sc:
+    ld a, (hl)
+    and c
+    ld (hl), a
+    inc h
+    ld a, (hl)
+    and c
+    ld (hl), a
+    inc h
+    ret
+
+dbc_render_top:
+    ld a, (_g_ps64_col)
+    rra
+    jr c, dbc_rt_right
+    ld c, 0x0F
+    call dbc_mask_2sc
+    ld b, 3
+    jr dbc_left_core
+dbc_rt_right:
+    ld c, 0xF0
+    call dbc_mask_2sc
+    ld b, 3
+    jr dbc_right_core
+
+dbc_render_bot:
+    ld a, (_g_ps64_col)
+    rra
+    jr c, dbc_rb_right
+    ld b, 3
+    call dbc_left_core
+    ld c, 0x0F
+    call dbc_mask_2sc
+    ret
+dbc_rb_right:
+    ld b, 3
+    call dbc_right_core
+    ld c, 0xF0
+    call dbc_mask_2sc
+    ret
+
+; =============================================================================
+; IKKLE-4 FONT DATA (nibble-packed, 128 bytes ? uppercase only)
+; =============================================================================
+; Jack Oatley's "Ikkle-4" font (public domain), 4px wide x 4px tall.
+; Only chars 32-95 stored (64 entries). Chars >= 96 folded by renderer.
+; Each byte packs 2 scanlines: high nibble = scanline N, low = scanline N+1.
+; -----------------------------------------------------------------------------
+_ikkle_packed:
+ikkle_packed:
+    DEFB 0x00,0x00,0x88,0x08,0x08,0x00,0xF9,0xF0,0xF9,0xF0,0xF9,0xF0,0xF9,0xF0,0x08,0x00
+    DEFB 0x48,0x84,0x84,0x48,0x08,0x00,0x04,0xE4,0x00,0x0C,0x00,0xC0,0x00,0x08,0x24,0x48
+    DEFB 0xEA,0xAE,0xC4,0x4E,0xE2,0x4E,0xE6,0x2E,0x8A,0xE2,0xEC,0x2C,0xEC,0xAE,0xE2,0x48
+    DEFB 0xEE,0xAE,0xEA,0x6E,0x08,0x08,0x04,0x0C,0x06,0x86,0x0C,0x0C,0x0C,0x2C,0xE6,0x04
+    DEFB 0xF9,0xF0,0xEA,0xEA,0xEE,0xAE,0xC8,0x8C,0xCA,0xAE,0xEC,0x8E,0xE8,0xC8,0xE8,0xAE
+    DEFB 0xAE,0xAA,0x44,0x44,0x44,0x4C,0xAC,0xAA,0x88,0x8C,0xAE,0xEA,0xCA,0xAA,0xEA,0xAE
+    DEFB 0xEA,0xE8,0xEA,0xE2,0xEA,0xCA,0xEC,0x2E,0xE4,0x44,0xAA,0xAE,0xAA,0xA4,0xAA,0xEE
+    DEFB 0xA4,0x4A,0xAE,0x44,0xE6,0x8E,0xC8,0x8C,0x84,0x42,0xC4,0x4C,0x4A,0x00,0x00,0x0C
+
+; =============================================================================
+; NOTIFICATION BAR RENDERER ? Ikkle-4 font at row 20 (scanlines 2-5)
+; =============================================================================
+DEFC NOTIF_ROW_BASE = 0x5080
+DEFC NOTIF_ATTR     = 0x5A80
+
+; void notif_clear(void)
+_notif_clear:
+    ld hl, NOTIF_ROW_BASE
+    xor a
+    ld b, 8
+nc_clear_loop:
+    ld c, 32
+nc_clear_inner:
+    ld (hl), a
+    inc l               ; L goes 0x80..0x9F, no wrap
+    dec c
+    jr nz, nc_clear_inner
+    ld l, 0x80
+    inc h
+    djnz nc_clear_loop
+    ld hl, NOTIF_ATTR
+    ld a, (_theme_attrs + TA_MAIN_BG)
+    ld (hl), a
+    ld de, NOTIF_ATTR + 1
+    ld bc, 31
+    ldir
+    ret
+
+; void notif_draw(uint8_t start_col, const char *str, uint8_t attr)
+; Stack: [IX+4]=start_col, [IX+5,6]=str, [IX+7]=attr
+_notif_draw:
+    call ___sdcc_enter_ix
+
+    call _notif_clear
+
+    ld l, (ix+5)
+    ld h, (ix+6)                ; HL = str
+    ld c, (ix+4)                ; C = current column
+    ; notify() only feeds strings already clamped to the 64-col bar.
+    ; Stop on NUL and avoid a second in-loop end check.
+
+nd_char_loop:
+    ld a, (hl)
+    or a
+    jr z, nd_done
+
+    push hl
+
+    ld a, c
+    srl a
+    ld b, a                     ; B = phys_x
+
+    ld a, (hl)
+
+    cp 33
+    jr c, nd_set_attr_space     ; space
+    cp 128
+    jr nc, nd_set_attr_space
+    cp 96
+    jr c, nd_no_fold
+    sub 32                      ; lowercase -> uppercase
+nd_no_fold:
+
+    sub 32
+    add a, a
+    ld e, a
+    ld d, 0
+    push hl
+    ld hl, ikkle_packed
+    add hl, de
+    ld d, (hl)                  ; D = packed byte 0
+    inc hl
+    ld e, (hl)                  ; E = packed byte 1
+    pop hl
+
+    ld l, b
+    set 7, l
+    ld h, 0x52
+
+    bit 0, c
+    jr nz, nd_odd_col
+
+    ; === EVEN COLUMN ===
+    ld a, d
+    and 0xF0
+    ld (hl), a
+    ld a, d
+    and 0x0F
+    rlca \ rlca \ rlca \ rlca
+    inc h
+    ld (hl), a
+    ld a, e
+    and 0xF0
+    inc h
+    ld (hl), a
+    ld a, e
+    and 0x0F
+    rlca \ rlca \ rlca \ rlca
+    inc h
+    ld (hl), a
+    jr nd_set_attr_drawn
+
+    ; === ODD COLUMN ===
+nd_odd_col:
+    ld a, d
+    rrca \ rrca \ rrca \ rrca
+    and 0x0F
+    or (hl)
+    ld (hl), a
+    ld a, d
+    and 0x0F
+    inc h
+    or (hl)
+    ld (hl), a
+    ld a, e
+    rrca \ rrca \ rrca \ rrca
+    and 0x0F
+    inc h
+    or (hl)
+    ld (hl), a
+    ld a, e
+    and 0x0F
+    inc h
+    or (hl)
+    ld (hl), a
+
+nd_set_attr_space:
+    ld l, b
+    set 7, l
+nd_set_attr_drawn:
+    ld h, 0x5A
+    ld a, (ix+7)
+    ld (hl), a
+
+nd_skip:
+    pop hl
+    inc hl
+    inc c
+    jr nd_char_loop
+
+nd_done:
+    pop ix
+    ret
+
+; -----------------------------------------------------------------------------
+; void print_line64_fast(uint8_t y, const char *s, uint8_t attr)
+; Stack layout (con push ix):
+;   [IX+4]=y, [IX+5,6]=s (pointer), [IX+7]=attr
+;
+; Optimized: procesa pares de columnas, calcula screen addr 1 vez,
+; escribe bytes completos (sin AND/OR de preservaci?n), attr fill al final.
+; -----------------------------------------------------------------------------
+_print_line64_fast:
+    call ___sdcc_enter_ix
+
+    ; --- Calcular screen_row_base[y] una sola vez ---
+    ld a, (ix+4)           ; y
+    call _compute_screen_base
+
+    ; Guardar attr y string pointer
+    ld a, (ix+7)
+    ld (plf_attr_val), a   ; attr para despu?s
+    ld e, (ix+5)
+    ld d, (ix+6)           ; DE = string pointer
+
+    ; Tambi?n guardar y para attr fill al final
+    ld a, (ix+4)
+    ld (plf_y_val), a
+
+    ; Check start offset (set by caller for wrap_indent support)
+    ld a, (_plf_start_byte)
+    or a
+    jr z, plf_full_row
+    ld c, a
+    ld b, 0
+    add hl, bc
+    ld a, 32
+    sub c
+    ld b, a
+    jr plf_pair_loop
+plf_full_row:
+    ld b, 32               ; 32 pares de columnas (= 64 cols)
+
+plf_pair_loop:
+    push bc                ; Guardar contador de pares
+    push hl                ; Guardar screen addr del byte actual
+
+    ; --- Leer char izquierdo ---
+    ld a, (de)
+    or a
+    jr z, plf_left_pad     ; NUL: no avanzar puntero, usar espacio
+    inc de                 ; Avanzar puntero (char v?lido o inv?lido)
+    cp 32
+    jr c, plf_left_space   ; char < 32: tratar como espacio (puntero ya avanz?)
+    cp 128
+    jr c, plf_left_ok      ; char 32-127: OK
+plf_left_space:
+    ld a, 32
+    jr plf_left_ok
+plf_left_pad:
+    ld a, 32
+plf_left_ok:
+    ; Guardar string pointer antes de unpack_glyph (destruye DE)
+    ex de, hl
+    ld (plf_str_ptr), hl   ; HL = string ptr saved; no need to swap back
+    call unpack_glyph      ; A still has char; HL/DE don't matter (destroyed)
+    ; Copiar nibbles altos a plf_left_buf
+    ld de, plf_left_buf
+    ld b, 8
+plf_save_left:
+    ld a, (hl)
+    and 0xF0               ; Solo nibble alto (lado izquierdo)
+    ld (de), a
+    inc hl
+    inc de
+    djnz plf_save_left
+
+    ; --- Leer char derecho ---
+    ld hl, (plf_str_ptr)
+    ex de, hl              ; DE = string pointer
+    ld a, (de)
+    or a
+    jr z, plf_right_pad    ; NUL: no avanzar puntero, usar espacio
+    inc de                 ; Avanzar puntero
+    cp 32
+    jr c, plf_right_space  ; char < 32: tratar como espacio
+    cp 128
+    jr c, plf_right_ok     ; char 32-127: OK
+plf_right_space:
+    ld a, 32
+    jr plf_right_ok
+plf_right_pad:
+    ld a, 32
+plf_right_ok:
+    ex de, hl
+    ld (plf_str_ptr), hl   ; HL = string ptr saved; no need to swap back
+    call unpack_glyph      ; A still has char; HL/DE don't matter (destroyed)
+    ex de, hl              ; DE = pointer to right glyph
+
+    ; --- Combinar y escribir 8 scanlines ---
+    pop hl                 ; HL = screen addr
+    push hl                ; Re-guardar para avanzar despu?s
+
+    ld ix, plf_left_buf
+    ld b, 8
+plf_write_loop:
+    ld a, (ix+0)           ; Nibble alto del char izquierdo
+    ld c, a
+    ld a, (de)             ; Byte del char derecho
+    and 0x0F               ; Solo nibble bajo (lado derecho)
+    or c                   ; Combinar: left_high | right_low
+    ld (hl), a             ; Escribir byte completo a pantalla
+    inc ix
+    inc de
+    inc h                  ; Siguiente scanline
+    djnz plf_write_loop
+
+    ld hl, (plf_str_ptr)
+    ex de, hl              ; DE = string pointer para siguiente iteraci?n
+    pop hl                 ; Recuperar screen addr
+    inc hl                 ; Siguiente byte (siguiente par de columnas)
+
+    pop bc                 ; Recuperar contador de pares
+    djnz plf_pair_loop
+
+    ; --- Attr fill: write attributes from plf_start_byte onwards ---
+    ld a, (plf_y_val)
+    call _compute_attr_base   ; HL = attr base
+    ld a, (_plf_start_byte)
+    ld c, a
+    add hl, bc             ; Skip indent attrs
+    ld a, (plf_attr_val)
+    ld (hl), a             ; Write first byte
+    ld d, h
+    ld e, l
+    inc de
+    ld a, 31
+    sub c                  ; 31 - start_byte = remaining
+    ld c, a
+    ldir                   ; Fill remaining attrs
+    ; Reset start offset
+    xor a
+    ld (_plf_start_byte), a
+
+    ; Actualizar _g_ps64_col y _g_ps64_y para consistencia
+    ld a, 64
+    ld (_g_ps64_col), a
+    ld a, (plf_y_val)
+    ld (_g_ps64_y), a
+    ld a, (plf_attr_val)
+    ld (_g_ps64_attr), a
+
+    pop ix
+    ret
+
+
+; -----------------------------------------------------------------------------
+; void redraw_input_asm(void)
+; Redibuja las 2 l?neas de INPUT usando line_buffer y line_len
+; Incluye prompt "> " y rellena con espacios
+; Usa variables globales: _line_buffer, _line_len, theme_attrs[6]=INPUT, [8]=PROMPT
+; Mucho m?s r?pido que el loop C equivalente
+; -----------------------------------------------------------------------------
+PUBLIC _redraw_input_asm
+EXTERN _line_len
+; _ATTR_INPUT = _theme_attrs + 6, _ATTR_PROMPT = _theme_attrs + 8
+
+DEFC INPUT_ROW_1 = 22
+DEFC INPUT_ROW_2 = 23
+
+_redraw_input_asm:
+    ; === L?nea 1: "> " + primeros 62 chars ===
+    ld a, INPUT_ROW_1
+    ld (_g_ps64_y), a
+    xor a
+    ld (_g_ps64_col), a
+    
+    ; Prompt char: '@' if query AND idx>0, '>' otherwise
+    ld a, (_theme_attrs + 8)  ; ATTR_PROMPT
+    ld (_g_ps64_attr), a
+    ld hl, (_cur_chan_ptr)     ; HL = pointer to current ChannelInfo
+    ld de, 30                  ; offset of flags in ChannelInfo (22+6+2)
+    add hl, de
+    ld a, (hl)                 ; A = flags
+    and 0x02                   ; CH_FLAG_QUERY
+    ld l, '>'
+    jr z, ria_not_query
+    ld a, (_current_channel_idx)
+    or a
+    jr z, ria_not_query        ; idx==0 is Server, always '>'
+    ld l, '@'
+ria_not_query:
+    call _print_str64_char
+    ld hl, _g_ps64_col
+    inc (hl)
+    
+    ; Espacio con ATTR_PROMPT
+    ld l, ' '
+    call _print_str64_char
+    ld hl, _g_ps64_col
+    inc (hl)
+    
+    ; L?nea 1: byte 0 reservado para prompt, texto desde byte 1 (62 cols)
+    ld a, 1
+    ld (_plf_start_byte), a
+    ld hl, _line_buffer
+    ld a, INPUT_ROW_1
+    call ria_call_plf
+
+    ; L?nea 2: desde min(line_len, 62), o desde el NUL si no hay segunda l?nea
+    ld a, (_line_len)
+    cp 62
+    jr c, ria_l2_ofs_ok
+    ld a, 62
+ria_l2_ofs_ok:
+    ld e, a
+    ld d, 0
+    ld hl, _line_buffer
+    add hl, de
+    xor a
+    ld (_plf_start_byte), a
+    ld a, INPUT_ROW_2
+    ; fall through
+
+; Helper: call print_line64_fast(y, hl, ATTR_INPUT)
+; Input: A = y, HL = string ptr
+ria_call_plf:
+    ld e, l
+    ld d, h
+    ld l, a                     ; save y
+    ld a, (_theme_attrs + 6)    ; ATTR_INPUT
+    ld b, a                     ; B = attr
+    ld c, d                     ; C = str_hi
+    push bc                     ; [str_hi][attr]
+    ld b, e                     ; B = str_lo
+    ld c, l                     ; C = y
+    push bc
+    call _print_line64_fast
+    pop bc
+    pop bc
+    ret
+
+
+; -----------------------------------------------------------------------------
+; void draw_indicator(uint8_t y, uint8_t phys_x, uint8_t attr)
+; Dibuja un c?rculo de estado 8x8
+; - away: medio c?rculo (prioridad)
+; - buffer_pressure: c?rculo vac?o
+; - normal: c?rculo s?lido
+; Stack: [IX+4]=y, [IX+5]=phys_x, [IX+6]=attr
+; TABLE-DRIVEN: saves ~20 bytes vs inline patterns
+; -----------------------------------------------------------------------------
+
+; Indicator patterns: 8 bytes each (shared first/last with 0x00)
+; Overlapped indicator patterns: each reads 8 bytes from label.
+; Shared 0x00 bytes at row 0/7 boundaries collapse 5x8=40B into 35B (-5B).
+ind_pattern_solid:
+    defb 0x00, 0x3C, 0x7E, 0x7E, 0x7E, 0x7E, 0x3C, 0x00
+    defb 0x3C, 0x42, 0x42, 0x42, 0x42, 0x3C, 0x00
+    defb 0x3C, 0x4E, 0x4E, 0x4E, 0x4E, 0x3C, 0x00
+    defb 0x00, 0x18, 0x3C, 0x3C, 0x18, 0x00, 0x00
+    defb 0x00, 0x18, 0x18, 0x00, 0x00, 0x00
+ind_pattern_empty   equ ind_pattern_solid + 7
+ind_pattern_away    equ ind_pattern_solid + 14
+ind_pattern_medium  equ ind_pattern_solid + 21
+ind_pattern_small   equ ind_pattern_solid + 27
+
+; Shared: select indicator pattern into DE based on connection state
+; Preserves: BC, HL, IX, IY
+ind_select_pattern:
+    ld de, ind_pattern_solid
+    ld a, (_irc_is_away)
+    or a
+    jr z, isp_ck_pr
+    ld de, ind_pattern_away
+    ret
+isp_ck_pr:
+    ld a, (_buffer_pressure)
+    or a
+    jr z, isp_ck_lat
+    ld de, ind_pattern_empty
+    ret
+isp_ck_lat:
+    ld a, (_ping_latency)
+    or a
+    ret z                        ; 0 = good, use solid
+    cp 2
+    jr nc, isp_lh
+    ld de, ind_pattern_medium
+    ret
+isp_lh:
+    ld de, ind_pattern_small
+    ret
+
+_draw_indicator:
+    call ___sdcc_enter_ix
+
+    ld a, (ix+4)            ; y
+    ld c, (ix+6)            ; attr
+
+    ; Calcular direcci?n screen
+    call _compute_screen_base
+
+    ld e, (ix+5)            ; phys_x
+    ld d, 0
+    add hl, de              ; HL = direcci?n exacta pixel
+    
+    call ind_select_pattern     ; DE = pattern
+
+di_draw_pattern:
+    ; DE = pattern, HL = screen address
+    ld b, 8
+di_pattern_loop:
+    ld a, (de)
+    ld (hl), a
+    inc de
+    inc h                   ; Next scanline
+    djnz di_pattern_loop
+
+    ; Atributos via lookup table
+    ld a, (ix+4)            ; y
+    call _compute_attr_base ; HL = attr base
+
+    ld e, (ix+5)            ; phys_x
+    ld d, 0
+    add hl, de
+
+    ld (hl), c              ; attr
+
+    pop ix
+    ret
+
+

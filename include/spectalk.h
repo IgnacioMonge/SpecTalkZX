@@ -264,6 +264,7 @@ extern uint8_t time_minute;
 extern uint8_t time_second;
 extern uint8_t sntp_waiting;
 extern uint8_t sntp_init_sent;
+extern uint8_t sntp_queried;
 extern uint8_t closed_reported;
 extern uint8_t disconnecting_in_progress;  // FIX: Prevent reentrant disconnection
 
