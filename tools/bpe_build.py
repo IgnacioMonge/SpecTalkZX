@@ -35,7 +35,7 @@ SAFE_CONSTANTS = [
     'S_ASTERISK', 'S_COLON_SP', 'S_SP_PAREN', 'S_TOPIC_PFX',
     'S_CONN_REFUSED', 'S_INIT_DOTS', 'S_ON', 'S_OFF', 'S_CONNECTED', 'S_DOTS3',
     'S_NICK_INUSE', 'S_AS_SP', 'S_MIN', 'S_SET', 'S_DOT_SP', 'S_USAGE_MSG',
-    'S_COMMA_SP', 'S_JOINED_SP', 'S_SMART',
+    'S_COMMA_SP', 'S_JOINED_SP', 'S_SMART', 'S_MODE_SP_SCR',
 ]
 
 # New SB_ constants for indirect screen-only usage

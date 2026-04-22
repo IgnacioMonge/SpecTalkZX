@@ -238,7 +238,7 @@ static void h_mode(void)
     }
 
     set_attr_sys();
-    main_puts("Mode ");
+    main_puts(S_MODE_SP_SCR);
     main_print(pkt_par);
 }
 
@@ -266,8 +266,7 @@ static void h_privmsg_notice(void)
 
     // Durante búsqueda activa, NOTICE del servidor puede ser rate limit
     if (is_server && pagination_active) {
-        set_attr_err();
-        main_print(pkt_txt);
+        ui_err(pkt_txt);
         return;
     }
 
@@ -714,13 +713,11 @@ static void h_numeric_451(void)
 {
     if (pagination_active || search_mode != SEARCH_NONE) {
         cancel_search_state();
-        set_attr_err();
-        main_print("Search aborted (not registered)");
+        ui_err("Search aborted (not registered)");
         return;
     }
-    
-    set_attr_err();
-    main_print("*** Session expired");
+
+    ui_err("*** Session expired");
     handle_connection_drop();
     set_attr_sys(); main_print("Use /server to reconnect");
 }
@@ -758,7 +755,7 @@ static void h_numeric_324(void)
         if ((uint8_t)idx == current_channel_idx) draw_status_bar();
     }
     set_attr_sys();
-    main_puts("Mode ");
+    main_puts(S_MODE_SP_SCR);
     main_puts(chan);
     main_putc(' ');
     main_print(modes);
@@ -788,8 +785,7 @@ static uint8_t pagination_inc(void) {
         return 0;
     }
     cancel_search_state();
-    set_attr_err();
-    main_print("Result limit");
+    ui_err("Result limit");
     return 1;
 }
 
@@ -940,8 +936,7 @@ static void h_end_of_list(void)
     } else if (search_header_rcvd == 1 || search_mode == SEARCH_USER) {
         main_print("-- No matches --");
     } else {
-        set_attr_err();
-        main_print("Search denied");
+        ui_err("Search denied");
     }
 
     cancel_search_state();
@@ -1047,7 +1042,7 @@ static void h_numeric_1(void)
 }
 
 // End of MOTD: check friends online
-static void h_numeric_376(void) { irc_check_friends_online(); }
+// h_numeric_376 removed: CMD_TABLE points directly to irc_check_friends_online
 
 // RPL_ISON (303): show friends online via ikkle notification
 static void h_numeric_303(void)
@@ -1255,10 +1250,10 @@ static const CmdEntry CMD_TABLE[] = {
     { 321, h_numeric_321 },
     { 324, h_numeric_324 },
     { 332, h_numeric_332 },
-    { 376, h_numeric_376 },
+    { 376, irc_check_friends_online },
     { 401, h_numeric_401 },
     { 433, h_numeric_433 },
-    { 422, h_numeric_376 },
+    { 422, irc_check_friends_online },
     { 451, h_numeric_451 },
 
     { 403, h_join_error },

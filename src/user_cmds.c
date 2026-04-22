@@ -42,6 +42,7 @@ static const char K_NCOLOR[]   = "nickcolor=";
 static const char K_TRAFFIC[]  = "traffic=";
 static const char K_TS[]       = "timestamps=";
 static const char K_TOPIC[]    = "TOPIC";
+static const char K_MODE_SP[]  = "MODE ";
 static const char K_CFG_PRI[]  = "/SYS/CONFIG/SPECTALK.CFG";
 static const char K_CFG_ALT[]  = "/SYS/SPECTALK.CFG";
 static const char K_TZ[]       = "tz=";
@@ -107,8 +108,7 @@ uint8_t check_status(uint8_t level) __z88dk_fastcall
 
     // Nivel 3: Contexto de Canal (Necesario para KICK, ME, etc.)
     if (current_channel_idx == 0 || !(chan_flags & CH_FLAG_ACTIVE)) {
-        set_attr_err();
-        main_print(S_NOWIN); // "No window..."
+        ui_err(S_NOWIN); // "No window..."
         return 0;
     }
 
@@ -250,7 +250,7 @@ do_connect:
     main_puts2("Connecting to ", irc_server); main_putc(':'); main_puts2(irc_port, "... ");
     
     force_disconnect();
-    rb_head = 0; rb_tail = 0; rx_pos = 0; rx_overflow = 0; rx_line[0] = '\0';
+    reset_rx_state(); rx_line[0] = '\0';
     result = 0;
     
     draw_status_bar(); cursor_visible = 0; redraw_input_full(); 
@@ -444,7 +444,7 @@ join_fail:
             abort_msg = 0;
         }
 
-        rb_head = rb_tail = 0; rx_pos = 0; rx_overflow = 0;
+        reset_rx_state();
     } else {
         force_disconnect();
     }
@@ -576,8 +576,7 @@ static void cmd_part(const char *args) __z88dk_fastcall
     }
 
     if (idx <= 0 || idx >= MAX_CHANNELS || !(channels[idx].flags & CH_FLAG_ACTIVE)) {
-        set_attr_err();
-        main_print(idx == 0 ? "Cannot part Status" : "Not in that channel");
+        ui_err(idx == 0 ? "Cannot part Status" : "Not in that channel");
         return;
     }
 
@@ -872,7 +871,7 @@ static void cmd_mode(const char *args) __z88dk_fastcall
 
     if (!args || !*args || args[0] == '+' || args[0] == '-') {
         REQUIRE_CHAN();
-        uart_send_string("MODE ");
+        uart_send_string(K_MODE_SP);
         uart_send_string(irc_channel);
         if (args && *args) {
             ay_uart_send(' ');
@@ -882,7 +881,7 @@ static void cmd_mode(const char *args) __z88dk_fastcall
         return;
     }
 
-    uart_send_string("MODE ");
+    uart_send_string(K_MODE_SP);
     uart_send_line(args);
 }
 
@@ -1017,11 +1016,17 @@ static void cmd_kick(const char *args) __z88dk_fastcall
 }
 
 
+// Sets overlay_mode and hides cursor. Shared by all sys_* overlay launchers.
+static void enter_overlay_mode(uint8_t m) __z88dk_fastcall
+{
+    overlay_mode = m;
+    cursor_visible = 0;
+}
+
 static void sys_status(const char *args) __z88dk_fastcall
 {
     (void)args;
-    overlay_mode = OVERLAY_STATUS;
-    cursor_visible = 0;
+    enter_overlay_mode(OVERLAY_STATUS);
     overlay_exec(3, 0);
 }
 
@@ -1045,16 +1050,14 @@ uint8_t overlay_header(const char *title) __z88dk_fastcall
 static void sys_config(const char *args) __z88dk_fastcall
 {
     (void)args;
-    overlay_mode = OVERLAY_CONFIG;
-    cursor_visible = 0;
+    enter_overlay_mode(OVERLAY_CONFIG);
     overlay_exec(1, 1);
 }
 
 static void sys_whatsnew(const char *args) __z88dk_fastcall
 {
     (void)args;
-    overlay_mode = OVERLAY_WHATSNEW;
-    cursor_visible = 0;
+    enter_overlay_mode(OVERLAY_WHATSNEW);
     overlay_exec(2, 0);
 }
 
@@ -1116,7 +1119,7 @@ static void cmd_theme(const char *args) __z88dk_fastcall
     config_dirty = 1;
     return;
 theme_usage:
-    set_attr_err(); main_print("Usage: !theme 1|2|3");
+    ui_err("Usage: !theme 1|2|3");
 }
 
 static void cmd_autoaway(const char *args) __z88dk_fastcall
@@ -1477,8 +1480,7 @@ static void sys_help(const char *args) __z88dk_fastcall
 {
     (void)args;
     help_page = 0;
-    overlay_mode = OVERLAY_HELP;
-    cursor_visible = 0;
+    enter_overlay_mode(OVERLAY_HELP);
     help_render_page();
 }
 
@@ -1486,8 +1488,7 @@ static void sys_help(const char *args) __z88dk_fastcall
 static void sys_about(const char *args) __z88dk_fastcall
 {
     (void)args;
-    overlay_mode = OVERLAY_ABOUT;
-    cursor_visible = 0;
+    enter_overlay_mode(OVERLAY_ABOUT);
     overlay_exec(1, 0);
 }
 
@@ -1516,8 +1517,7 @@ void parse_user_input(char *line) __z88dk_fastcall
 
         // For regular messages, need to be in a channel/query window
         if (current_channel_idx == 0 || !irc_channel[0]) {
-            set_attr_err();
-            main_print(S_NOWIN);
+            ui_err(S_NOWIN);
             return;
         }
 

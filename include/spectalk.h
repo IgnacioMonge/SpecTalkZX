@@ -392,6 +392,7 @@ extern char rx_line[RX_LINE_SIZE];
 extern uint16_t rx_pos;
 extern uint16_t rx_last_len;
 extern uint8_t rx_overflow;  // Flag: overflow detected (0 or 1)
+extern void reset_rx_state(void);  // Zeros rb_head/rb_tail/rx_pos/rx_overflow
 
 // UART drain
 extern uint8_t uart_drain_limit;
@@ -474,7 +475,8 @@ extern const char S_TCP[];          // D19: "TCP"
 extern const char S_AUTOAWAY[];     // D11: "Auto-away"
 extern const char S_SWITCHED[];     // S1: "Switched to "
 extern const char S_ALREADY[];      // S2: "Already in "
-extern const char S_YOU_LEFT[];     // S3: "You have left "
+extern const char S_YOU_LEFT[];
+extern const char S_MODE_SP_SCR[];     // S3: "You have left "
 
 // =============================================================================
 // UI MACROS

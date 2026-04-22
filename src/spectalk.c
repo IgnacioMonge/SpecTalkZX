@@ -124,6 +124,7 @@ const char S_AUTOAWAY[] = "Auto-away";            // D11: dedup (5 uses)
 const char S_SWITCHED[] = "Switched to ";         // S1: dedup (4 uses)
 const char S_ALREADY[] = "Already in ";           // S2: dedup (4 uses)
 const char S_YOU_LEFT[] = "You have left ";       // S3: dedup (3 uses)
+const char S_MODE_SP_SCR[] = "Mode ";             // screen-side (2 uses in irc_handlers)
 
 // =============================================================================
 // THEME SYSTEM - Global attributes set by apply_theme()
@@ -2122,10 +2123,7 @@ void force_disconnect(void)
     
     cancel_search_state();
     
-    rb_head = 0;
-    rb_tail = 0;
-    rx_pos = 0;
-    rx_overflow = 0;
+    reset_rx_state();
 
     reset_all_channels();
 
@@ -2922,8 +2920,7 @@ void main(void)
                 else if (search_flush_state == 2) {
                     if (++pagination_timeout > 250) {
                         search_data_lost = 1;
-                        set_attr_err();
-                        main_print("-- Timeout (incomplete) --");
+                        ui_err("-- Timeout (incomplete) --");
                         cancel_search_state();
                     }
                 }

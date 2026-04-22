@@ -2,11 +2,18 @@
 
 ## Project State
 - Date: 2026-04-22
-- Recent task: completed a small shrink round after `/mode`. `cmd_join()` now reuses `notify2()`, `cmd_connect()` collapses the duplicated default-port path, and `irc_handlers.c` uses a narrow `notify3()` helper for repeated 3-piece ikkle notifications.
-- Build status: `make` completes successfully in this workspace and produces `build/SpecTalkZX.tap`; the earlier `_SB_COLON_SP` failure was not reproduced in the normal full pipeline.
-- Current verified TAP from `make`: `36006B` on 2026-04-22 (`+145B` vs the previous 35,861B build, `-66B` vs `v1.3.7`).
-- Current overlay sizes from verified `make`: `SPCTLK1.OVL` 1385B, `SPCTLK2.OVL` 1968B, `SPCTLK3.OVL` 1591B, `SPCTLK4.OVL` 1796B.
-- Audit highlight: the long-`ABOUT` disconnect hole remains fixed, `/mode` keeps its visible channel-query reply, and the latest shrink pass recovered 19B without changing behavior.
+- Recent task: SAFE + SPECULATIVE shrink round after `/shrink-z80 scan`. Applied MICRO-01 (2× redundant `or a` overlay_loader), extended MICRO-02 (2× `call _rx_pos_reset` in hand-written ASM), REF-05 (CMD_TABLE direct pointer to `irc_check_friends_online`), REF-02 (9 sites `set_attr_err+main_print` → `ui_err`), REF-06 (new `reset_rx_state` ASM helper, 3 sites), REF-16 (`enter_overlay_mode` C helper, 5 sites), DUP-02 (`S_MODE_SP_SCR` BPE-compressed shared const, 2 sites in irc_handlers), DATA-09 (indicator patterns overlap with shared 0x00 boundary bytes, 40B→35B). Net **-63B**.
+- Latest committed checkpoint: `27e581b` (`Shrink notifications and join/connect paths`)
+- Build status: `make` completes successfully. All overlays fit, BSS guard OK.
+- Current verified TAP from `make`: `35943B` on 2026-04-22 (`-63B` vs start of session `36006B`, `-129B` vs `v1.3.7`).
+- Current overlay sizes: unchanged (`SPCTLK1.OVL` 1385B, `SPCTLK2.OVL` 1968B, `SPCTLK3.OVL` 1591B, `SPCTLK4.OVL` 1796B).
+- Audit highlight: SAFE-only pass recovered 53B without changing behavior. Discarded: DATA-01/03/04/07 (conflict with BPE pipeline or overlay API), ARCH-05 (+4B — boolean cost > dedup), REF-19 (`__z88dk_callee` ABI composition non-trivial).
+
+## Resume Here
+- Build green, TAP 35953B. Changes still in working tree (uncommitted).
+- Key changes: new `_reset_rx_state` and `enter_overlay_mode` helpers, `ui_err` consolidation, 2× `_rx_pos_reset` reuse in hand-written ASM, CMD_TABLE direct `irc_check_friends_online`, `K_MODE_SP`/`S_MODE_SP_SCR` shared consts, indicator patterns with overlapped storage (shared 0x00 rows).
+- Pending hardware test checklist (CLAUDE.md): banner, `/connect`, channel join, send/recv, `!about`/`!config`/`!status`, EDIT switcher, esxDOS, 2-3 min stability.
+- Next likely work items if development resumes in 48K mode: real auto-reconnect, more useful WHOIS output, less-limited `/list`, or tiny IRC wrappers like `/invite` and `/notice`.
 
 ## Patterns
 - [`irc-mode-wrapper.md`](patterns/irc-mode-wrapper.md): simple IRC wrappers should prefer passthrough semantics with only the minimum implicit target logic needed for convenience, but query numerics should still produce a visible reply.

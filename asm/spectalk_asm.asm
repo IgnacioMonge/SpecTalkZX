@@ -107,6 +107,7 @@ PUBLIC _l_mul32
 PUBLIC _channel_flags_ptr
 PUBLIC _l_channel_flags_ptr
 PUBLIC _rx_pos_reset
+PUBLIC _reset_rx_state
 PUBLIC _leave_ix
 PUBLIC _ld_hl_ix4
 PUBLIC _ld_hl_ixm2
@@ -396,6 +397,19 @@ _rx_pos_reset:
     ld hl, 0
     ld (_rx_pos), hl
     ret
+
+; -----------------------------------------------------------------------------
+; reset_rx_state: rb_head = rb_tail = rx_pos = rx_overflow = 0
+; 3 call sites in C -> saves ~3 bytes per site vs inline stores
+; -----------------------------------------------------------------------------
+_reset_rx_state:
+    xor a
+    ld (_rx_overflow), a
+    call _rx_pos_reset        ; HL = 0 after return
+    ld (_rb_head), hl
+    ld (_rb_tail), hl
+    ret
+
 
 ; -----------------------------------------------------------------------------
 ; check_status_irc: check_status(LVL_IRC=2) — copt fuses ld l,2 / call
@@ -834,8 +848,7 @@ trln_newline:
     ; If overflow, DISCARD line completa y resetear
     xor a
     ld (_rx_overflow), a
-    ld hl, 0
-    ld (_rx_pos), hl
+    call _rx_pos_reset
     jr trln_loop        ; Look for next line
 
 trln_check_valid:
@@ -850,8 +863,7 @@ trln_check_valid:
     ld hl, (_rx_pos)
     ld (_rx_last_len), hl
 
-    ld hl, 0
-    ld (_rx_pos), hl
+    call _rx_pos_reset
     pop iy
     ld l, 1
     ret
@@ -1909,11 +1921,18 @@ ria_pnc_print:
 ; -----------------------------------------------------------------------------
 
 ; Indicator patterns: 8 bytes each (shared first/last with 0x00)
-ind_pattern_solid:    defb 0x00, 0x3C, 0x7E, 0x7E, 0x7E, 0x7E, 0x3C, 0x00
-ind_pattern_empty:    defb 0x00, 0x3C, 0x42, 0x42, 0x42, 0x42, 0x3C, 0x00
-ind_pattern_away:     defb 0x00, 0x3C, 0x4E, 0x4E, 0x4E, 0x4E, 0x3C, 0x00
-ind_pattern_medium:   defb 0x00, 0x00, 0x18, 0x3C, 0x3C, 0x18, 0x00, 0x00  ; ~6px circle
-ind_pattern_small:    defb 0x00, 0x00, 0x00, 0x18, 0x18, 0x00, 0x00, 0x00  ; ~4px dot
+; Overlapped indicator patterns: each reads 8 bytes from label.
+; Shared 0x00 bytes at row 0/7 boundaries collapse 5x8=40B into 35B (-5B).
+ind_pattern_solid:
+    defb 0x00, 0x3C, 0x7E, 0x7E, 0x7E, 0x7E, 0x3C, 0x00
+    defb 0x3C, 0x42, 0x42, 0x42, 0x42, 0x3C, 0x00
+    defb 0x3C, 0x4E, 0x4E, 0x4E, 0x4E, 0x3C, 0x00
+    defb 0x00, 0x18, 0x3C, 0x3C, 0x18, 0x00, 0x00
+    defb 0x00, 0x18, 0x18, 0x00, 0x00, 0x00
+ind_pattern_empty   equ ind_pattern_solid + 7
+ind_pattern_away    equ ind_pattern_solid + 14
+ind_pattern_medium  equ ind_pattern_solid + 21
+ind_pattern_small   equ ind_pattern_solid + 27
 
 ; Shared: select indicator pattern into DE based on connection state
 ; Preserves: BC, HL, IX, IY

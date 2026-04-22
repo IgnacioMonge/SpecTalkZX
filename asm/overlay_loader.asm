@@ -93,7 +93,7 @@ ovl_read_ok:
     sbc hl, de          ; HL = entry - ring_buffer
     jr c, ovl_bad_entry
     ld de, 2048
-    or a
+    ; CF=0 guaranteed (jr c not taken, ld de preserves flags)
     sbc hl, de          ; offset >= 2048?
     jr nc, ovl_bad_entry
     pop de
@@ -150,7 +150,7 @@ _overlay_call:
     sbc     hl, de
     jr      c, ovl_call_bad
     ld      de, 2048
-    or      a
+    ; CF=0 guaranteed (jr c not taken, ld de preserves flags)
     sbc     hl, de
     jr      nc, ovl_call_bad
     pop     de
