@@ -13,6 +13,7 @@ Snapshots progresivos en `Development/dev-1.3.7.N/`.
 | + shrink round (dedup+data+copt+arch+OVL2) | 35,534 | −185 |
 | + ikkle footer PART/BPE fix (optimized) | 35,817 | +98 |
 | + `/quit` disconnect confirmation guard | 35,844 | +125 |
+| + overlay exit RX reset hardening | 35,844 | +125 |
 
 ### Functional fixes
 
@@ -44,6 +45,15 @@ Snapshots progresivos en `Development/dev-1.3.7.N/`.
   - `/connect` reutiliza el mismo helper cuando ya hay una conexión activa, unificando prompt y comportamiento
 - **Verificación**: `make` OK el 2026-04-22, `build/SpecTalkZX.tap` = 35,844B
 - **Coste**: +27B vs la build anterior de 35,817B
+
+#### Overlay exit RX reset hardening
+- **Bug/risk**: `overlay_exit_full()` limpiaba UI/notification state, pero no descartaba el estado del parser/ring aunque `ring_buffer` se reutiliza para cargar overlays. Tras una salida de overlay o fallo de carga, podían quedar bytes/estado no-IRC visibles para el parser.
+- **Fix**:
+  - `asm/spectalk_asm.asm` limpia `rx_pos`
+  - limpia `rx_overflow`
+  - vacía el ring con `rb_tail = rb_head`
+- **Verificación**: `make` OK el 2026-04-22, `build/SpecTalkZX.tap` = 35,844B
+- **Coste**: sin cambio visible en TAP frente a la build anterior de 35,844B
 
 #### Overlay ABOUT keepalive audit
 - **Bug confirmado por auditoría**: con `OVERLAY_ABOUT` abierto, el main loop pausa el emisor de `PING :keepalive` / `PING :lag` y `overlay_keepalive()` solo responde a `PING` del servidor; descarta `PONG` y el resto del tráfico IRC.
@@ -98,7 +108,7 @@ Total: **−327B** vs baseline post-audit (35,861 → 35,534)
 - `tools/gen_overlay_defs.py` añade esos símbolos al ABI generado
 - `overlay/spectalk_ovl4.c` reutiliza claves residentes en `save_config_ovl()`; ahorro verificado: **1954B → 1796B** (`-158B`)
 - `overlay/spectalk_ovl2.c` reutiliza las mismas claves residentes para labels de config idénticas; build verificada en **1968B**
-- El TAP queda en **35,844B** tras el guard adicional de `/quit`; `SPECTALK.OVL` sigue empaquetado a tamaño fijo
+- El TAP queda en **35,844B** tras el hardening adicional de salida de overlay; `SPECTALK.OVL` sigue empaquetado a tamaño fijo
 
 ### Pending opportunities (rendimientos decrecientes)
 

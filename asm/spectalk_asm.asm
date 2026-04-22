@@ -446,6 +446,12 @@ _overlay_exit_full:
     ld (_overlay_mode), a
     ld (_notif_timeout), a
     ld (_notif_timeout + 1), a
+    ; W01: discard ring buffer content (overlay binary, not IRC data)
+    ld (_rx_pos), a
+    ld (_rx_pos + 1), a
+    ld (_rx_overflow), a
+    ld hl, (_rb_head)
+    ld (_rb_tail), hl
     inc a                       ; a = 1
     ld (_cursor_visible), a
     call _clear_main
