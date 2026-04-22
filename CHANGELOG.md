@@ -15,6 +15,7 @@ Snapshots progresivos en `Development/dev-1.3.7.N/`.
 | + `/quit` disconnect confirmation guard | 35,844 | +125 |
 | + overlay exit RX reset hardening | 35,844 | +125 |
 | + `ABOUT` keepalive fix | 35,861 | +142 |
+| + `/mode` wrapper | 36,025 | +306 |
 
 ### Functional fixes
 
@@ -66,6 +67,18 @@ Snapshots progresivos en `Development/dev-1.3.7.N/`.
 - **Coste medido**: +17B vs la build anterior de 35,844B
 - **Nota de shrink**: fusionar el parser `PING/PONG` dentro de `overlay_keepalive()` recuperó **64B** frente a la primera implementación del fix (`35,925B -> 35,861B`)
 
+#### `/mode` wrapper
+- **Feature**: añade `/mode` como wrapper IRC ligero
+- **Comportamiento**:
+  - sin args: consulta `MODE` del canal actual
+  - con args que empiezan por `+` o `-`: aplica esos modos al canal actual
+  - con cualquier otro argumento: pasa el target explícito tal cual a `MODE`
+- **Fix de protocolo**: valida el target implícito antes de tocar UART, evitando dejar un `MODE ` colgado si el usuario lanza `/mode` desde Server o desde una query
+- **UX mínima**: `324 RPL_CHANNELMODEIS` ya no es silencioso; imprime una línea legible además de actualizar la barra de estado
+- **Help**: la entrada de `/mode` se añadió al help y el texto fuente pasó a `src/SPECTALK_HELP.txt`, que `tools/bpe_build.py` inyecta en `SPECTALK.DAT` para que la ayuda quede versionada
+- **Verificación**: `make` OK el 2026-04-22, `build/SpecTalkZX.tap` = 36,025B
+- **Coste**: +164B vs la build anterior de 35,861B
+
 ### Hardening & defensas (audit-z80 Codex 2026-04-12)
 
 #### Doc `overlay_slot` unificada a 512B
@@ -114,7 +127,7 @@ Total: **−327B** vs baseline post-audit (35,861 → 35,534)
 - `tools/gen_overlay_defs.py` añade esos símbolos al ABI generado
 - `overlay/spectalk_ovl4.c` reutiliza claves residentes en `save_config_ovl()`; ahorro verificado: **1954B → 1796B** (`-158B`)
 - `overlay/spectalk_ovl2.c` reutiliza las mismas claves residentes para labels de config idénticas; build verificada en **1968B**
-- El TAP queda en **35,861B** tras el fix de keepalive en `ABOUT`; `SPECTALK.OVL` sigue empaquetado a tamaño fijo
+- El TAP queda en **36,025B** tras añadir `/mode`; `SPECTALK.OVL` sigue empaquetado a tamaño fijo
 
 ### Pending opportunities (rendimientos decrecientes)
 

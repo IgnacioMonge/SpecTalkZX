@@ -750,6 +750,11 @@ static void h_numeric_324(void)
         st_copy_n(channels[idx].mode, modes, sizeof(channels[0].mode));
         if ((uint8_t)idx == current_channel_idx) draw_status_bar();
     }
+    set_attr_sys();
+    main_puts("Mode ");
+    main_puts(chan);
+    main_putc(' ');
+    main_print(modes);
 }
 
 static void print_topic_line(char *text) __z88dk_fastcall

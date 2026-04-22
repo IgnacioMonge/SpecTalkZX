@@ -1,0 +1,45 @@
+!help	Show this help
+!status	Connection status
+!init	Reset WiFi/ESP
+!config	Show all settings
+!theme	Theme 1|2|3
+!about	About SpecTalkZX
+!beep	Toggle sound
+!click	Toggle key click
+!notif	Toggle notifications
+!changelog	What's New
+!save	Save config to SD
+!clear	Clear chat screen
+!traffic	Toggle join/part msgs
+!timestamps	Toggle time display
+!nickcolor	Toggle nick colors
+!autoconnect	Toggle auto-connect
+!autoaway	Auto-away (min, 0=off)
+!tz	Timezone (-12..+14)
+!friend	Add/remove friend nick
+
+IRC commands
+/server	Connect host (/connect)
+/nick	Change nickname
+/pass	Set server password
+/id	Identify with NickServ
+/join	Join #channel
+/part	Leave current channel
+/msg	Private: /msg nick text
+/query	Open PM window
+/close	Close current window
+/quit	Disconnect from IRC
+/me	Action: /me does stuff
+/away	Set away: /away [reason]
+/raw	Send raw IRC command
+/whois	Lookup user info
+/who	List users in #channel
+/list	List channels (pattern)
+/names	List users in #channel
+/topic	View/set channel topic
+/mode	View/set IRC modes
+/search	Search in /list results
+/ignore	Ignore nick (-nick undo)
+/kick	Kick: /kick nick [reason]
+/channels	List open windows
+/0-9	Switch to window 0-9

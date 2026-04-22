@@ -868,6 +868,26 @@ static void cmd_topic(const char *args) __z88dk_fastcall
     irc_send_cmd2(K_TOPIC, irc_channel, args);
 }
 
+static void cmd_mode(const char *args) __z88dk_fastcall
+{
+    if (!check_status(LVL_IRC)) return; // Nivel 2
+
+    if (!args || !*args || args[0] == '+' || args[0] == '-') {
+        REQUIRE_CHAN();
+        uart_send_string("MODE ");
+        uart_send_string(irc_channel);
+        if (args && *args) {
+            ay_uart_send(' ');
+            uart_send_string(args);
+        }
+        uart_send_crlf();
+        return;
+    }
+
+    uart_send_string("MODE ");
+    uart_send_line(args);
+}
+
 static void cmd_search(const char *args) __z88dk_fastcall
 {
     char *src;
@@ -1385,7 +1405,7 @@ static const char cmd_pool[] =
     "\0away\0autoaway\0aa\0raw\0whois\0wi\0who\0list\0ls\0names\0topic\0sea"
     "rch\0ignore\0kick\0k\0channels\0w\0beep\0traffic\0timestamps\0ts\0clear\0cls\0"
     "save\0sv\0autoconnect\0ac\0tz\0friend\0nickcolor\0nc\0notif\0nf\0"
-    "changelog\0click\0"
+    "changelog\0click\0mode\0"
 ;
 
 static const PackedCmd USER_COMMANDS[] = {
@@ -1432,6 +1452,7 @@ static const PackedCmd USER_COMMANDS[] = {
     {  38, 255, cmd_ignore },
     {  39,  40, cmd_kick },
     {  41,  42, cmd_windows_wrapper },
+    {  61, 255, cmd_mode },
 };
 
 #define USER_COMMANDS_COUNT ((uint8_t)(sizeof(USER_COMMANDS) / sizeof(USER_COMMANDS[0])))

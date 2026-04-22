@@ -22,6 +22,7 @@ import shutil
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(SCRIPT_DIR)
 BUILD_DIR = os.path.join(ROOT, 'build')
+HELP_TEXT_PATH = os.path.join(ROOT, 'src', 'SPECTALK_HELP.txt')
 
 SRC_FILES = ['spectalk.c', 'irc_handlers.c', 'user_cmds.c']
 HDR_FILES = ['spectalk.h']
@@ -268,7 +269,8 @@ def main():
         orig = f.read()
 
     header = orig[:373]          # font + glyphs + themes
-    help_text = orig[373:]       # help text (plain)
+    with open(HELP_TEXT_PATH, 'rb') as f:
+        help_text = f.read()     # tracked help text source
 
     # Pad help text so 512-byte segment boundaries never split a line.
     # Insert newlines before lines that would cross a boundary.
