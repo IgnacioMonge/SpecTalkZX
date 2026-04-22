@@ -14,6 +14,7 @@ Snapshots progresivos en `Development/dev-1.3.7.N/`.
 | + ikkle footer PART/BPE fix (optimized) | 35,817 | +98 |
 | + `/quit` disconnect confirmation guard | 35,844 | +125 |
 | + overlay exit RX reset hardening | 35,844 | +125 |
+| + `ABOUT` keepalive fix | 35,861 | +142 |
 
 ### Functional fixes
 
@@ -55,10 +56,15 @@ Snapshots progresivos en `Development/dev-1.3.7.N/`.
 - **Verificación**: `make` OK el 2026-04-22, `build/SpecTalkZX.tap` = 35,844B
 - **Coste**: sin cambio visible en TAP frente a la build anterior de 35,844B
 
-#### Overlay ABOUT keepalive audit
-- **Bug confirmado por auditoría**: con `OVERLAY_ABOUT` abierto, el main loop pausa el emisor de `PING :keepalive` / `PING :lag` y `overlay_keepalive()` solo responde a `PING` del servidor; descarta `PONG` y el resto del tráfico IRC.
-- **Impacto**: en servidores que esperan actividad originada por el cliente, abrir About durante varios minutos puede seguir acabando en timeout/disconnect aunque el scanner ligero responda a `PING` entrante.
-- **Estado**: confirmado en código el 2026-04-21; sigue abierto.
+#### `ABOUT` keepalive fix
+- **Bug**: con `OVERLAY_ABOUT` abierto, el main loop pausaba el keepalive saliente y `overlay_keepalive()` ignoraba `PONG`. Si un `PING :keepalive` quedaba pendiente al entrar en `ABOUT`, el `PONG` podía perderse y el cliente acababa forzando disconnect al salir pese a que la conexión seguía viva.
+- **Fix**:
+  - `src/spectalk.c` mantiene activo el bloque principal de keepalive también durante `ABOUT`
+  - `overlay_keepalive()` consume `PONG` y limpia `keepalive_ping_sent` / `keepalive_timeout`
+  - si el timeout salta durante `ABOUT`, primero hace `overlay_exit_full()` y luego ya imprime el error/desconecta
+- **Verificación**: `make` OK el 2026-04-22, `build/SpecTalkZX.tap` = 35,861B
+- **Coste medido**: +17B vs la build anterior de 35,844B
+- **Nota de shrink**: fusionar el parser `PING/PONG` dentro de `overlay_keepalive()` recuperó **64B** frente a la primera implementación del fix (`35,925B -> 35,861B`)
 
 ### Hardening & defensas (audit-z80 Codex 2026-04-12)
 
@@ -108,7 +114,7 @@ Total: **−327B** vs baseline post-audit (35,861 → 35,534)
 - `tools/gen_overlay_defs.py` añade esos símbolos al ABI generado
 - `overlay/spectalk_ovl4.c` reutiliza claves residentes en `save_config_ovl()`; ahorro verificado: **1954B → 1796B** (`-158B`)
 - `overlay/spectalk_ovl2.c` reutiliza las mismas claves residentes para labels de config idénticas; build verificada en **1968B**
-- El TAP queda en **35,844B** tras el hardening adicional de salida de overlay; `SPECTALK.OVL` sigue empaquetado a tamaño fijo
+- El TAP queda en **35,861B** tras el fix de keepalive en `ABOUT`; `SPECTALK.OVL` sigue empaquetado a tamaño fijo
 
 ### Pending opportunities (rendimientos decrecientes)
 
@@ -117,8 +123,6 @@ Total: **−327B** vs baseline post-audit (35,861 → 35,534)
 - Revisar doble default de `irc_port` en `src/spectalk.c` (muy pequeño)
 
 ### Known open bugs
-
-- **Overlay keepalive**: server puede desconectar si overlay abierto varios minutos (pendiente desde v1.3.7)
 
 ---
 

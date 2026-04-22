@@ -306,7 +306,7 @@ void flush_all_rx_buffers(void)
 }
 
 // Lightweight UART scanner during OVERLAY_ABOUT.
-// Responds to server PING to prevent timeout disconnect.
+// Responds to server PING and consumes PONG for client keepalive.
 // All other IRC data discarded (ring_buffer busy with overlay code).
 // Uses rx_line directly (bypass ring_buffer). Cleaned by flush_all_rx_buffers on exit.
 void overlay_keepalive(void)
@@ -320,11 +320,16 @@ void overlay_keepalive(void)
                 while (*p && *p != ' ') p++;
                 if (*p) p++;
             }
-            if (p[0]=='P' && p[1]=='I' && p[2]=='N' && p[3]=='G') {
-                p += 4;
-                while (*p == ' ') p++;
-                if (*p == ':') p++;
-                irc_send_pong(p);
+            if (p[0]=='P' && p[2]=='N' && p[3]=='G') {
+                if (p[1] == 'I') {
+                    p += 4;
+                    while (*p == ' ') p++;
+                    if (*p == ':') p++;
+                    irc_send_pong(p);
+                } else if (p[1] == 'O') {
+                    keepalive_ping_sent = 0;
+                    keepalive_timeout = 0;
+                }
                 server_silence_frames = 0;
             }
             rx_pos = 0;
@@ -2846,8 +2851,8 @@ void main(void)
                 }
             }
             
-            // 1.5. KEEP-ALIVE & LAGMETER (paused during About — ring_buffer busy)
-            if (connection_state == STATE_IRC_READY && overlay_mode != OVERLAY_ABOUT) {
+            // 1.5. KEEP-ALIVE & LAGMETER
+            if (connection_state == STATE_IRC_READY) {
                 server_silence_frames++;
                 lagmeter_counter++;
                 
@@ -2855,6 +2860,7 @@ void main(void)
                     // Waiting for PONG - check timeout
                     if (++keepalive_timeout >= KEEPALIVE_TIMEOUT_FRAMES) {
                         // No response to PING - connection is dead
+                        if (overlay_mode == OVERLAY_ABOUT) overlay_exit_full();
                         set_attr_err();
                         main_puts(S_TIMEOUT);
                         main_print(" (no response)");
