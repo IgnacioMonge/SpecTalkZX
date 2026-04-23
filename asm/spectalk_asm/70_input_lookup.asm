@@ -12,7 +12,7 @@ _utf8_to_ascii:
 u8a_loop:
     ld a, (hl)
     or a
-    jp z, u8a_done
+    jr z, u8a_done
     
     cp 0x80
     jr c, u8a_copy          ; OPT: jp?jr (00-7F: ASCII)
@@ -30,15 +30,16 @@ u8a_loop:
     jr c, u8a_3byte         ; E0-EF: 3-byte handler (smart quotes)
     
     ; F0+: 4 bytes
+u8a_skip4:
     inc hl
-    ld a, (hl) : or a : jp z, u8a_done
-    inc hl
-    ld a, (hl) : or a : jp z, u8a_done
-    inc hl
-    ld a, (hl) : or a : jp z, u8a_done
-    inc hl
-    ld a, '?'
-    jp u8a_store             ; jp: jr out of range after smart-quote fix
+    ld a, (hl) : or a : jr z, u8a_done
+    jr u8a_skip3
+
+u8a_done:
+    xor a
+    ld (de), a
+    pop hl
+    ret
 
 ; Smart quotes: E2 80 98/99 ? apostrophe (39), E2 80 9C/9D ? double quote (34)
 u8a_3byte:
@@ -127,11 +128,10 @@ u8a_c3:
     ; ?ndice en tabla = C & 3F (0-3F corresponde a C0-FF)
     ld a, c
     and 0x3F
-    ld c, a
-    ld b, 0
     push hl             ; FIX-C2: guardar puntero de lectura del string
     ld hl, u8a_tbl_c0
-    add hl, bc
+    add a, l            ; table low byte + 0x3F stays in page
+    ld l, a
     ld a, (hl)
     pop hl              ; FIX-C2: restaurar puntero de lectura
     jr u8a_store            ; OPT: jp?jr (5 bytes)
@@ -143,12 +143,6 @@ u8a_store:
     ld (de), a
     inc de
     jp u8a_loop
-
-u8a_done:
-    xor a
-    ld (de), a
-    pop hl
-    ret
 
 ; Tabla para C3 80-BF -> codepoints C0-FF (64 bytes)
 ; ???????? ???????? ???????? ???????? ???????? ???????? ???????? ????????
@@ -240,10 +234,7 @@ spr_len_done:
     cp '0'
     jr nz, spr_no1970
     ; It's 1970 ? ESP not synced yet
-    pop hl
-    xor a
-    ld (_sntp_waiting), a
-    ret
+    jr spr_notfound
 
 spr_no1970:
     pop hl              ; HL = line start
@@ -260,10 +251,10 @@ spr_no1970:
     push hl             ; save line start on stack
     ld de, 13
     add hl, de          ; HL = &line[13]
-    ld e, 13            ; E = i (current index)
+    ld c, 13            ; C = i (current index)
 
 spr_scan:
-    ld a, e
+    ld a, c
     cp b
     jr nc, spr_notfound  ; OPT: jp?jr (i >= len-7)
 
@@ -275,23 +266,19 @@ spr_scan:
     jr nc, spr_next
 
     ; Check line[i+2] == ':'
-    push hl
-    inc hl
-    inc hl
-    ld a, (hl)
-    pop hl
+    ld d, h
+    ld e, l
+    inc de
+    inc de
+    ld a, (de)
     cp ':'
     jr nz, spr_next
 
     ; Check line[i+5] == ':'
-    push hl
-    inc hl
-    inc hl
-    inc hl
-    inc hl
-    inc hl
-    ld a, (hl)
-    pop hl
+    inc de
+    inc de
+    inc de
+    ld a, (de)
     cp ':'
     jr nz, spr_next
 
@@ -337,7 +324,7 @@ spr_scan:
 
 spr_next:
     inc hl
-    inc e
+    inc c
     jr spr_scan             ; OPT: jp?jr (backward ~100 bytes)
 
 spr_notfound:
@@ -419,8 +406,7 @@ rk_got_key:
     jr z, rk_check_new
     dec a
     ld (_debounce_zero), a
-    ld l, 0
-    ret
+    jr rk_ret_zero
 
 rk_check_new:
     ; if (k != last_k) ? new key
@@ -447,8 +433,7 @@ rk_check_new:
     ; Same letter, just shift change ? update but don't emit
     ld a, b
     ld (_last_k), a
-    ld l, 0
-    ret
+    jr rk_ret_zero
 
 rk_new_emit:
     ; last_k = k
@@ -501,8 +486,7 @@ rk_rep_timer:
     jr z, rk_rep_fire
     dec a
     ld (_repeat_timer), a
-    ld l, 0
-    ret
+    jr rk_ret_zero
 
 rk_rep_fire:
     ; Timer expired ? emit based on key type
@@ -558,10 +542,9 @@ _nav_push:
 
     ; Dup check: history[ptr-1] == idx?
     dec a
-    ld e, a
-    ld d, 0
     ld hl, _nav_history
-    add hl, de                  ; HL = &history[ptr-1]
+    add a, l                    ; NAV_HIST_SZ=6, _nav_history+$05 cannot carry
+    ld l, a                     ; HL = &history[ptr-1]
     ld a, (hl)
     cp c
     ret z                       ; duplicate, return
@@ -584,10 +567,10 @@ np_no_dup:
 
 np_append:
     ; history[ptr] = idx; ptr++
-    ld e, b
-    ld d, 0
+    ld a, b
     ld hl, _nav_history
-    add hl, de
+    add a, l                    ; B is clamped to 0..5 by NAV_HIST_SZ
+    ld l, a
     ld (hl), c                  ; history[ptr] = idx
     ld hl, _nav_hist_ptr
     inc (hl)                    ; ptr++
@@ -638,6 +621,7 @@ fecs_found:
 ; =============================================================================
 PUBLIC _find_query
 EXTERN _st_stricmp
+EXTERN _st_stricmp_cleanup
 EXTERN _channels        ; ChannelInfo[10], 32 bytes each
 EXTERN _channel_count
 EXTERN _irc_server
@@ -733,9 +717,7 @@ fq_loop:
     push bc             ; save i
     push iy             ; arg1: nick
     push de             ; arg2: ch->name
-    call _st_stricmp
-    pop af              ; clean arg2
-    pop af              ; clean arg1
+    call _st_stricmp_cleanup
     ; HL = result (0 if equal)
     ld a, l
     or h
@@ -759,13 +741,12 @@ fq_found:
 
 fq_ret_0:
     pop iy
-    ld l, 0
+    ld l, a                     ; callers branch here only after stricmp == 0
     ret
 
 fq_ret_neg1_iy:
     pop iy
-    ld l, 0xFF
-    ret
+    jr fq_bail_neg1
 
 ; --- subroutine: compare IY (nick) with HL (service string) ---
 ; Input:  HL = string to compare, IY = nick
@@ -774,9 +755,7 @@ fq_ret_neg1_iy:
 fq_check_service:
     push iy             ; arg1: nick
     push hl             ; arg2: service string
-    call _st_stricmp
-    pop af
-    pop af
+    call _st_stricmp_cleanup
     ld a, l
     or h
     ret
