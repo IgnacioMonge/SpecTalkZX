@@ -437,8 +437,6 @@ usend_loop:
 ; void reapply_screen_attributes(void)
 ; =============================================================================
 _reapply_screen_attributes:
-    push iy
-
     ; 1. Borde
     ld a, (_theme_attrs + TA_BORDER)
     out (0xFE), a
@@ -480,7 +478,6 @@ _reapply_screen_attributes:
     ld (hl), 1
     call _set_sbd                ; Avisa al bucle Main de C <--- CR?TICO
 
-    pop iy
     ret
 
 ; -----------------------------------------------------------------------------
@@ -508,8 +505,6 @@ _fast_fill_attr:
 ; =============================================================================
 
 _cls_fast:
-    push iy
-
     ; --- BORRADO DE BITMAP (0x4000..0x57FF) = 6144 bytes ---
     ld hl, 0x4000
     xor a
@@ -519,8 +514,7 @@ _cls_fast:
     ldir
 
     ; --- ATRIBUTOS ---
-    pop iy
-    jp _reapply_screen_attributes
+    jr _reapply_screen_attributes
 
 
 ; =============================================================================

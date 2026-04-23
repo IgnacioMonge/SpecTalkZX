@@ -389,9 +389,7 @@ DEFC RK_KEY_UP = 11
 DEFC RK_KEY_BS = 12
 
 _read_key:
-    push iy
     call _in_inkey      ; L = key (0 if none)
-    pop iy
     ld a, l
     or a
     jr nz, rk_got_key
@@ -512,9 +510,7 @@ rk_rep_fire:
     cp RK_KEY_BS
     jr nz, rk_rep_lr
     ld a, 1
-    ld (_repeat_timer), a
-    ld l, b
-    ret
+    jr rk_rep_emit
 
 rk_rep_lr:
     cp RK_KEY_LEFT
@@ -527,18 +523,15 @@ rk_rep_lr:
     jr z, rk_rep_ud
     ; Other keys: standard repeat
     ld a, 3
-    ld (_repeat_timer), a
-    ld l, b
-    ret
+    jr rk_rep_emit
 
 rk_rep_lr_emit:
     ld a, 2
-    ld (_repeat_timer), a
-    ld l, b
-    ret
+    jr rk_rep_emit
 
 rk_rep_ud:
     ld a, 5
+rk_rep_emit:
     ld (_repeat_timer), a
     ld l, b
     ret

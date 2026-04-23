@@ -115,8 +115,6 @@ _rb_push_full:
 ; de forma segura sin escribir en memoria hasta encontrar el \n.
 ; -----------------------------------------------------------------------------
 _try_read_line_nodrain:
-    push iy
-    
 trln_loop:
     ; 1. Comprobar si hay datos (Head != Tail)
     ld hl, (_rb_head)
@@ -147,15 +145,13 @@ trln_loop:
     
     ; 5. CR?TICO: Chequear desbordamiento ANTES de escribir (HARDENED)
     ld hl, (_rx_pos)
-    push hl             ; Guardar rx_pos para paso 6
     ld de, RX_LINE_MAX  ; == RX_LINE_SIZE - 2 (espacio para \0)
     or a
     sbc hl, de
-    jr nc, trln_overflow_pop ; Si rx_pos >= 510, descartar
+    jr nc, trln_overflow_state ; Si rx_pos >= 510, descartar
     
     ; 6. Save character (no hay overflow)
-    pop hl              ; HL = rx_pos (guardado)
-    ld de, _rx_line
+    ld de, _rx_line + RX_LINE_MAX
     add hl, de          ; HL = &rx_line[rx_pos]
     ld (hl), c
     
@@ -207,12 +203,10 @@ trln_check_valid:
     ld (_rx_last_len), hl
 
     call _rx_pos_reset
-    pop iy
     ld l, 1
     ret
 
 trln_return_0:
-    pop iy
     ld l, 0
     ret
 

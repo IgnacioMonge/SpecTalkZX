@@ -20,9 +20,6 @@ EXTERN _last_ts_minute
 ; -----------------------------------------------------------------------------
 PUBLIC _main_print_time_prefix
 _main_print_time_prefix:
-    push ix
-    push iy
-
     ld a, (_show_timestamps)
     or a
     jr z, mptp_off          ; mode 0: off
@@ -101,8 +98,6 @@ mptp_off:
     ld (_wrap_indent), a
 
 mptp_ret:
-    pop iy
-    pop ix
     ret
 
 ; --- local: print 2-digit decimal from A (00..99), leading zero ---
@@ -214,9 +209,8 @@ mpwr_loop:
 mpwr_have_col:
     ; avail = 64 - main_col  -> B
     ld a, (_main_col)
-    ld b, a
-    ld a, 64
-    sub b
+    cpl
+    add a, 65
     ld b, a
 
     ; DE = start

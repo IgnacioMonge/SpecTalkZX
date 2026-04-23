@@ -2,12 +2,12 @@
 
 ## Project State
 - Date: 2026-04-23
-- Recent task: audited and shrank `asm/divmmc_uart.asm`. No live ABI/stack bug showed up in the divMMC UART path under the current `zsdcc --fomit-frame-pointer` build, but `_poked_byte` / `_byte_buff` and the `uartRead_retBuff` path were confirmed dead (no writers, no external references), so they were removed and the public wrappers were collapsed around `uartRead`'s existing `A=0` / `A=byte` contract. `make` confirmed `__data_compiler_tail` moved from `$EB11` to `$EAE9` (`-40B` code/data) and `__BSS_END_tail` from `$F4FA` to `$F4D0` (`-42B` total, including `-2B` BSS).
-- Latest committed checkpoint: `07a9b5e` (`Shrink UI runtime and harden save notifications`) — uncommitted: `asm/divmmc_uart.asm` shrink + router/pattern updates; unrelated local edit still present in `include/spectalk.h`.
-- Build status: local `make` rechecked after the divMMC UART shrink; build, trim and all four overlays pass.
-- Current verified trimmed size from `make`: `36137B` trimmed / `36217B` TAP / `48B` BSS slack (`0xF500 - 0xF4D0`).
+- Recent task: deep resident ASM shrink pass across `asm/spectalk_asm/20_rx_ring_uart.asm`, `40_text_numeric_screen.asm`, `50_main_output.asm`, and `70_input_lookup.asm`. The safe wins were: remove redundant `IX/IY` save/restore in helpers whose callees already stay off those registers, tail-merge `_read_key()`'s repeated `repeat_timer` emit endings, compress `64 - main_col` in `main_print_wrapped_ram()`, simplify `_try_read_line_nodrain()`'s overflow probe to avoid stack traffic, and shorten `_cls_fast()`'s local tail jump back to `_reapply_screen_attributes()`.
+- Latest committed checkpoint: `3f59575` (`Shrink divMMC UART backend`) — current uncommitted worktree: resident ASM shrink in the four modules above plus router/pattern updates.
+- Build status: local `make` rechecked after the resident ASM shrink; build, trim and all four overlays pass.
+- Current verified trimmed size from `make`: `36098B` trimmed / `36178B` TAP / `87B` BSS slack (`0xF500 - 0xF4A9`).
 - Current overlay sizes: `SPCTLK1.OVL` 1385B, `SPCTLK2.OVL` 1968B, `SPCTLK3.OVL` 1591B, `SPCTLK4.OVL` 1801B.
-- Audit highlight: the divMMC backend's only live latched state is now `_is_recv`; the old peek-cache bytes were vestigial, and removing them recovered enough resident headroom to move the current BSS guard from 6 bytes to 48 bytes without touching overlay sizes.
+- Current shrink highlight: versus the previous verified resident baseline (`36137B` / `48B` slack), this pass recovered another `39B` resident net (`__data_compiler_tail $EAE9 -> $EAC2`, `__BSS_END_tail $F4D0 -> $F4A9`) without touching UART timing, overlay sizes, or protocol behavior.
 
 ## Resume Here
 - The worktree now contains an uncommitted structural refactor: `asm/spectalk_asm.asm` is a thin root and the real code lives in ordered modules inside `asm/spectalk_asm/`.
@@ -17,6 +17,10 @@
 - After `make`, sanity-check `git diff` before trusting `git status` on `src/*.c`: the BPE prep/restore path in this workspace can leave source-looking noise even when the real task change is only in ASM.
 - Add future routines to the nearest domain module instead of growing the root file again.
 - `asm/divmmc_uart.asm` is still part of the active resident build outside the split module tree. Its only live local state is `_is_recv`; do not reintroduce `_poked_byte` / `_byte_buff` unless a real writer/pushback feature returns with verified call sites.
+- Fresh 2026-04-23 shrink rule that paid immediately: if a resident ASM helper and all of its callees already leave `IY`/`IX` alone, drop the outer `push`/`pop` instead of preserving the register "just in case". This was verified in `_try_read_line_nodrain()`, `_reapply_screen_attributes()`, `_cls_fast()`, `_main_print_time_prefix()`, and `_read_key()`.
+- Also from this pass: repeated local endings in hand-written state machines are still worth tail-merging. `_read_key()` shrank cleanly by routing the `repeat_timer` emit cases through one shared `rk_rep_emit` tail instead of repeating `ld (_repeat_timer),a / ld l,b / ret`.
+- Rejected probe from this pass: `_utf8_to_ascii()` still has `u8a_store -> u8a_loop` out of `jr` range (`-$B5` in the assembler error). Do not flip that backedge blindly; only `_cls_fast() -> _reapply_screen_attributes()` came back into local-jump range.
+- `main_print_wrapped_ram()` still pays most of its local size tax in the `IX`-based "last space" tracker. It is the next obvious ASM shrink target if more resident bytes are needed, but it now sits beyond the low-risk tier.
 - `redraw_input_asm()` is still on the faster bulk path, but the generic-space-path experiment in `print_str64_char()` is now known-bad and should not be revived without a more careful proof for status-bar/attr behavior.
 - Applied shrink opts on top of Codex pass: unified `p64_space_*` via mask-in-C (-8B), nested-djnz `_notif_clear` without `ldir` (-4B), and `dbc_mask_2sc` helper for `draw_big_char` top/bot (-9B). All three verified HW-OK on 2026-04-22.
 - `40_text_numeric_screen.asm` now prefers `_ld_hl_ix4/_ld_hl_ix6` for resident cdecl loads, treats IXL/IYL booleans as zero/nonzero flags, and reuses preserved counts/pointers across adjacent draw phases instead of recomputing them.
@@ -45,6 +49,7 @@
 - [`irc-mode-wrapper.md`](patterns/irc-mode-wrapper.md): simple IRC wrappers should prefer passthrough semantics with only the minimum implicit target logic needed for convenience, but query numerics should still produce a visible reply.
 - [`resident-irc-polish-budget.md`](patterns/resident-irc-polish-budget.md): resident IRC niceties should piggyback on existing send/render paths; dedicated helpers and numeric dispatch entries are often too expensive once BSS slack is tight.
 - [`resident-asm-dead-local-state.md`](patterns/resident-asm-dead-local-state.md): if a tiny resident ASM helper keeps local BSS state that no in-tree code writes anymore, remove the dead branch and then collapse the public wrapper around the helper's actual return contract.
+- [`resident-asm-preserve-tail-merge.md`](patterns/resident-asm-preserve-tail-merge.md): in resident ASM, drop `IX/IY` saves that neither the helper nor its callees need, then tail-merge repeated tiny return blocks before attempting riskier structural rewrites.
 - [`single-byte-callee-popaf.md`](patterns/single-byte-callee-popaf.md): `pop af` is not a safe way to extract a packed trailing `uint8_t` argument into `A` in `__z88dk_callee` helpers; use `pop bc/de` plus `ld a,c/e` instead.
 - [`help-text-source.md`](patterns/help-text-source.md): command help that ships inside `SPECTALK.DAT` should come from a tracked text source, not from hand-edited local DAT payloads.
 - [`notification-builder-helpers.md`](patterns/notification-builder-helpers.md): deduplicate short notification builders by arity, but only keep the helper if `make` proves a net byte win.
