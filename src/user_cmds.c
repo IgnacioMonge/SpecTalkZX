@@ -627,6 +627,41 @@ static void cmd_msg(const char *args) __z88dk_fastcall
     irc_send_privmsg(target, msg);
 }
 
+static void cmd_reply(const char *args) __z88dk_fastcall
+{
+    if (!check_status(LVL_IRC)) return;
+    if (!last_pm_nick[0]) { ui_err("No recent PM"); return; }
+    if (!ensure_args(args, "reply message")) return;
+
+    irc_send_privmsg(last_pm_nick, args);
+}
+
+static void cmd_notice(const char *args) __z88dk_fastcall
+{
+    char *p = (char *)args;
+    char *target;
+    char *space;
+    char *msg;
+
+    if (!check_status(LVL_IRC)) return;
+    if (!ensure_args(p, "notice nick message")) return;
+
+    target = p;
+    space = strchr(p, ' ');
+    if (!space || !space[1]) { ui_usage("notice nick message"); return; }
+
+    *space = '\0';
+    msg = skip_spaces(space + 1);
+
+    autoaway_counter = 0;
+    if (autoaway_active) {
+        uart_send_line(S_AWAY_CMD);
+        autoaway_active = 0;
+    }
+
+    irc_send_cmd2("NOTICE", target, msg);
+}
+
 static void cmd_query(const char *args) __z88dk_fastcall
 {
     char *p;
@@ -1414,7 +1449,7 @@ static const char cmd_pool[] =
     "\0away\0autoaway\0aa\0raw\0whois\0wi\0who\0list\0ls\0names\0topic\0sea"
     "rch\0ignore\0kick\0k\0channels\0w\0beep\0traffic\0timestamps\0ts\0clear\0cls\0"
     "save\0sv\0autoconnect\0ac\0tz\0friend\0nickcolor\0nc\0notif\0nf\0"
-    "changelog\0click\0mode\0"
+    "changelog\0click\0mode\0reply\0notice\0"
 ;
 
 static const PackedCmd USER_COMMANDS[] = {
@@ -1446,6 +1481,8 @@ static const PackedCmd USER_COMMANDS[] = {
     {  15,  16, cmd_join },
     {  17,  18, cmd_part },
     {  19,  20, cmd_msg },
+    {  62, 255, cmd_reply },
+    {  63, 255, cmd_notice },
     {  21,  22, cmd_query },
     {  23, 255, cmd_close_wrapper },
     {  24, 255, cmd_quit },

@@ -2118,6 +2118,9 @@ void force_disconnect(void)
     names_target_channel[0] = '\0';
     counting_new_users = 0;
     names_was_manual = 0;
+    notif_timeout = 0;
+    notif_is_pm = 0;
+    last_pm_nick[0] = '\0';
     
     cancel_search_state();
     

@@ -300,7 +300,7 @@ _key_ss_arrow:
     ld a, 0x7F
     in a, (0xFE)
     bit 1, a
-    ld hl, 0
+    ld l, 0
     ret nz              ; SS not pressed ? 0
     ; Check Caps Shift (0xFEFE bit 0) ? needed for arrow keys
     ld a, 0xFE
@@ -649,8 +649,7 @@ _fast_u8_to_str:
     dec sp              ; FIX: compensate extra byte consumed by pop
     push hl             ; restore return addr
     ld a, '0'           ; tens digit
-    ld h, d
-    ld l, e             ; HL = buf
+    ex de, hl           ; HL = buf
 fu8_div10:
     ld b, a             ; save tens
     ld a, c
@@ -735,7 +734,8 @@ ckv_crlf:
     ret
 
 ; char *sb_put_u8_2d(char *p, uint8_t v) __z88dk_callee
-; Writes 1 digit if v<10, 2 digits if v>=10. Returns advanced pointer in HL.
+; Status-bar slot counters are bounded by MAX_CHANNELS=10, so both callsites
+; only ever pass 0..9 and the helper can stay single-digit.
 _sb_put_u8_2d:
     pop bc              ; return addr
     pop hl              ; HL = p
@@ -743,13 +743,6 @@ _sb_put_u8_2d:
     dec sp              ; FIX: compensate extra byte consumed by pop
     push bc             ; restore return addr
     ld a, e
-    cp 10
-    jr c, sb2d_one
-    ; v >= 10: write '1' + (v-10)
-    ld (hl), '1'
-    inc hl
-    sub 10
-sb2d_one:
     add a, '0'
     ld (hl), a
     inc hl              ; HL = next position (return value)

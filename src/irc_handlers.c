@@ -1131,6 +1131,37 @@ static void h_numeric_default(void)
     // OPT L7: usar last_cmd_id en lugar de re-parsear
     uint16_t num = last_cmd_id;
 
+    if (num == 311) {
+        const char *nick = irc_param(1);
+        const char *user = irc_param(2);
+        const char *host = irc_param(3);
+
+        set_attr_nick();
+        if (nick && *nick) main_puts(nick); else main_putc('?');
+        set_attr_chan();
+        main_puts(" [");
+        if (user && *user) main_puts(user); else main_putc('?');
+        main_putc('@');
+        if (host && *host) main_puts(host); else main_putc('?');
+        main_putc(']');
+
+        if (*pkt_txt) {
+            set_attr_sys();
+            main_puts(S_COLON_SP);
+            main_print_wrapped_ram(pkt_txt);
+        } else {
+            main_newline();
+        }
+        return;
+    }
+
+    if (num == 319) {
+        set_attr_sys();
+        main_puts("Channels: ");
+        main_print_wrapped_ram(pkt_txt);
+        return;
+    }
+
     // Filtrar ruido de conexión y canal (silencioso)
     // 001-005: welcome/server info, 250-266: stats, 329: channel creation time,
     // 333: topic who/time, 396: host hidden

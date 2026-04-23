@@ -26,6 +26,8 @@ IRC commands
 /join	Join #channel
 /part	Leave current channel
 /msg	Private: /msg nick text
+/reply	Reply to last PM
+/notice	Notice: /notice nick text
 /query	Open PM window
 /close	Close current window
 /quit	Disconnect from IRC
