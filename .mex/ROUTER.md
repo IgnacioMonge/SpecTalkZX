@@ -2,12 +2,12 @@
 
 ## Project State
 - Date: 2026-04-23
-- Recent task: fixed a real regression in the status-bar counter path by reverting a bad packed-`uint8_t` callee optimization in `asm/spectalk_asm/80_ui_runtime.asm`. Comparing against the pre-shrink status-bar code showed that `_sb_put_u8_2d` and `_print_big_str` had switched from `pop de/bc` to `pop af`, but on Z80 the packed byte lands in `F`, not `A`; the status-bar digits were therefore coming from the wrong byte. `draw_status_bar_real()` was restored to its previous logic.
-- Latest committed checkpoint: `07a9b5e` (`Shrink UI runtime and harden save notifications`) — uncommitted: `80_ui_runtime.asm` follow-up shrink + router/pattern updates.
-- Build status: local `make` pending recheck after the ABI fix to `_sb_put_u8_2d` / `_print_big_str`. Before this fix, the resident build still fit but the status-bar counter rendered garbage (`0/0`, `4/4`, `7/7`) because `_sb_put_u8_2d` read the wrong byte.
-- Current verified trimmed size from `make`: pending recheck after the ABI fix.
+- Recent task: audited and shrank `asm/divmmc_uart.asm`. No live ABI/stack bug showed up in the divMMC UART path under the current `zsdcc --fomit-frame-pointer` build, but `_poked_byte` / `_byte_buff` and the `uartRead_retBuff` path were confirmed dead (no writers, no external references), so they were removed and the public wrappers were collapsed around `uartRead`'s existing `A=0` / `A=byte` contract. `make` confirmed `__data_compiler_tail` moved from `$EB11` to `$EAE9` (`-40B` code/data) and `__BSS_END_tail` from `$F4FA` to `$F4D0` (`-42B` total, including `-2B` BSS).
+- Latest committed checkpoint: `07a9b5e` (`Shrink UI runtime and harden save notifications`) — uncommitted: `asm/divmmc_uart.asm` shrink + router/pattern updates; unrelated local edit still present in `include/spectalk.h`.
+- Build status: local `make` rechecked after the divMMC UART shrink; build, trim and all four overlays pass.
+- Current verified trimmed size from `make`: `36137B` trimmed / `36217B` TAP / `48B` BSS slack (`0xF500 - 0xF4D0`).
 - Current overlay sizes: `SPCTLK1.OVL` 1385B, `SPCTLK2.OVL` 1968B, `SPCTLK3.OVL` 1591B, `SPCTLK4.OVL` 1801B.
-- Audit highlight: the resident ASM split/rendering shrink/SNTP retry from `3c2998e` remains the structural baseline; `2f540fc` added the `40_text_numeric_screen.asm` shrink/alignment fix, and `315a3f4` is the combined SAFE `-41B` follow-up on top of that baseline (`-31B` status-bar/rendering helpers, then `-10B` more in `draw_status_bar_real()`), with no overlay growth.
+- Audit highlight: the divMMC backend's only live latched state is now `_is_recv`; the old peek-cache bytes were vestigial, and removing them recovered enough resident headroom to move the current BSS guard from 6 bytes to 48 bytes without touching overlay sizes.
 
 ## Resume Here
 - The worktree now contains an uncommitted structural refactor: `asm/spectalk_asm.asm` is a thin root and the real code lives in ordered modules inside `asm/spectalk_asm/`.
@@ -16,6 +16,7 @@
 - `make build` now owns the BPE preprocessing step. Use `nobpe` only when you intentionally want the non-BPE path.
 - After `make`, sanity-check `git diff` before trusting `git status` on `src/*.c`: the BPE prep/restore path in this workspace can leave source-looking noise even when the real task change is only in ASM.
 - Add future routines to the nearest domain module instead of growing the root file again.
+- `asm/divmmc_uart.asm` is still part of the active resident build outside the split module tree. Its only live local state is `_is_recv`; do not reintroduce `_poked_byte` / `_byte_buff` unless a real writer/pushback feature returns with verified call sites.
 - `redraw_input_asm()` is still on the faster bulk path, but the generic-space-path experiment in `print_str64_char()` is now known-bad and should not be revived without a more careful proof for status-bar/attr behavior.
 - Applied shrink opts on top of Codex pass: unified `p64_space_*` via mask-in-C (-8B), nested-djnz `_notif_clear` without `ldir` (-4B), and `dbc_mask_2sc` helper for `draw_big_char` top/bot (-9B). All three verified HW-OK on 2026-04-22.
 - `40_text_numeric_screen.asm` now prefers `_ld_hl_ix4/_ld_hl_ix6` for resident cdecl loads, treats IXL/IYL booleans as zero/nonzero flags, and reuses preserved counts/pointers across adjacent draw phases instead of recomputing them.
@@ -43,6 +44,7 @@
 - [`build-target-preprocess-deps.md`](patterns/build-target-preprocess-deps.md): any direct build target must own the preprocessing it needs and track include/module inputs explicitly, leaving bypasses as opt-in targets.
 - [`irc-mode-wrapper.md`](patterns/irc-mode-wrapper.md): simple IRC wrappers should prefer passthrough semantics with only the minimum implicit target logic needed for convenience, but query numerics should still produce a visible reply.
 - [`resident-irc-polish-budget.md`](patterns/resident-irc-polish-budget.md): resident IRC niceties should piggyback on existing send/render paths; dedicated helpers and numeric dispatch entries are often too expensive once BSS slack is tight.
+- [`resident-asm-dead-local-state.md`](patterns/resident-asm-dead-local-state.md): if a tiny resident ASM helper keeps local BSS state that no in-tree code writes anymore, remove the dead branch and then collapse the public wrapper around the helper's actual return contract.
 - [`single-byte-callee-popaf.md`](patterns/single-byte-callee-popaf.md): `pop af` is not a safe way to extract a packed trailing `uint8_t` argument into `A` in `__z88dk_callee` helpers; use `pop bc/de` plus `ld a,c/e` instead.
 - [`help-text-source.md`](patterns/help-text-source.md): command help that ships inside `SPECTALK.DAT` should come from a tracked text source, not from hand-edited local DAT payloads.
 - [`notification-builder-helpers.md`](patterns/notification-builder-helpers.md): deduplicate short notification builders by arity, but only keep the helper if `make` proves a net byte win.
@@ -53,7 +55,6 @@
 - [`overlay-exit-rx-reset.md`](patterns/overlay-exit-rx-reset.md): overlay exit paths must discard parser/ring state if `ring_buffer` has been reused as overlay code storage.
 - [`overlay-save-fragment-discard.md`](patterns/overlay-save-fragment-discard.md): overlays that reuse `overlay_slot` while IRC traffic is live must force `rx_overflow=1` on exit so the tail of any truncated line is dropped at the next newline instead of being parsed as a bogus command.
 - [`overlay-resident-string-dedup.md`](patterns/overlay-resident-string-dedup.md): overlays should reuse resident exported string constants when the text is identical, to recover overlay headroom without changing UI or growing TAP.
-- [`single-byte-callee-popaf.md`](patterns/single-byte-callee-popaf.md): for `__z88dk_callee` helpers that consume a packed trailing `uint8_t`, `pop af` + `dec sp` is smaller than popping a wider register pair and moving the byte later, as long as flags are dead and the helper only needs the value in `A`.
 - [`fast-text-renderer-alignment.md`](patterns/fast-text-renderer-alignment.md): any bulk 64-col row renderer must reproduce the same scanline padding as the per-character renderer, or redrawn text will jump vertically relative to incrementally printed text and the cursor/prompt.
 - [`frameless-asm-helper-reuse.md`](patterns/frameless-asm-helper-reuse.md): small resident frameless wrappers should call an existing helper instead of inlining the same byte loop again when the helper's callee stack contract can sit above the wrapper's deeper saved context without disturbing it.
 - [`resident-asm-helper-reuse.md`](patterns/resident-asm-helper-reuse.md): in resident hand-written ASM, prefer shared IX load helpers and preserved register reuse over open-coded re-materialization when the callee contract already proves the values are still live.

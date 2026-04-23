@@ -21,26 +21,19 @@ ZXUNO_REG         EQU 0xFD3B
 
 SECTION bss_user
 
-_poked_byte: DEFS 1
-_byte_buff:  DEFS 1
 _is_recv:    DEFS 1
 
 SECTION code_user
 
 ; -----------------------------------------------------------------------------
 ; Internal helper: uartRead
-; OPTIMIZACIÓN: Flujo unificado y reducción de saltos.
-; OPTIMIZACIÓN IO: inc b para pasar de ZXUNO_ADDR (FC3B) a ZXUNO_REG (FD3B)
-; OPTIMIZACIÓN REG: Uso de E para preservación temporal (evita tocar HL)
-; FIX: Race condition (DI/EI) para proteger _poked_byte y _is_recv
+; Return: CF=1 and A=byte if data available, CF=0 otherwise.
+; _is_recv latches an earlier RX-ready observation so we can read the data
+; register directly without re-reading status first.
 ; -----------------------------------------------------------------------------
 uartRead:
-    ld a, (_poked_byte)
-    and 1
-    jr nz, uartRead_retBuff
-
     ld a, (_is_recv)
-    and 1
+    or a
     jr nz, uartRead_do_read
 
     ; Check Hardware
@@ -53,19 +46,7 @@ uartRead:
 
     in a, (c)
     and UART_BYTE_RECIVED
-    jr nz, uartRead_do_read
-
-    or a            ; CF=0 (No data)
-    ; ei removed — divMMC UART is hardware, no IRQ protection needed
-    ret
-
-uartRead_retBuff:
-    xor a
-    ld (_poked_byte), a
-    ld a, (_byte_buff)
-    scf             ; CF=1 (Data)
-    ; ei removed — divMMC UART is hardware, no IRQ protection needed
-    ret
+    ret z
 
 uartRead_do_read:
     ld bc, ZXUNO_ADDR
@@ -78,14 +59,12 @@ uartRead_do_read:
     in a, (c)
 
     ; Clear flags & Return data
-    ; OPTIMIZACIÓN: Usar E para swap, evitando L para proteger HL del caller
+    ; Preserve the byte in E while resetting the latched RX-ready flag.
     ld e, a         ; Guardar dato en E
     xor a
     ld (_is_recv), a
-    ld (_poked_byte), a
     ld a, e         ; Restaurar dato a A
     scf             ; CF=1 (Data)
-    ; ei removed — divMMC UART is hardware, no IRQ protection needed
     ret
 
 ; -----------------------------------------------------------------------------
@@ -94,7 +73,6 @@ uartRead_do_read:
 ; -----------------------------------------------------------------------------
 _ay_uart_init:
     xor a
-    ld (_poked_byte), a
     ld (_is_recv), a
 
     ; Prime reads
@@ -174,17 +152,15 @@ uartSend_wait_tx:
 
 ; -----------------------------------------------------------------------------
 ; _ay_uart_ready
-; OPTIMIZACIÓN: Salto directo si hay byte cacheado y uso de inc b
+; OPTIMIZACIÓN: `_is_recv` is the only latched fast path.
 ; -----------------------------------------------------------------------------
 _ay_uart_ready:
-    ld a, (_poked_byte)
-    or a
-    jr nz, uartReady_yes
-
     ld a, (_is_recv)
+    ld l, a
     or a
-    jr nz, uartReady_yes
+    ret nz
 
+uartReady_check_hw:
     ld bc, ZXUNO_ADDR
     ld a, UART_STAT_REG
     out (c), a
@@ -199,20 +175,10 @@ _ay_uart_ready:
     ld l, a
     ret
 
-uartReady_yes:
-    ld l, 1
-    ret
-
 ; -----------------------------------------------------------------------------
 ; _ay_uart_read
 ; -----------------------------------------------------------------------------
 _ay_uart_read:
     call uartRead
-    jr nc, uartRead_none
-    ld l, a
-    ret
-
-uartRead_none:
-    xor a
     ld l, a
     ret
