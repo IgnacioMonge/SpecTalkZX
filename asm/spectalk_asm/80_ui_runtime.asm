@@ -806,8 +806,9 @@ PUBLIC _input_cache_attr
 
 defc _input_cache_char = 0x5B00  ; 128 bytes (INPUT_LINES * SCREEN_COLS)
 defc _input_cache_attr = 0x5B80  ;  64 bytes (INPUT_LINES * 32)
-; 0x5BC0-0x5BFF (64 bytes) unused ? esxDOS corrupts Printer Buffer during RST 8
-; irc_pass, nickserv_pass, network_name moved back to BSS (must survive esxDOS calls)
+; 0x5BC0-0x5BFF: scratch transitorio mapeado en 00_preamble.asm. No persistente
+; a llamadas esxDOS; render paths no cruzan esxDOS → estable mid-render.
+; irc_pass, nickserv_pass, network_name en BSS (deben sobrevivir esxDOS).
 
 ; CHANS WORKSPACE (0x5CB6 - 0x5DB5: 256 bytes, unused ? no ROM I/O channels)
 PUBLIC _line_buffer

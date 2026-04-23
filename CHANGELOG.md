@@ -19,6 +19,7 @@ Snapshots progresivos en `Development/dev-1.3.7.N/`.
 | + post-`/mode` shrink round | 36,006 | +287 |
 | + Search UX + split/shrink ASM + PM reply/notice + UART shrinks | 36,178 | +459 |
 | + 30_rendering audit (R01/R02) + shrink (M01-M05 + S01) | 36,136 | +417 |
+| + Printer Buffer scratch reloc + overlay exit fragment-discard fix | 36,144 | +425 |
 
 ### Functional fixes
 

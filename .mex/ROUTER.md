@@ -2,12 +2,12 @@
 
 ## Project State
 - Date: 2026-04-23
-- Recent task: audited `30_rendering.asm` (R01 `font_lut` ALIGN robustness + R02 LDIR BC=0 guard), applied shrink-z80 scan wins (M01-M05) and dead trailing update in `_print_line64_fast` (S01).
-- Latest committed checkpoint: `dccb3fb` (`Shrink resident ASM helpers`) — uncommitted worktree: `asm/spectalk_asm/30_rendering.asm` rendering shrink + CHANGELOG + router refresh.
-- Build status: local `make` rechecked after the rendering shrink round; build, trim and all four overlays pass. HW verified by user.
-- Current verified trimmed size from `make`: `36056B` trimmed / `36136B` TAP / `130B` BSS slack (`0xF500 - 0xF47E`).
+- Recent task: relocated 39B transient scratch (glyph_buffer, plf_*, bpe_*) from BSS to Printer Buffer tail ($5BC0-$5BE6); generalized overlay-exit fragment-discard pattern to non-`!about` overlays (fixes garbage names on `!config` during NAMES flood); added `cursor_show()` after `!about` flush_frames countdown to repaint the input cursor.
+- Latest committed checkpoint: `6d12cf3` (`Parenthesize /names summary line`) — uncommitted worktree: scratch relocation + overlay exit fix + about cursor fix.
+- Build status: local `make` rechecked; build, trim and all four overlays pass. HW verified by user (`!about`/`!config` cycling, no /join drop, no NAMES garbage).
+- Current verified trimmed size from `make`: `36064B` trimmed / `36144B` TAP / `171B` BSS slack (`0xF500 - 0xF455`).
 - Current overlay sizes: `SPCTLK1.OVL` 1385B, `SPCTLK2.OVL` 1968B, `SPCTLK3.OVL` 1591B, `SPCTLK4.OVL` 1801B.
-- Current shrink highlight: versus the prior baseline (`36098B` / `87B` slack), this pass recovered another `42B` resident net (`__data_compiler_tail $EAC2 -> $EA98`, `__BSS_END_tail $F4A9 -> $F47E`) while also hardening `font_lut` alignment (low byte margin $9 -> $34) and guarding the attr-fill LDIR from a BC=0 hazard. Total changes: R01 (+3B BSS pad, safer font_lut), R02 (+2B guard), M01-M05 (-27B, micro-optimizations), S01 (-17B, dead global update removal in `_print_line64_fast`).
+- Current shrink highlight: vs prior baseline (`36136B` / `130B` slack), this round is +8B TAP / +41B slack. TAP grew because of the `cursor_show()` call and the scoped rx_overflow branch; BSS slack jumped 40B because 39B of transient scratch moved out of BSS into Printer Buffer tail ($5BC0+). Total slack now 171B (was 87B at start of session).
 
 ## Resume Here
 - The worktree now contains an uncommitted structural refactor: `asm/spectalk_asm.asm` is a thin root and the real code lives in ordered modules inside `asm/spectalk_asm/`.

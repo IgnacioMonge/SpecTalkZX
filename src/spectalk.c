@@ -3002,7 +3002,15 @@ void main(void)
                         flush_frames = 15; /* drain UART silently — handles NAMES floods */
                     }
                     overlay_exit_full();
-                    if (flush_frames) cursor_visible = 0;
+                    if (flush_frames) {
+                        cursor_visible = 0;
+                    } else {
+                        // Non-ABOUT overlay exit during IRC traffic: overlay_slot
+                        // aliased rx_line, so any line mid-transit got its head
+                        // clobbered. Discard tail up to next \n so parser resyncs.
+                        // !about path skips this — flush_frames drains silently.
+                        rx_overflow = 1;
+                    }
                 } else if (c) {
                     // Help: paginated — advance page
                     help_page++;
@@ -3160,7 +3168,10 @@ void main(void)
                     process_irc_data();         // consume data silently
                     uart_drain_limit = DRAIN_NORMAL;
                     overlay_mode = 0;
-                    if (!flush_frames) cursor_visible = 1;
+                    if (!flush_frames) {
+                        cursor_visible = 1;
+                        cursor_show();  // flush_frames end: repaint cursor (!about exit)
+                    }
                 } else {
                     process_irc_data();
                 }

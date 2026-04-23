@@ -241,23 +241,35 @@ DEFC RB_MASK_H = 0x07   ; High byte mask for 2048 (0x0800)
                          ; this MUST be updated: 2048?0x07, 4096?0x0F, etc.
 
 ; =============================================================================
-; VARIABLES BSS (Buffer para descompresi?n de fuente)
+; SCRATCH TRANSITORIO - Printer Buffer tail ($5BC0-$5BFF, 64B)
+; =============================================================================
+; Zona corrompida por esxDOS RST 8. Solo datos que NO deben sobrevivir a
+; llamadas file I/O (overlay load, SPECTALK.DAT, config read/write, help).
+; Los render paths (unpack_glyph, print_line64_fast, main_puts/BPE) NO llaman
+; esxDOS mid-execution → la zona es estable dentro de cada render.
+; Zero-fill inicial cubierto por CRT init (zero_fill_256 en $5B00).
+; =============================================================================
+defc glyph_buffer    = 0x5BC0  ; 8B  scratch unpack_glyph
+defc plf_left_buf    = 0x5BC8  ; 8B  scratch print_line64_fast (nibbles izq)
+defc plf_str_ptr     = 0x5BD0  ; 2B  scratch print_line64_fast
+defc plf_attr_val    = 0x5BD2  ; 1B  scratch print_line64_fast
+defc plf_y_val       = 0x5BD3  ; 1B  scratch print_line64_fast
+PUBLIC _plf_start_byte
+defc _plf_start_byte = 0x5BD4  ; 1B  wrap_indent/2 (seteado por callers ASM)
+defc bpe_rstack      = 0x5BD5  ; 16B BPE return stack (8 niveles x 2B)
+defc bpe_rsp         = 0x5BE5  ; 2B  BPE stack pointer
+; $5BE7-$5BFF (25B libres para futuro scratch transitorio)
+
+; =============================================================================
+; VARIABLES BSS (solo las que deben sobrevivir a llamadas esxDOS RST 8)
 ; =============================================================================
 SECTION bss_user
-glyph_buffer: defs 8    ; Buffer temporal para glifo descomprimido
-plf_left_buf: defs 8    ; Buffer temporal para nibbles izquierdos (print_line64_fast)
-plf_str_ptr:  defs 2    ; String pointer temporal (print_line64_fast)
-plf_attr_val: defs 1    ; Atributo a escribir (print_line64_fast)
-plf_y_val:    defs 1    ; Fila Y (print_line64_fast)
-PUBLIC _plf_start_byte
-_plf_start_byte: defs 1 ; Start byte offset (wrap_indent/2, 0=full row)
 cache_scr_base: defs 2  ; Screen base addr cacheada (print_str64_char)
 cache_atr_base: defs 2  ; Attr base addr cacheada (print_str64_char)
 cache_row_y:   defs 1   ; Fila Y del cache (0xFF = inv?lido)
-
-; BPE decompression state (dict is after theme_raw for contiguous SPECTALK.DAT load)
-bpe_rstack:   defs 16   ; Return stack for BPE expansion (8 levels x 2 bytes)
-bpe_rsp:      defs 2    ; Current position in bpe_rstack
+                        ; NOTA: cache_row_y DEBE estar en BSS. Si esxDOS
+                        ; dejase aquí un valor != 0xFF coincidente con y
+                        ; actual, next lookup tendría cache hit falso.
 
 
 SECTION code_user
