@@ -176,9 +176,10 @@ _attr_addr:
     call _compute_attr_base
 
     ; A?adir phys_x
-    ld c, (ix+5)        ; phys_x
-    ld b, 0
-    add hl, bc
+    ; attr rows are aligned to 32 bytes, so phys_x 0..31 never carries into H
+    ld a, (ix+5)        ; phys_x
+    add a, l
+    ld l, a
 
     pop ix
     ret
@@ -330,9 +331,9 @@ p64_calc_font:
     ld a, (_g_ps64_col)
     ld b, a
     srl a
-    ld e, a
-    ld d, 0
-    add hl, de              ; HL = direcci?n pantalla
+    ; screen row base L is a multiple of 32; col/2 0..31 never carries into H
+    add a, l
+    ld l, a                 ; HL = direcci?n pantalla
 
     ; Space clear (8 scanlines): C = nibble preserve mask
     ; Even col (bit0=0) → AND 0x0F ; odd col (bit0=1) → AND 0xF0
@@ -362,9 +363,9 @@ p64_not_space:
     ld a, (_g_ps64_col)
     ld b, a                 ; Guardar col (paridad) temporalmente
     srl a
-    ld e, a
-    ld d, 0
-    add hl, de              ; HL = direcci?n pantalla
+    ; screen row base L is a multiple of 32; col/2 0..31 never carries into H
+    add a, l
+    ld l, a                 ; HL = direcci?n pantalla
 
     pop de                  ; DE = puntero fuente (glyph_buffer)
 
@@ -459,9 +460,9 @@ dbc_valid:
 dbc_add_col:
     ld a, (_g_ps64_col)
     srl a
-    ld c, a
-    ld b, 0
-    add hl, bc
+    ; screen row base L is a multiple of 32; col/2 0..31 never carries into H
+    add a, l
+    ld l, a
     ret
 
 dbc_left_core:
@@ -736,8 +737,9 @@ _print_line64_fast:
     or a
     jr z, plf_full_row
     ld c, a
-    ld b, 0
-    add hl, bc
+    ; screen row base L is a multiple of 32; start_byte 0..31 never carries into H
+    add a, l
+    ld l, a
     ld a, 32
     sub c
     ld b, a
@@ -1006,14 +1008,16 @@ _draw_indicator:
     call ___sdcc_enter_ix
 
     ld a, (ix+4)            ; y
+    push af
     ld c, (ix+6)            ; attr
 
     ; Calcular direcci?n screen
     call _compute_screen_base
 
-    ld e, (ix+5)            ; phys_x
-    ld d, 0
-    add hl, de              ; HL = direcci?n exacta pixel
+    ; screen row base L is a multiple of 32; phys_x 0..31 never carries into H
+    ld a, (ix+5)            ; phys_x
+    add a, l
+    ld l, a                 ; HL = direcci?n exacta pixel
     
     call ind_select_pattern     ; DE = pattern
 
@@ -1028,12 +1032,13 @@ di_pattern_loop:
     djnz di_pattern_loop
 
     ; Atributos via lookup table
-    ld a, (ix+4)            ; y
+    pop af
     call _compute_attr_base ; HL = attr base
 
-    ld e, (ix+5)            ; phys_x
-    ld d, 0
-    add hl, de
+    ; attr row base L is a multiple of 32; phys_x 0..31 never carries into H
+    ld a, (ix+5)            ; phys_x
+    add a, l
+    ld l, a
 
     ld (hl), c              ; attr
 

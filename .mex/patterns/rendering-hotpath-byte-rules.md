@@ -7,6 +7,7 @@ When touching `asm/spectalk_asm/30_rendering.asm`, prefer local byte wins that a
 - If `p64_get_scr_base()` returns successfully, treat both `cache_scr_base` and `cache_atr_base` as valid for the current `_g_ps64_y`; do not immediately call a second cache validator for attrs.
 - In `sdcc_iy` builds, do not wrap `___sdcc_enter_ix` with `push iy` / `pop iy` unless the routine or one of its callees really touches `IY`; dropping the save means the argument offsets shrink by 2.
 - When `phys_x` and `scanline` already form a packed 16-bit offset, load them as a pair and use a single `add hl,de` / `add hl,bc` instead of open-coding low-byte add plus carry repair.
+- When a screen/attr row base is already aligned to 32 bytes and the offset is proven `0..31` (`phys_x`, `col/2`, `start_byte`), do not materialize a 16-bit register pair just to add it; `add a,l / ld l,a` is shorter and safe because the low-byte add cannot carry into `H`.
 - If a glyph routine already returns a source pointer in `HL`, consume that pointer directly; do not hardcode `glyph_buffer` again unless the caller really needs the fixed buffer address.
 - If all call sites already clamp a string to the target width, do not re-check the column limit inside the per-character loop; stop on NUL and keep the loop backedge short.
 - If a live screen pointer is still valid in `HL`, keep it there; do not round-trip it through `BC`/stack or save/restore it across a helper that already preserves `HL`.

@@ -1353,21 +1353,6 @@ static char *extract_network_short(char *hostname) __z88dk_fastcall
 }
 uint8_t force_status_redraw = 1;
 
-static void draw_connection_indicator(void)
-{
-    uint8_t ind_attr;
-
-    if (connection_state >= STATE_TCP_CONNECTED) {
-        ind_attr = STATUS_GREEN;
-    } else if (connection_state >= STATE_WIFI_OK) {
-        ind_attr = STATUS_YELLOW;
-    } else {
-        ind_attr = STATUS_RED;
-    }
-
-    draw_indicator(INFO_LINE, 31, ind_attr);
-}
-
 // sb_put_u8_2d: Escribe un número 0-19 como 1-2 dígitos
 // CONTRATO:
 //   - Escribe 1 dígito si v < 10, 2 dígitos si v >= 10
@@ -1378,21 +1363,20 @@ static void draw_connection_indicator(void)
 
 static const char* sb_pick_status(uint8_t prefer_server_full) __z88dk_fastcall
 {
+    if (connection_state < STATE_TCP_CONNECTED) {
+        return (connection_state == STATE_WIFI_OK) ? "wifi-ready" : "offline";
+    }
+
     // prefer_server_full=1: prioridad a irc_server (hostname completo)
     // prefer_server_full=0: prioridad a network_name, o short(irc_server)
-    if (connection_state >= STATE_TCP_CONNECTED) {
-        if (prefer_server_full) {
-            if (irc_server[0])  return irc_server;
-            if (network_name[0]) return network_name;
-            return S_CONNECTED;
-        } else {
-            if (network_name[0]) return network_name;
-            if (irc_server[0])   return extract_network_short(irc_server);
-            return S_CONNECTED;
-        }
+    if (prefer_server_full) {
+        if (irc_server[0]) return irc_server;
+        if (network_name[0]) return network_name;
+    } else {
+        if (network_name[0]) return network_name;
+        if (irc_server[0]) return extract_network_short(irc_server);
     }
-    if (connection_state == STATE_WIFI_OK) return "wifi-ready";
-    return "offline";
+    return S_CONNECTED;
 }
 
 extern char *u16_to_dec3(char *dst, uint16_t v);
@@ -1505,11 +1489,6 @@ void draw_status_bar_real(void)
     char *p = sb_left_part;
     char *const limit_end = sb_left_part + 54;  // cols 54+ reserved for clock
 
-    uint8_t cur_flags = chan_flags;
-    uint8_t is_query = (cur_flags & CH_FLAG_QUERY) && current_channel_idx != 0;
-
-    uint8_t has_mention = has_other_mention();
-
     // === SECCIÓN 1: Nick y modos de usuario ===
     // Límites: nick máx 10 chars (col 1-10), modes máx 4 chars (col 12-15)
     // Formato: [nick(+modes)]
@@ -1531,9 +1510,8 @@ void draw_status_bar_real(void)
     // Se calcula ANTES de sección 2 para reservar espacio
     // Formato: " [NNN]" = 1 + 1 + 1-3 + 1 = 4-6 chars
     uint8_t user_len = 0;
-    fmt_buf[0] = 0;
 
-    if (irc_channel[0] && !(cur_flags & CH_FLAG_QUERY) && chan_user_count > 0) {
+    if (irc_channel[0] && !(chan_flags & CH_FLAG_QUERY) && chan_user_count > 0) {
         char *u_end = u16_to_dec(fmt_buf, chan_user_count);
         user_len = (uint8_t)(u_end - fmt_buf) + 3;  // " [" + numero + "]"
     }
@@ -1544,7 +1522,7 @@ void draw_status_bar_real(void)
     {
         char *central_limit = limit_end - user_len;
 
-        if (has_mention) *p++ = (time_second & 1) ? ' ' : '!';
+        if (has_other_mention()) *p++ = (time_second & 1) ? ' ' : '!';
         else if (other_channel_activity) *p++ = '*';
 
         if (channel_count > 1) {
@@ -1561,8 +1539,8 @@ void draw_status_bar_real(void)
             if (current_channel_idx == 0 && st_stricmp(channels[0].name, S_SERVER) == 0) {
                 p = sb_append(p, (char*)sb_pick_status(1), central_limit - 1);
             } else if (irc_channel[0]) {
-                if (is_query) *p++ = '@';
-                p = sb_format_channel(p, central_limit, cur_flags);
+                if ((chan_flags & CH_FLAG_QUERY) && current_channel_idx != 0) *p++ = '@';
+                p = sb_format_channel(p, central_limit, chan_flags);
             } else if (current_channel_idx == 0) {
                 p = sb_append(p, (char*)sb_pick_status(0), central_limit - 1);
             } else {
@@ -1577,7 +1555,7 @@ void draw_status_bar_real(void)
     }
 
     // === SECCIÓN 3 (renderizado): Escribir contador de usuarios ===
-    if (fmt_buf[0]) {
+    if (user_len) {
         *p++ = ' ';
         *p++ = '[';
         p = sb_append(p, fmt_buf, limit_end - 1);  // -1 reserva espacio para ']'
@@ -1592,7 +1570,10 @@ void draw_status_bar_real(void)
     force_status_redraw = 0;
 
     draw_clock();
-    draw_connection_indicator();
+    draw_indicator(INFO_LINE, 31,
+                   (connection_state >= STATE_TCP_CONNECTED) ? STATUS_GREEN :
+                   (connection_state >= STATE_WIFI_OK) ? STATUS_YELLOW :
+                   STATUS_RED);
 }
 
 

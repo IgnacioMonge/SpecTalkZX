@@ -2,12 +2,12 @@
 
 ## Project State
 - Date: 2026-04-23
-- Recent task: fixed the 1-pixel vertical mismatch between command-history redraw and normal input text by making `print_line64_fast()` mirror `_print_str64_char()` alignment (blank top scanline, glyph rows start at scanline 1). Verified with full `make`.
-- Latest committed checkpoint: `3c2998e` (`Split ASM modules, shrink renderer, and retry SNTP on connect`) — uncommitted: text/numeric screen shrink + fast-render alignment fix + router/pattern updates.
-- Build status: local `make` OK on 2026-04-23. TAP `35794B` (`+22B` vs `35772B` prior baseline, `-132B` vs `35926B` pre-shrink baseline). Overlays unchanged (`SPCTLK1` 1385B, `SPCTLK2` 1968B, `SPCTLK3` 1591B, `SPCTLK4` 1796B). BSS guard 389B free before `ring_buffer`.
-- Current verified TAP from `make`: `35794B` on 2026-04-23.
+- Recent task: continued on status bar/UI and landed another SAFE local shrink in `src/spectalk.c`: removed the remaining one-use temporaries in `draw_status_bar_real()` (`has_mention`, then `cur_flags`) while keeping the already-good structure, after rejecting two measured-worse experiments (`extract_network_short()` manual loop and a larger branch reorder of the center-section chooser). Verified with full `make`.
+- Latest committed checkpoint: `2f540fc` (`Fix input redraw alignment and shrink text/numeric ASM`) — uncommitted: status-bar/rendering micro-shrink + router/pattern updates.
+- Build status: local `make` OK on 2026-04-23. TAP `35753B` (`-10B` vs `35763B` pre-status-bar pass, `-41B` vs `35794B` post-commit baseline, `-173B` vs `35926B` pre-shrink baseline). Overlays unchanged (`SPCTLK1` 1385B, `SPCTLK2` 1968B, `SPCTLK3` 1591B, `SPCTLK4` 1796B). BSS guard 430B free before `ring_buffer`.
+- Current verified TAP from `make`: `35753B` on 2026-04-23.
 - Current overlay sizes: unchanged (`SPCTLK1.OVL` 1385B, `SPCTLK2.OVL` 1968B, `SPCTLK3.OVL` 1591B, `SPCTLK4.OVL` 1796B).
-- Audit highlight: the resident ASM split/rendering shrink/SNTP retry from `3c2998e` remains the structural baseline; the latest follow-up is a SAFE local shrink pass in `40_text_numeric_screen.asm` measured at `-154B` TAP with no overlay growth.
+- Audit highlight: the resident ASM split/rendering shrink/SNTP retry from `3c2998e` remains the structural baseline; `2f540fc` added the `40_text_numeric_screen.asm` shrink/alignment fix, and the latest follow-up is a combined SAFE `-41B` pass after that commit (`-31B` status-bar/rendering helpers, then `-10B` more in `draw_status_bar_real()`), with no overlay growth.
 
 ## Resume Here
 - The worktree now contains an uncommitted structural refactor: `asm/spectalk_asm.asm` is a thin root and the real code lives in ordered modules inside `asm/spectalk_asm/`.
@@ -20,8 +20,13 @@
 - Applied shrink opts on top of Codex pass: unified `p64_space_*` via mask-in-C (-8B), nested-djnz `_notif_clear` without `ldir` (-4B), and `dbc_mask_2sc` helper for `draw_big_char` top/bot (-9B). All three verified HW-OK on 2026-04-22.
 - `40_text_numeric_screen.asm` now prefers `_ld_hl_ix4/_ld_hl_ix6` for resident cdecl loads, treats IXL/IYL booleans as zero/nonzero flags, and reuses preserved counts/pointers across adjacent draw phases instead of recomputing them.
 - `print_line64_fast()` must stay visually aligned with `_print_str64_char()`: the per-char path leaves scanline 0 blank and starts glyph data at scanline 1, so the fast row renderer must do the same or recalled/history/redrawn text appears 1 pixel higher than incrementally typed text.
+- `src/spectalk.c` status-bar shrink that measured well: keep `draw_indicator()` inlined at the tail of `draw_status_bar_real()` and keep `sb_pick_status()` in the early-return form; a fuller per-callsite inline of `sb_pick_status()` was previously measured worse and is not worth reviving blindly.
+- `draw_status_bar_real()` also shrank well when the builder stopped materializing one-use temps: calling `has_other_mention()` directly in the branch and reading `chan_flags` directly beat cached locals (`has_mention`, then `cur_flags`) under current SDCC output.
+- In `30_rendering.asm`, when a screen/attr base is already aligned to 32 bytes and the offset is provably `0..31`, prefer `add a,l / ld l,a` over `ld rr,0..31` + `add hl,rr`; this paid off in `_attr_addr()`, `_draw_indicator()`, `_print_str64_char()`, `dbc_add_col()`, and `_print_line64_fast()`.
+- Rejected in this pass: rewriting `draw_clock()` with fixed indexing (`fmt_buf[n]`) grew the binary by 2 bytes; keep the pointer-walk version.
+- Rejected in the status-bar follow-up: the manual-loop rewrite of `extract_network_short()` grew the binary by 34 bytes, and the seemingly cleaner nested reordering of the center-section chooser inside `draw_status_bar_real()` grew it by 16 bytes.
 - SNTP retry in `/server` path: up to 3 attempts with ~1s spacing, driven by `!sntp_queried`. Fix for clock-stuck-at-00:00 when ESP8266 NTP isn't yet synced on first query.
-- The next rendering/UI changes should be re-measured against the new stable baseline `35772B` TAP / `411B` BSS slack.
+- The next rendering/UI changes should be re-measured against the new stable baseline `35753B` TAP / `430B` BSS slack.
 
 ## Patterns
 - [`asm-root-include-split.md`](patterns/asm-root-include-split.md): keep the resident ASM as a thin ordered root with contiguous domain modules so large refactors stay reviewable without disturbing code layout.
