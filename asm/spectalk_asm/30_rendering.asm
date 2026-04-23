@@ -448,7 +448,18 @@ dbc_valid:
     inc a
     call _compute_screen_base
     call dbc_add_col
-    jr dbc_render_bot           ; tail call (in range)
+    call dbc_render_bot
+    ; Attribute cells cover both 4px halves, so set the touched physical cell
+    ; for both rows after the bitmap write.
+    ld a, (_g_ps64_y)
+    call _compute_attr_base
+    call dbc_add_col
+    ld a, (_g_ps64_attr)
+    ld (hl), a
+    ld de, 32
+    add hl, de
+    ld (hl), a
+    ret
 
 ; Shared: HL += col/2, and B = col (for parity test by caller).
 ; Caller draw_big_char ignores B post-call (dbc_render_top/bot reload `ld b, 3`).

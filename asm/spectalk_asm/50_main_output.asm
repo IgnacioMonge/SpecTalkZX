@@ -12,6 +12,10 @@ EXTERN _time_minute
 EXTERN _last_ts_hour
 EXTERN _last_ts_minute
 
+; 2B transient scratch in the free printer-buffer tail ($5BE7-$5BFF).
+; Only live inside main_print_wrapped_ram()'s scan, before render/BPE calls.
+defc mpwr_last_space = 0x5BE7
+
 ; -----------------------------------------------------------------------------
 ; void main_print_time_prefix(void)
 ; Prints "HH:MM| " using ATTR_MSG_TIME, then restores current_attr.
@@ -49,7 +53,7 @@ mptp_spaces:
     call _main_putc
     pop bc
     djnz mptp_spaces
-    jr mptp_ret
+    ret
 
 mptp_changed:
     ; Update last printed time
@@ -91,7 +95,7 @@ mptp_do:
     ; wrap_indent = 6
     ld a, 6
     ld (_wrap_indent), a
-    jr mptp_ret
+    ret
 
 mptp_off:
     xor a
@@ -153,14 +157,16 @@ _main_putc:
     push bc
     call _main_newline
     pop bc
+    ld a, (_main_col)
+    cp 64
+    ret z
     
 mputc_no_wrap:
     ; Configurar variables globales para el driver de video (bypasea print_char64 de C)
+    ld (_g_ps64_col), a
+
     ld a, (_main_line)
     ld (_g_ps64_y), a
-    
-    ld a, (_main_col)
-    ld (_g_ps64_col), a
     
     ld a, (_current_attr)
     ld (_g_ps64_attr), a
@@ -182,15 +188,13 @@ mputc_no_wrap:
 ; -----------------------------------------------------------------------------
 PUBLIC _main_print_wrapped_ram
 _main_print_wrapped_ram:
-    push ix
-    
     ; Convertir UTF-8 a ASCII in-place antes de procesar
     call _utf8_to_ascii     ; HL se preserva (fastcall, mismo puntero)
 
 mpwr_loop:
     ld a, (hl)
     or a
-    jp z, mpwr_finalize          ; <-- era jr z
+    jr z, mpwr_finalize
 
     ; Si estamos al final de l?nea, pasar a la siguiente SIN perder HL
     ld a, (_main_col)
@@ -204,11 +208,10 @@ mpwr_loop:
     ; Salir para no pisar "Cancelled".
     ld a, (_main_col)
     cp 64
-    jp z, mpwr_abort             ; <-- era jr z
+    jr z, mpwr_abort
 
 mpwr_have_col:
     ; avail = 64 - main_col  -> B
-    ld a, (_main_col)
     cpl
     add a, 65
     ld b, a
@@ -217,7 +220,7 @@ mpwr_have_col:
     ld d, h
     ld e, l
 
-    ld ix, 0                     ; ?ltimo espacio (0 = ninguno)
+    ld (mpwr_last_space), hl     ; start sentinel: none/first-space => hard cut
 
 mpwr_scan:
     ld a, (hl)
@@ -226,37 +229,33 @@ mpwr_scan:
 
     cp 32                        ; ' '
     jr nz, mpwr_scan_next
-    push hl
-    pop ix
+    ld (mpwr_last_space), hl
 
 mpwr_scan_next:
     inc hl
     djnz mpwr_scan
 
     ; Alcanzados "avail" chars
-    ld a, ixl
-    or ixh
-    jr z, mpwr_cut_hard
+    ld b, h
+    ld c, l                      ; hard cutpoint / next_start
+    ld hl, (mpwr_last_space)     ; last usable space, or start sentinel
 
-    ; BC = ?ltimo espacio
-    push ix
-    pop bc
-
-    ; Si el ?nico espacio es el primero (BC == DE), usar hard cut
-    ld a, b
-    cp d
-    jr nz, mpwr_use_space
-    ld a, c
-    cp e
-    jr z, mpwr_cut_hard
+    ; Si no hubo espacio usable (o el único espacio es el primero), hard cut
+    or a
+    sbc hl, de
+    jr z, mpwr_cut_hard_from_bc
+    add hl, de
 
 mpwr_use_space:
-    ; cutpoint = BC (espacio), next_start = BC+1
-    ld h, b
-    ld l, c
+    ; cutpoint = HL (espacio), next_start = HL+1
+    ld b, h
+    ld c, l
     inc bc
     jr mpwr_cut_common
 
+mpwr_cut_hard_from_bc:
+    ld h, b
+    ld l, c
 mpwr_cut_end:
 mpwr_cut_hard:
     ; cutpoint = HL (NUL o start+avail), next_start = HL
@@ -282,7 +281,7 @@ mpwr_cut_common:
 
     ; Set start byte offset from wrap_indent (0 if no indent)
     ld a, (_wrap_indent)
-    srl a                        ; indent_bytes = wrap_indent / 2
+    rrca                         ; indent_bytes = wrap_indent / 2 (0 or 6 only)
     ld (_plf_start_byte), a
 
     ; Args para _print_line64_fast: [y][start_lo][start_hi][attr]
@@ -304,8 +303,7 @@ mpwr_cut_common:
     jr mpwr_print_done
 
 mpwr_print_puts:
-    ld h, d
-    ld l, e
+    ex de, hl
     call _main_puts
 
 mpwr_print_done:
@@ -336,13 +334,9 @@ mpwr_finalize:
     ; Igual que main_print: reset indent antes del newline final
     xor a
     ld (_wrap_indent), a
-    call _main_newline
-
-    pop ix
-    ret
+    jp _main_newline
 
 mpwr_abort:
-    pop ix
     ret
     
 ; -----------------------------------------------------------------------------
@@ -416,28 +410,20 @@ puts_opt_emit:
     add a, l
     ld l, a              ; HL = screen byte for this column pair
 
+    ; Clear the selected nibble across 8 scanlines.
+    ld e, 0x0F
     bit 0, b
-    jr nz, puts_sp_right
-    ; Left nibble: AND 0x0F across 8 scanlines
+    jr z, puts_sp_mask_set
+    ld e, 0xF0
+puts_sp_mask_set:
     ld d, 8
-puts_sp_left:
+puts_sp_loop:
     ld a, (hl)
-    and 0x0F
+    and e
     ld (hl), a
     inc h
     dec d
-    jr nz, puts_sp_left
-    jr puts_sp_attr
-puts_sp_right:
-    ; Right nibble: AND 0xF0 across 8 scanlines
-    ld d, 8
-puts_sp_right_lp:
-    ld a, (hl)
-    and 0xF0
-    ld (hl), a
-    inc h
-    dec d
-    jr nz, puts_sp_right_lp
+    jr nz, puts_sp_loop
 puts_sp_attr:
     ; Attribute: cache_atr_base + col/2 (L múltiplo de 32, col/2 0..31 → no carry)
     ld hl, (cache_atr_base)
@@ -445,10 +431,7 @@ puts_sp_attr:
     srl a
     add a, l
     ld l, a
-    ld a, c              ; C = current_attr
-    cp (hl)
-    jr z, puts_sp_done
-    ld (hl), a
+    ld (hl), c           ; C = current_attr
 puts_sp_done:
     pop de               ; restore string pointer
     inc b                ; main_col++
@@ -479,6 +462,8 @@ puts_opt_wrap:
     pop hl
     pop de
     call puts_reload_nl
+    bit 6, b
+    ret nz
     jr puts_opt_emit
 
 puts_opt_nl:
@@ -488,9 +473,11 @@ puts_opt_nl:
     push de
     call _main_newline
     pop de
-    inc de
     call puts_reload_nl
-    jp puts_opt_loop
+    bit 6, b
+    ret nz
+    inc de
+    jr puts_opt_loop
 
 puts_reload_nl:
     ; Shared reload after newline (main_newline clobbers BC)
@@ -512,14 +499,12 @@ puts_bpe_expand:
     inc de                  ; advance past the token
     push bc                 ; save B=col, C=attr
     ; W8 fix: check rstack overflow before push (8 levels = 16 bytes)
+    ld c, a                 ; save token while comparing fixed-page rsp low byte
     ld hl, (bpe_rsp)
-    push de                 ; save continuation address
-    ld de, bpe_rstack + 16
-    or a
-    sbc hl, de
-    add hl, de              ; restore HL = bpe_rsp
-    pop de                  ; restore continuation address
+    ld a, l
+    cp 0xE5                 ; low byte of bpe_rstack + 16
     jr nc, puts_bpe_overflow
+    ld a, c                 ; restore token
     ; Push continuation address (DE) onto BPE return stack
     ld (hl), e
     inc hl
@@ -549,12 +534,10 @@ puts_bpe_pop:
     ; Null byte hit: end of string or end of BPE dict entry
     ; Check if BPE stack has entries
     ld hl, (bpe_rsp)
-    ld de, bpe_rstack
-    or a                    ; clear carry
-    sbc hl, de
+    ld a, l
+    cp 0xD5                 ; low byte of bpe_rstack
     jr z, puts_opt_done     ; stack empty -> real end of string
     ; Pop continuation address from BPE stack
-    ld hl, (bpe_rsp)
     dec hl
     ld d, (hl)
     dec hl
@@ -594,19 +577,16 @@ ign_loop:
     ; Convenci?n C (stack): push right-to-left
     push hl             ; Arg2: nick
     push de             ; Arg1: list_item
-    call _st_stricmp
-    pop de              ; Limpiar pila
-    pop de
+    call _st_stricmp_cleanup
     
     ; Resultado en HL. Si es 0, hay coincidencia.
     ld a, h
     or l
-    jr z, ign_match
-    
     ; Restaurar contexto
     pop hl              ; nick
     pop de              ; list_ptr actual
     pop bc              ; contador
+    jr z, ign_match
     
     ; Avanzar DE + 16 (tama?o fijo de cada entrada en ignore_list)
     ld a, e
@@ -623,10 +603,6 @@ ign_fail:
     ret
     
 ign_match:
-    ; Limpiar pila de los push iniciales del loop
-    pop hl
-    pop de
-    pop bc
     ld l, 1
     ret
 
