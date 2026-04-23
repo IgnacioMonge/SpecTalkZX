@@ -890,8 +890,8 @@ static void h_numeric_366(void)
         if (pagination_count > 0) {
             char buf[8];
             u16_to_dec(buf, names_count_acc);
-            main_puts2("-- ", buf);
-            main_print(search_data_lost ? " (incomplete) --" : " listed --");
+            main_puts2("(", buf);
+            main_print(search_data_lost ? " listed, incomplete)" : " listed)");
         }
         pagination_count = 0;
         cursor_visible = 1;
