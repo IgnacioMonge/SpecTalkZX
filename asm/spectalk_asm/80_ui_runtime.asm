@@ -57,9 +57,7 @@ _set_nick_color:
     ld a, (_nick_color_mode)
     or a
     jr nz, snc_hash
-    ld a, (_theme_attrs + 11)
-    ld (_current_attr), a
-    ret
+    jr _set_attr_nick
 snc_hash:
     ld d, 0
 snc_loop:
@@ -186,9 +184,7 @@ ik_row_loop:
     jp m, ik_row_loop      ; loop while bit 7 set ($FD..$BF)
 
     ; --- Row 7: SYM SHIFT row (port $7FFE, B=$7F after loop) ---
-    ld a, e
-    add a, 5
-    ld e, a                ; E = 35 (row 7 base)
+    ld e, 35               ; row 7 base after rows 1-6
     in a,(c)
     or 0xE2                ; mask SS (bit1) + bits 5-7
     cp 0xFF
@@ -206,39 +202,35 @@ ik_found:
 ik_bitscan:
     rra
     jr nc, ik_gotkey
-    inc d
+    inc e
     jr ik_bitscan
 
 ik_gotkey:
-    ; D = key position (0-4), E = row base offset
-    ld a, e
-    add a, d
-    ld e, a                ; E = table index (0-39)
-    ld d, 0
+    ; E = table index (row base + key position), D = 0
     ld hl, ik_keytable
     add hl, de             ; HL -> unshifted table entry
 
     ; --- Shift detection ---
     ld a, 0xFE
     in a,(0xFE)            ; read CAPS SHIFT row
-    ld d, a                ; D bit0: 0=CS pressed, 1=not
+    ld c, a                ; C bit0: 0=CS pressed, 1=not
     ld a, 0x7F
     in a,(0xFE)            ; read SYM SHIFT row
 
-    bit 0, d
+    bit 0, c
     jr nz, ik_nocaps
     ; CAPS is pressed ? check if SYM also pressed
     bit 1, a
     jr z, ik_nokey         ; both shifts = ignore (no CTRL codes needed)
-    ld bc, 40
-    add hl, bc             ; -> CAPS section
+    ld e, 40
+    add hl, de             ; -> CAPS section
     jr ik_lookup
 
 ik_nocaps:
     bit 1, a
     jr nz, ik_lookup       ; no shift
-    ld bc, 80
-    add hl, bc             ; -> SYM section
+    ld e, 80
+    add hl, de             ; -> SYM section
 
 ik_lookup:
     ld l, (hl)
@@ -305,8 +297,8 @@ _key_ss_arrow:
     ; Check Caps Shift (0xFEFE bit 0) ? needed for arrow keys
     ld a, 0xFE
     in a, (0xFE)
-    bit 0, a
-    ret nz              ; CS not pressed ? 0
+    rrca
+    ret c               ; CS not pressed ? 0
     ; Check key 5 = LEFT (0xF7FE bit 4)
     ld a, 0xF7
     in a, (0xFE)
@@ -325,8 +317,8 @@ ksa_not_left:
 ksa_not_right:
     ; Check key 0 = BACKSPACE (0xEFFE bit 0)
     ; A still has 0xEFFE result from above
-    bit 0, a
-    ret nz              ; 0 not pressed ? 0
+    rrca
+    ret c               ; 0 not pressed ? 0
     ld l, 3             ; SS+BACKSPACE ? 3
     ret
 
@@ -397,8 +389,6 @@ wbr_done:
 ; void input_word_left(void)
 _input_word_left:
     ld a, (_cursor_pos)
-    or a
-    ret z
     call wb_left_clean
     jr wm_apply
 
@@ -423,8 +413,6 @@ wm_apply:
 ; void input_delete_word(void)
 _input_delete_word:
     ld a, (_cursor_pos)
-    or a
-    ret z
     call wb_left_clean      ; A = new_pos (word boundary)
     ld c, a                 ; C = new_pos
     ld a, (_cursor_pos)
@@ -437,18 +425,14 @@ _input_delete_word:
     pop bc                  ; B = del_count, C = new_pos
     ; LDIR: copy line_buffer[cursor_pos..line_len] to line_buffer[new_pos..]
     push bc
-    ld a, c
-    add a, b                ; A = cursor_pos = new_pos + del_count
-    ld e, a
+    ld e, c
     ld d, 0
     ld hl, _line_buffer
-    add hl, de              ; HL = source = &line_buffer[cursor_pos]
-    ld e, c                 ; E = new_pos
+    add hl, de              ; HL = dest = &line_buffer[new_pos]
     push hl
-    ld hl, _line_buffer
-    add hl, de
-    ex de, hl               ; DE = dest = &line_buffer[new_pos]
-    pop hl                  ; HL = source
+    ld e, b                 ; E = del_count
+    add hl, de              ; HL = source = dest + del_count
+    pop de                  ; DE = dest
     ld a, (_line_len)
     sub c
     sub b                   ; A = line_len - cursor_pos
@@ -642,24 +626,26 @@ ea_fail:
 
 ; void fast_u8_to_str(char *buf, uint8_t val) __z88dk_callee
 ; Writes 2 ASCII digits (tens, units) to buf. No null terminator.
+u8_div10:
+    ld a, '0'
+u8_div10_loop:
+    ld b, a             ; B = tens char
+    ld a, c
+    sub 10
+    ret c               ; C remains remainder
+    ld c, a
+    ld a, b
+    inc a
+    jr u8_div10_loop
+
 _fast_u8_to_str:
     pop hl              ; return address
     pop de              ; DE = buf
     pop bc              ; C = val (1B param, reads 1B extra from caller)
     dec sp              ; FIX: compensate extra byte consumed by pop
     push hl             ; restore return addr
-    ld a, '0'           ; tens digit
     ex de, hl           ; HL = buf
-fu8_div10:
-    ld b, a             ; save tens
-    ld a, c
-    sub 10
-    jr c, fu8_done
-    ld c, a             ; val -= 10
-    ld a, b
-    inc a               ; tens++
-    jr fu8_div10
-fu8_done:
+    call u8_div10
     ld (hl), b          ; buf[0] = tens
     inc hl
     ld a, c
@@ -751,18 +737,8 @@ _sb_put_u8_2d:
 ; void puts_u8_nolz(uint8_t v) __z88dk_fastcall
 ; Prints uint8 without leading zero. L = value.
 _puts_u8_nolz:
-    ld a, '0'
     ld c, l             ; C = value
-pu8_div:
-    ld b, a             ; B = tens char
-    ld a, c
-    sub 10
-    jr c, pu8_print
-    ld c, a
-    ld a, b
-    inc a
-    jr pu8_div
-pu8_print:
+    call u8_div10
     ; B = tens char, C = remainder
     ld a, b
     cp '0'
