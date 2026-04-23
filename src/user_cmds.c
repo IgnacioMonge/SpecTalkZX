@@ -1345,8 +1345,11 @@ static void cmd_friend(const char *args) __z88dk_fastcall
 // cmd_save — moved to overlay (SPCTLK4.OVL entry 1)
 void cmd_save(const char *args) __z88dk_fastcall
 {
+    uint16_t had_partial;
     (void)args;
+    had_partial = rx_pos;
     overlay_exec(3, 1);
+    if (!had_partial) rx_overflow = 0;
 }
 
 // OPT-C14: cmd_clear eliminated — command table points directly to clear_main
@@ -1518,7 +1521,9 @@ const char K_DAT[] = "SPECTALK.DAT";
 // help_render_page — moved to overlay (SPECTALK.OVL entry 0)
 static void help_render_page(void)
 {
+    uint16_t had_partial = rx_pos;
     overlay_exec(0, 0);
+    if (had_partial) rx_overflow = 1;
 }
 
 static void sys_help(const char *args) __z88dk_fastcall

@@ -186,7 +186,7 @@ uint8_t  keepalive_ping_sent;        // 1 = waiting for PONG
 uint16_t keepalive_timeout;          // Timeout counter after PING sent
 uint16_t lagmeter_counter;           // Counter for periodic lag measurement
 uint8_t ping_latency;               // 0=good, 1=medium, 2=high
-uint8_t flush_frames;               // Post-About drain: discard UART for N frames
+uint8_t flush_frames;               // Post-About silent parser drain, input paused
 
 // Pagination for long LIST/WHO results
 uint8_t pagination_active;
@@ -230,6 +230,13 @@ void clear_main(void)
     clear_zone(MAIN_START, MAIN_LINES, ATTR_MAIN_BG);
     main_line = MAIN_START;
     main_col = 0;
+}
+
+static void overlay_exit_maybe_discard(void)
+{
+    uint8_t discard = (rx_pos != 0) || rx_overflow;
+    overlay_exit_full();
+    if (discard) rx_overflow = 1;
 }
 
 
@@ -318,6 +325,7 @@ void overlay_keepalive(void)
         uint8_t ch = ay_uart_read();
         if (ch == '\n') {
             rx_line[rx_pos] = 0;
+            server_silence_frames = 0;
             char *p = rx_line;
             if (*p == ':') {
                 while (*p && *p != ' ') p++;
@@ -333,7 +341,6 @@ void overlay_keepalive(void)
                     keepalive_ping_sent = 0;
                     keepalive_timeout = 0;
                 }
-                server_silence_frames = 0;
             }
             rx_pos = 0;
         } else if (ch != '\r' && rx_pos < 200) {
@@ -2941,7 +2948,21 @@ void main(void)
                 status_bar_dirty = 0;
                 draw_status_bar_real();
             }
-            
+
+            if (flush_frames) {
+                flush_frames--;
+                overlay_mode = 1;           // suppress all screen output
+                uart_drain_limit = 0;       // drain everything from UART
+                process_irc_data();         // consume data silently
+                uart_drain_limit = DRAIN_NORMAL;
+                overlay_mode = 0;
+                if (!flush_frames) {
+                    cursor_visible = 1;
+                    cursor_show();
+                }
+                continue;
+            }
+             
             // 3. INPUT Y teclado
             check_caps_toggle();
 
@@ -2988,7 +3009,7 @@ void main(void)
                     c = 0;
                 // Config overlay: S key triggers save + refresh
                 } else if (overlay_mode == OVERLAY_CONFIG && config_dirty && (c == 's' || c == 'S')) {
-                    overlay_exit_full();
+                    overlay_exit_maybe_discard();
                     cmd_save(NULL);
                     // Re-enter config overlay to show updated state
                     overlay_mode = OVERLAY_CONFIG;
@@ -2998,28 +3019,23 @@ void main(void)
                 } else if (c == 3 || (c && overlay_mode != OVERLAY_HELP)) {
                     // BREAK always exits; any key exits single-page overlays
                     if (overlay_mode == OVERLAY_ABOUT) {
-                        flush_all_rx_buffers();
-                        flush_frames = 15; /* drain UART silently — handles NAMES floods */
+                        flush_frames = 15; /* consume about backlog silently before re-enabling input */
                     }
-                    overlay_exit_full();
+                    overlay_exit_maybe_discard();
                     if (flush_frames) {
                         cursor_visible = 0;
-                    } else {
-                        // Non-ABOUT overlay exit during IRC traffic: overlay_slot
-                        // aliased rx_line, so any line mid-transit got its head
-                        // clobbered. Discard tail up to next \n so parser resyncs.
-                        // !about path skips this — flush_frames drains silently.
-                        rx_overflow = 1;
                     }
                 } else if (c) {
                     // Help: paginated — advance page
                     help_page++;
                     sw_timeout = 0; /* W14: reset timeout on keypress */
                     help_render_page();
-                    if (!overlay_mode) overlay_exit_full();
+                    if (!overlay_mode) {
+                        overlay_exit_maybe_discard();
+                    }
                 } else if (overlay_mode == OVERLAY_HELP && ++sw_timeout >= 4500) {
                     /* W14: auto-close help after ~90s to prevent PING timeout */
-                    overlay_exit_full();
+                    overlay_exit_maybe_discard();
                     continue;
                 } else if (overlay_mode == OVERLAY_ABOUT && !c) {
                     overlay_call(2); /* globe animation tick (already in ring_buffer) */
@@ -3161,20 +3177,7 @@ void main(void)
             // All other overlays: process_irc_data runs normally — output suppressed
             // by main_print's overlay_mode early-return, data consumed silently.
             if (overlay_mode != OVERLAY_ABOUT) {
-                if (flush_frames) {
-                    flush_frames--;
-                    overlay_mode = 1;           // suppress all screen output
-                    uart_drain_limit = 0;       // drain everything from UART
-                    process_irc_data();         // consume data silently
-                    uart_drain_limit = DRAIN_NORMAL;
-                    overlay_mode = 0;
-                    if (!flush_frames) {
-                        cursor_visible = 1;
-                        cursor_show();  // flush_frames end: repaint cursor (!about exit)
-                    }
-                } else {
-                    process_irc_data();
-                }
+                process_irc_data();
             } else if (connection_state >= STATE_TCP_CONNECTED)
                 overlay_keepalive();
         }

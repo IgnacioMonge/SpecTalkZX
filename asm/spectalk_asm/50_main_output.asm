@@ -257,16 +257,12 @@ mpwr_use_space:
     inc bc
     jr mpwr_cut_common
 
-mpwr_cut_hard:
-    ; cutpoint = HL (start+avail), next_start = HL
-    ld b, h
-    ld c, l
-    jr mpwr_cut_common
-
 mpwr_cut_end:
-    ; cutpoint = HL ('\0'), next_start = HL
+mpwr_cut_hard:
+    ; cutpoint = HL (NUL o start+avail), next_start = HL
     ld b, h
     ld c, l
+    ; fall through
 
 mpwr_cut_common:
     ; Guardar char original y cortar temporalmente
@@ -370,7 +366,7 @@ _main_puts:
     ld e, l             ; DE = puntero string
     ld hl, bpe_rstack
     ld (bpe_rsp), hl
-    
+
     ld a, (_main_line)
     ld (_g_ps64_y), a
     ld a, (_current_attr)
@@ -413,13 +409,12 @@ puts_opt_emit:
     ; B = col, C = attr, DE = string ptr
     push de              ; save string pointer
 
-    ; Screen address: cache_scr_base + col/2
+    ; Screen address: cache_scr_base + col/2 (L múltiplo de 32, col/2 0..31 → no carry)
     ld hl, (cache_scr_base)
     ld a, b
     srl a
-    ld e, a
-    ld d, 0
-    add hl, de           ; HL = screen byte for this column pair
+    add a, l
+    ld l, a              ; HL = screen byte for this column pair
 
     bit 0, b
     jr nz, puts_sp_right
@@ -444,13 +439,12 @@ puts_sp_right_lp:
     dec d
     jr nz, puts_sp_right_lp
 puts_sp_attr:
-    ; Attribute: cache_atr_base + col/2
+    ; Attribute: cache_atr_base + col/2 (L múltiplo de 32, col/2 0..31 → no carry)
     ld hl, (cache_atr_base)
     ld a, b
     srl a
-    ld e, a
-    ld d, 0
-    add hl, de
+    add a, l
+    ld l, a
     ld a, c              ; C = current_attr
     cp (hl)
     jr z, puts_sp_done
