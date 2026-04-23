@@ -2,12 +2,12 @@
 
 ## Project State
 - Date: 2026-04-23
-- Recent task: deep resident ASM shrink pass across `asm/spectalk_asm/20_rx_ring_uart.asm`, `40_text_numeric_screen.asm`, `50_main_output.asm`, and `70_input_lookup.asm`. The safe wins were: remove redundant `IX/IY` save/restore in helpers whose callees already stay off those registers, tail-merge `_read_key()`'s repeated `repeat_timer` emit endings, compress `64 - main_col` in `main_print_wrapped_ram()`, simplify `_try_read_line_nodrain()`'s overflow probe to avoid stack traffic, and shorten `_cls_fast()`'s local tail jump back to `_reapply_screen_attributes()`.
-- Latest committed checkpoint: `3f59575` (`Shrink divMMC UART backend`) — current uncommitted worktree: resident ASM shrink in the four modules above plus router/pattern updates.
-- Build status: local `make` rechecked after the resident ASM shrink; build, trim and all four overlays pass.
-- Current verified trimmed size from `make`: `36098B` trimmed / `36178B` TAP / `87B` BSS slack (`0xF500 - 0xF4A9`).
+- Recent task: audited `30_rendering.asm` (R01 `font_lut` ALIGN robustness + R02 LDIR BC=0 guard), applied shrink-z80 scan wins (M01-M05) and dead trailing update in `_print_line64_fast` (S01).
+- Latest committed checkpoint: `dccb3fb` (`Shrink resident ASM helpers`) — uncommitted worktree: `asm/spectalk_asm/30_rendering.asm` rendering shrink + CHANGELOG + router refresh.
+- Build status: local `make` rechecked after the rendering shrink round; build, trim and all four overlays pass. HW verified by user.
+- Current verified trimmed size from `make`: `36056B` trimmed / `36136B` TAP / `130B` BSS slack (`0xF500 - 0xF47E`).
 - Current overlay sizes: `SPCTLK1.OVL` 1385B, `SPCTLK2.OVL` 1968B, `SPCTLK3.OVL` 1591B, `SPCTLK4.OVL` 1801B.
-- Current shrink highlight: versus the previous verified resident baseline (`36137B` / `48B` slack), this pass recovered another `39B` resident net (`__data_compiler_tail $EAE9 -> $EAC2`, `__BSS_END_tail $F4D0 -> $F4A9`) without touching UART timing, overlay sizes, or protocol behavior.
+- Current shrink highlight: versus the prior baseline (`36098B` / `87B` slack), this pass recovered another `42B` resident net (`__data_compiler_tail $EAC2 -> $EA98`, `__BSS_END_tail $F4A9 -> $F47E`) while also hardening `font_lut` alignment (low byte margin $9 -> $34) and guarding the attr-fill LDIR from a BC=0 hazard. Total changes: R01 (+3B BSS pad, safer font_lut), R02 (+2B guard), M01-M05 (-27B, micro-optimizations), S01 (-17B, dead global update removal in `_print_line64_fast`).
 
 ## Resume Here
 - The worktree now contains an uncommitted structural refactor: `asm/spectalk_asm.asm` is a thin root and the real code lives in ordered modules inside `asm/spectalk_asm/`.

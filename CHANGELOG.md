@@ -1,8 +1,8 @@
 # SpecTalkZX — Changelog
 
-## [Unreleased] — Uncommitted WIP
+## [Unreleased] — 2026-04-23 (HEAD `dccb3fb`)
 
-**Local build verificado con `make` el 2026-04-22.** No hay commit todavía.
+**Local build verificado con `make` el 2026-04-23.** Estado actual sobre `v1.3.7.1`.
 Snapshots progresivos en `Development/dev-1.3.7.N/`.
 
 ### TAP size progression
@@ -17,6 +17,8 @@ Snapshots progresivos en `Development/dev-1.3.7.N/`.
 | + `ABOUT` keepalive fix | 35,861 | +142 |
 | + `/mode` wrapper | 36,025 | +306 |
 | + post-`/mode` shrink round | 36,006 | +287 |
+| + Search UX + split/shrink ASM + PM reply/notice + UART shrinks | 36,178 | +459 |
+| + 30_rendering audit (R01/R02) + shrink (M01-M05 + S01) | 36,136 | +417 |
 
 ### Functional fixes
 
@@ -138,9 +140,36 @@ Total: **−327B** vs baseline post-audit (35,861 → 35,534)
 - `overlay/spectalk_ovl2.c` reutiliza las mismas claves residentes para labels de config idénticas; build verificada en **1968B**
 - El TAP queda en **36,025B** tras añadir `/mode`; `SPECTALK.OVL` sigue empaquetado a tamaño fijo
 
+### Search UX polish (2026-04-22)
+
+- La salida de búsqueda pasa a línea nueva y ya no rompe el flujo del chat al mezclar resultado y prompt.
+- Se limpia el marcador de cancelación/incomplete y se introduce throttling para evitar flood visual con resultados rápidos o repetidos.
+- `NOTICE` se enruta al área principal y se filtra salida de parser obsoleta/estancada durante la UX de búsqueda.
+
+### ASM split, renderer/runtime shrink, and SNTP retry (2026-04-22..2026-04-23)
+
+- `asm/spectalk_asm.asm` queda como raíz fina y el código residente se reparte por módulos de dominio en `asm/spectalk_asm/`.
+- Se añade retry de SNTP al conectar para evitar el reloj clavado en `00:00` cuando el ESP8266 aún no ha resuelto NTP en el primer intento.
+- Varias rondas de shrink posteriores recortan renderer, redraw/input, text/numeric helpers, status bar y UI runtime sin cambiar overlays.
+- `print_line64_fast()` y el redraw incremental quedan realineados para evitar el desfase vertical de una scanline entre texto redibujado y texto escrito carácter a carácter.
+
+### PM reply/notice and status fixes (2026-04-23)
+
+- Se añade `/reply` usando el último nick de PM recordado.
+- Se añade `/notice` saliente sin abrir una ruta paralela grande; se apoya en los paths IRC ya existentes.
+- Se corrige la regresión de contadores absurdos en la status bar (`0/0`, `4/4`, `7/7`), causada por una ruptura de ABI en `_sb_put_u8_2d()`.
+- El compromiso final de esta ronda mantiene también reset del `last_pm_nick` al desconectar y rendering compacto de WHOIS (`311`/`319`) dentro del presupuesto residente.
+
+### UART and resident ASM shrink rounds (2026-04-23)
+
+- `asm/divmmc_uart.asm`: eliminados `_poked_byte`, `_byte_buff` y la rama `uartRead_retBuff`; los wrappers públicos se colapsan sobre el contrato real de `uartRead` (`A=0` / `A=byte`).
+- Shrink seguro adicional en `20_rx_ring_uart.asm`, `40_text_numeric_screen.asm`, `50_main_output.asm` y `70_input_lookup.asm`: fuera preservaciones redundantes de `IX/IY`, tails fusionados en `_read_key()`, simplificación del overflow probe en `_try_read_line_nodrain()`, compresión de `64 - main_col` y `jr` local en `_cls_fast()`.
+- Estado actual medido: **36,178B TAP**, `__data_compiler_tail = $EAC2`, `__BSS_END_tail = $F4A9`, **87B** de slack antes del overlay slot.
+
 ### Pending opportunities (rendimientos decrecientes)
 
 - `jp` → `jr` en `main_print_wrapped_ram` (~1–3B)
+- Reescritura del tracker de último espacio en `main_print_wrapped_ram()` para dejar de pagar prefijos `IX`; ya no es low-risk.
 
 ### Known open bugs
 

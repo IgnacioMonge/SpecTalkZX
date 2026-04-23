@@ -40,7 +40,14 @@ _compute_attr_base:
 ; Data loaded from SPECTALK.DAT at startup (font + themes)
 ; Layout: [10 LUT][288 glyphs][75 theme_raw] = 373 bytes contiguous
 SECTION bss_user
-ALIGN 16
+; ALIGN 16 does not reliably pad BSS across module boundaries in z80asm
+; (empirically left font_lut at $F1ED). unpack_glyph relies on
+;   (font_lut_lo + nibble_index) < 0x100
+; so that `add a, e / ld l, a / ld h, d` never needs a carry into H.
+; Nibble range is 0..9 (only 10 LUT entries), so low byte ≤ 0xF6 is SAFE.
+; Explicit defs keeps the low byte at $F0 (target $F1F0) with ~6B margin
+; against future BSS growth before this block.
+defs 3
 _font_lut:
 font_lut:
     defs 10
@@ -256,14 +263,12 @@ _clear_zone:
     ld a, (ix+4)        ; start
     ld b, (ix+5)        ; lines
     ld c, (ix+6)        ; attr
-    
-    ; Si lines == 0, salir
-    ld d, a
-    ld a, b
-    or a
+
+    ; Si lines == 0, salir. inc/dec preserva B y refleja Z sin tocar A.
+    inc b
+    dec b
     jr z, cz_done
-    ld a, d
-    
+
 cz_loop:
     call cli_internal
     inc a
@@ -328,12 +333,7 @@ p64_calc_font:
 
     ; Obtener screen base (cache o lookup)
     call p64_get_scr_base   ; HL = screen row base
-    ld a, (_g_ps64_col)
-    ld b, a
-    srl a
-    ; screen row base L is a multiple of 32; col/2 0..31 never carries into H
-    add a, l
-    ld l, a                 ; HL = direcci?n pantalla
+    call dbc_add_col        ; HL += col/2, B = col (para paridad)
 
     ; Space clear (8 scanlines): C = nibble preserve mask
     ; Even col (bit0=0) → AND 0x0F ; odd col (bit0=1) → AND 0xF0
@@ -358,14 +358,7 @@ p64_not_space:
 
     ; Obtener screen base (cache o lookup)
     call p64_get_scr_base   ; HL = screen row base
-
-    ; Sumar col/2
-    ld a, (_g_ps64_col)
-    ld b, a                 ; Guardar col (paridad) temporalmente
-    srl a
-    ; screen row base L is a multiple of 32; col/2 0..31 never carries into H
-    add a, l
-    ld l, a                 ; HL = direcci?n pantalla
+    call dbc_add_col        ; HL += col/2, B = col (para paridad)
 
     pop de                  ; DE = puntero fuente (glyph_buffer)
 
@@ -457,8 +450,12 @@ dbc_valid:
     call dbc_add_col
     jr dbc_render_bot           ; tail call (in range)
 
+; Shared: HL += col/2, and B = col (for parity test by caller).
+; Caller draw_big_char ignores B post-call (dbc_render_top/bot reload `ld b, 3`).
+; Caller _print_str64_char needs B = col for `bit 0, b`.
 dbc_add_col:
     ld a, (_g_ps64_col)
+    ld b, a
     srl a
     ; screen row base L is a multiple of 32; col/2 0..31 never carries into H
     add a, l
@@ -732,20 +729,16 @@ _print_line64_fast:
     ld a, (ix+4)
     ld (plf_y_val), a
 
-    ; Check start offset (set by caller for wrap_indent support)
+    ; Check start offset (set by caller for wrap_indent support).
+    ; Unificado: si start=0, add a,l es no-op y sub c deja B=32.
+    ; screen row base L is a multiple of 32; start_byte 0..31 never carries into H.
     ld a, (_plf_start_byte)
-    or a
-    jr z, plf_full_row
     ld c, a
-    ; screen row base L is a multiple of 32; start_byte 0..31 never carries into H
     add a, l
     ld l, a
     ld a, 32
     sub c
     ld b, a
-    jr plf_pair_loop
-plf_full_row:
-    ld b, 32               ; 32 pares de columnas (= 64 cols)
 
 plf_pair_loop:
     push bc                ; Guardar contador de pares
@@ -770,16 +763,10 @@ plf_left_ok:
     ex de, hl
     ld (plf_str_ptr), hl   ; HL = string ptr saved; no need to swap back
     call unpack_glyph      ; A still has char; HL/DE don't matter (destroyed)
-    ; Copiar nibbles altos a plf_left_buf
+    ; Copiar glyph completo; mask 0xF0 diferida al write loop.
     ld de, plf_left_buf
-    ld b, 8
-plf_save_left:
-    ld a, (hl)
-    and 0xF0               ; Solo nibble alto (lado izquierdo)
-    ld (de), a
-    inc hl
-    inc de
-    djnz plf_save_left
+    ld bc, 8
+    ldir
 
     ; --- Leer char derecho ---
     ld hl, (plf_str_ptr)
@@ -816,7 +803,8 @@ plf_right_ok:
     ld ix, plf_left_buf
     ld b, 7
 plf_write_loop:
-    ld a, (ix+0)           ; Nibble alto del char izquierdo
+    ld a, (ix+0)           ; Glyph byte izquierdo completo
+    and 0xF0               ; Mask diferida (antes pre-masked en save loop)
     ld c, a
     ld a, (de)             ; Byte del char derecho
     and 0x0F               ; Solo nibble bajo (lado derecho)
@@ -848,19 +836,18 @@ plf_write_loop:
     inc de
     ld a, 31
     sub c                  ; 31 - start_byte = remaining
+    jr z, plf_no_ldir      ; start_byte=31 → BC would be 0 → LDIR = 65536 bytes
     ld c, a
     ldir                   ; Fill remaining attrs
+plf_no_ldir:
     ; Reset start offset
     xor a
     ld (_plf_start_byte), a
 
-    ; Actualizar _g_ps64_col y _g_ps64_y para consistencia
-    ld a, 64
-    ld (_g_ps64_col), a
-    ld a, (plf_y_val)
-    ld (_g_ps64_y), a
-    ld a, (plf_attr_val)
-    ld (_g_ps64_attr), a
+    ; (S01) Trailing update de _g_ps64_col/y/attr eliminado. Verificado:
+    ; todos los readers (main_puts, main_newline, print_char64, print_big_str,
+    ; print_str64, print_str64_bpe, main_run_u16) setean los globals antes
+    ; de usarlos. Ningún consumidor depende del valor post-retorno.
 
     pop ix
     ret
@@ -977,30 +964,26 @@ ind_pattern_away    equ ind_pattern_solid + 14
 ind_pattern_medium  equ ind_pattern_solid + 21
 ind_pattern_small   equ ind_pattern_solid + 27
 
-; Shared: select indicator pattern into DE based on connection state
+; Shared: select indicator pattern into DE based on connection state.
+; Preload + early-return: DE se sobreescribe cuanto antes y cada check
+; decide ret con el mismo A que usó `or a` (ld no afecta flags).
 ; Preserves: BC, HL, IX, IY
 ind_select_pattern:
-    ld de, ind_pattern_solid
+    ld de, ind_pattern_away
     ld a, (_irc_is_away)
     or a
-    jr z, isp_ck_pr
-    ld de, ind_pattern_away
-    ret
-isp_ck_pr:
+    ret nz
+    ld de, ind_pattern_empty
     ld a, (_buffer_pressure)
     or a
-    jr z, isp_ck_lat
-    ld de, ind_pattern_empty
-    ret
-isp_ck_lat:
+    ret nz
+    ld de, ind_pattern_solid
     ld a, (_ping_latency)
     or a
     ret z                        ; 0 = good, use solid
-    cp 2
-    jr nc, isp_lh
     ld de, ind_pattern_medium
-    ret
-isp_lh:
+    cp 2
+    ret c                        ; latency==1 → medium
     ld de, ind_pattern_small
     ret
 
