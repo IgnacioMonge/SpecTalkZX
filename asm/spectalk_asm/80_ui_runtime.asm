@@ -335,10 +335,9 @@ wb_left_clean:
     or a
     ret z
     ld c, a
-    ld e, a
-    ld d, 0
+    ld b, 0
     ld hl, _line_buffer
-    add hl, de
+    add hl, bc
     ; Phase 1: skip spaces backward
 wbl_sp:
     dec hl
@@ -366,10 +365,9 @@ wbl_wd2:
 ; wb_right: A = pos ? A = new pos (word boundary right, pointer walking)
 wb_right:
     ld c, a
-    ld e, a
-    ld d, 0
+    ld b, 0
     ld hl, _line_buffer
-    add hl, de
+    add hl, bc
     ld a, (_line_len)
     ld b, a
 wbr_wd:
@@ -565,8 +563,7 @@ _sys_puts_print:
     pop de              ; value
     push bc             ; save return address FIRST (bottom)
     push de             ; save value SECOND (top)
-    call _set_attr_sys  ; only touches A ? HL preserved
-    call _main_puts     ; HL = label (fastcall)
+    call _sys_puts      ; sets ATTR_SYS + prints label
     pop hl              ; value (top of stack)
     jp _main_print      ; tail call ? ret pops saved return address
 
@@ -709,25 +706,10 @@ _cfg_kv:
     pop bc              ; key (BC)
     ex (sp), hl         ; HL = val, (SP) = return addr
     push hl             ; save val
-    push de             ; save p
-    ; Call cfg_put(p, key): needs p in DE, key in HL (but cfg_put is callee...)
-    ; Actually cfg_put pops its own args. We need to set up the stack for it.
-    ; cfg_put callee stack: [ret] [p] [s] ? it pops both + ret
-    ; Simpler: inline the copy loop
-    ex de, hl           ; HL = p
-    ld d, b
-    ld e, c             ; DE = key
-ckv_copy_key:
-    ld a, (de)
-    or a
-    jr z, ckv_key_done
-    ld (hl), a
-    inc hl
-    inc de
-    jr ckv_copy_key
-ckv_key_done:
-    ; HL = p (advanced past key)
-    pop af              ; discard saved p (we have HL now)
+    ; Reuse cfg_put() without disturbing the saved return address below val.
+    push bc             ; key
+    push de             ; p
+    call _cfg_put       ; HL = advanced p
     pop de              ; DE = val
     ; Check if val <= 9 (small int ? single digit)
     ld a, d
@@ -742,15 +724,9 @@ ckv_key_done:
     inc hl
     jr ckv_crlf
 ckv_string:
-    ; HL = p (dest), DE = val (src) ? no swap needed
-ckv_copy_val:
-    ld a, (de)          ; read from val (source)
-    or a
-    jr z, ckv_crlf
-    ld (hl), a          ; write to p (dest)
-    inc hl
-    inc de
-    jr ckv_copy_val
+    push de             ; val
+    push hl             ; p
+    call _cfg_put       ; HL = advanced p
 ckv_crlf:
     ld (hl), 13         ; \r
     inc hl

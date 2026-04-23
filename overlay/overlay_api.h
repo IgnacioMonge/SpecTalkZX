@@ -54,6 +54,7 @@ extern uint8_t  overlay_mode;
 extern uint8_t  help_page;
 extern uint8_t  config_dirty;
 extern uint8_t  notif_enabled;
+extern uint8_t  rx_overflow;
 
 /* Buffers */
 #define OVERLAY_SLOT_SIZE 512     /* MUST match RX_LINE_SIZE (spectalk.h) — aliased */

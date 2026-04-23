@@ -233,5 +233,8 @@ void save_config_ovl(void)
     }
 
 done:
+    /* overlay_slot aliases rx_line: if save returns mid-IRC line, discard the
+     * remaining tail up to the next '\n' instead of parsing a fragmented line. */
     rb_head = 0; rb_tail = 0; rx_pos = 0;
+    rx_overflow = 1;
 }

@@ -2407,7 +2407,7 @@ void notify(const char *msg, uint8_t attr)
         notif_slide_len = st_strlen(notif_buf);
         notif_slide_pos = 0;
         notif_attr = attr;
-        notif_timeout = 150;
+        notif_timeout = 250;  // ~5s at 50 Hz; 150f proved too short in practice
     } else {
         if (main_col) main_newline();
         current_attr = attr;

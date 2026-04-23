@@ -67,7 +67,7 @@ REQUIRED_VARIABLES = [
 
     # Buffers
     '_overlay_slot', '_ring_buffer',
-    '_rb_head', '_rb_tail', '_rx_pos',
+    '_rb_head', '_rb_tail', '_rx_pos', '_rx_overflow',
 
     # Theme / print cursor
     '_theme_attrs', '_theme_raw', '_g_ps64_y', '_g_ps64_col',
