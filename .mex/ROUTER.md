@@ -2,12 +2,12 @@
 
 ## Project State
 - Date: 2026-04-23
-- Recent task: continued on status bar/UI and landed another SAFE local shrink in `src/spectalk.c`: removed the remaining one-use temporaries in `draw_status_bar_real()` (`has_mention`, then `cur_flags`) while keeping the already-good structure, after rejecting two measured-worse experiments (`extract_network_short()` manual loop and a larger branch reorder of the center-section chooser). Verified with full `make`.
-- Latest committed checkpoint: `2f540fc` (`Fix input redraw alignment and shrink text/numeric ASM`) — uncommitted: status-bar/rendering micro-shrink + router/pattern updates.
+- Recent task: landed `315a3f4` (`Shrink status bar and rendering hotpaths`), the SAFE `-41B` follow-up after `2f540fc`: in `src/spectalk.c`, `draw_status_bar_real()` now reads one-use state directly where consumed (`has_other_mention()`, `chan_flags`) instead of materializing short-lived locals, and in `asm/spectalk_asm/30_rendering.asm` the hot paths keep using low-byte-only adds when the row base is already 32-byte aligned. The measured-worse experiments remain rejected: the manual-loop rewrite of `extract_network_short()` grew by 34 bytes, and the larger center-section branch reorder grew by 16 bytes. Verified with full `make`.
+- Latest committed checkpoint: `315a3f4` (`Shrink status bar and rendering hotpaths`) — worktree clean.
 - Build status: local `make` OK on 2026-04-23. TAP `35753B` (`-10B` vs `35763B` pre-status-bar pass, `-41B` vs `35794B` post-commit baseline, `-173B` vs `35926B` pre-shrink baseline). Overlays unchanged (`SPCTLK1` 1385B, `SPCTLK2` 1968B, `SPCTLK3` 1591B, `SPCTLK4` 1796B). BSS guard 430B free before `ring_buffer`.
 - Current verified TAP from `make`: `35753B` on 2026-04-23.
 - Current overlay sizes: unchanged (`SPCTLK1.OVL` 1385B, `SPCTLK2.OVL` 1968B, `SPCTLK3.OVL` 1591B, `SPCTLK4.OVL` 1796B).
-- Audit highlight: the resident ASM split/rendering shrink/SNTP retry from `3c2998e` remains the structural baseline; `2f540fc` added the `40_text_numeric_screen.asm` shrink/alignment fix, and the latest follow-up is a combined SAFE `-41B` pass after that commit (`-31B` status-bar/rendering helpers, then `-10B` more in `draw_status_bar_real()`), with no overlay growth.
+- Audit highlight: the resident ASM split/rendering shrink/SNTP retry from `3c2998e` remains the structural baseline; `2f540fc` added the `40_text_numeric_screen.asm` shrink/alignment fix, and `315a3f4` is the combined SAFE `-41B` follow-up on top of that baseline (`-31B` status-bar/rendering helpers, then `-10B` more in `draw_status_bar_real()`), with no overlay growth.
 
 ## Resume Here
 - The worktree now contains an uncommitted structural refactor: `asm/spectalk_asm.asm` is a thin root and the real code lives in ordered modules inside `asm/spectalk_asm/`.
