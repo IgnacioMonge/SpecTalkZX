@@ -68,6 +68,10 @@
 #define STATE_WIFI_OK       1
 #define STATE_TCP_CONNECTED 2
 #define STATE_IRC_READY     3
+
+#define AUTOJOIN_MOTD_DONE   0x01
+#define AUTOJOIN_IDENT_WAIT  0x02
+
 #define CH_FLAG_ACTIVE     0x01
 #define CH_FLAG_QUERY      0x02
 #define CH_FLAG_UNREAD     0x04
@@ -545,6 +549,7 @@ int8_t find_channel(const char *name) __z88dk_fastcall;
 int8_t find_query(const char *nick) __z88dk_fastcall;
 int8_t find_empty_channel_slot(void);
 int8_t add_channel(const char *name) __z88dk_fastcall;
+void snapshot_autojoin_channels(void);
 int8_t add_query(const char *nick) __z88dk_fastcall;
 void remove_channel(uint8_t idx) __z88dk_fastcall;
 void switch_to_channel(uint8_t idx) __z88dk_fastcall;

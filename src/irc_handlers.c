@@ -185,9 +185,6 @@ static void h_ping(void)
     irc_send_pong(token);
 }
 
-#define AJ_MOTD_DONE   0x01
-#define AJ_IDENT_WAIT  0x02
-
 static void session_autojoin_replay(void)
 {
     char c = search_pattern[0];
@@ -200,17 +197,25 @@ static void session_autojoin_replay(void)
 
 static void session_autojoin_try(void)
 {
-    if (!(autojoin_defer_flags & AJ_MOTD_DONE)) return;
-    if (autojoin_defer_flags & AJ_IDENT_WAIT) return;
+    if (!(autojoin_defer_flags & AUTOJOIN_MOTD_DONE)) return;
+    if (autojoin_defer_flags & AUTOJOIN_IDENT_WAIT) return;
     session_autojoin_replay();
 }
 
 static void session_autoidentify_done(void)
 {
-    if (autojoin_defer_flags & AJ_IDENT_WAIT) {
-        autojoin_defer_flags &= (uint8_t)~AJ_IDENT_WAIT;
+    if (autojoin_defer_flags & AUTOJOIN_IDENT_WAIT) {
+        autojoin_defer_flags &= (uint8_t)~AUTOJOIN_IDENT_WAIT;
         session_autojoin_try();
     }
+}
+
+static uint8_t is_ident_success_notice(void)
+{
+    if (st_stristr(pkt_txt, "identified")) return 1;
+    if (st_stristr(pkt_txt, "logged in")) return 1;
+    if (st_stristr(pkt_txt, "recognized")) return 1;
+    return 0;
 }
 
 static void h_mode(void)
@@ -278,6 +283,7 @@ static void h_privmsg_notice(void)
 
     uint8_t is_notice = (pkt_cmd[0] == 'N');
     uint8_t is_server = is_notice && strchr(pkt_usr, '.') != NULL;
+    uint8_t ident_ok = (is_notice && (autojoin_defer_flags & AUTOJOIN_IDENT_WAIT)) ? is_ident_success_notice() : 0;
 
     // Auto-IDENTIFY: detect "identify" in NOTICE from NickServ-like service
     // Security (audit C02): validate sender before sending password
@@ -287,7 +293,7 @@ static void h_privmsg_notice(void)
         if (ok) {
             if (!nickserv_nick[0]) st_copy_n(nickserv_nick, pkt_usr, IRC_NICK_SIZE);
             send_identify(nickserv_pass);
-            autojoin_defer_flags |= AJ_IDENT_WAIT;
+            autojoin_defer_flags |= AUTOJOIN_IDENT_WAIT;
             notify("Auto-identifying...", ATTR_MSG_SYS);
             return;
         }
@@ -323,7 +329,6 @@ static void h_privmsg_notice(void)
                 st_stricmp(pkt_usr, S_NICKSERV) == 0 ||
                 st_stricmp(pkt_usr, "MemoServ") == 0 ||
                 st_stricmp(pkt_usr, "InfoServ") == 0) {
-                session_autoidentify_done();
                 // Filter verbose auth messages
                 if (!pkt_txt[0]) return;
                 if (pkt_txt[0] == '*') return;
@@ -332,6 +337,7 @@ static void h_privmsg_notice(void)
 
                 current_attr = ATTR_MSG_TOPIC;
                 main_print(pkt_txt);
+                if (ident_ok) session_autoidentify_done();
                 return;
             }
         }
@@ -433,6 +439,7 @@ static void h_privmsg_notice(void)
             main_puts2(pkt_usr, S_COLON_SP);
             current_attr = ATTR_MSG_TOPIC;
             main_print_wrapped_ram(pkt_txt);
+            if (ident_ok) session_autoidentify_done();
             return;
         }
     }
@@ -441,6 +448,7 @@ static void h_privmsg_notice(void)
     if (pkt_cmd[0] == 'N') {
         current_attr = ATTR_MSG_SERVER;
         main_print(pkt_txt);
+        if (ident_ok) session_autoidentify_done();
         return;
     }
 
@@ -1081,19 +1089,23 @@ static void h_numeric_1(void)
     }
     connection_state = STATE_IRC_READY;
     cursor_visible = 1;
+    if (autojoin && nickserv_pass[0]) {
+        autojoin_defer_flags |= AUTOJOIN_IDENT_WAIT;
+    }
     draw_status_bar();
     notify2("Connected to ", irc_server, ATTR_MSG_SYS);
 }
 
 static void h_logged_in(void)
 {
-    session_autoidentify_done();
+    /* 900 can precede the visible NickServ acceptance NOTICE on some networks.
+       Keep autojoin gated until that service message has been printed. */
 }
 
 // End of MOTD / no MOTD: delayed autojoin, then friend ISON.
 static void h_motd_done(void)
 {
-    autojoin_defer_flags |= AJ_MOTD_DONE;
+    autojoin_defer_flags |= AUTOJOIN_MOTD_DONE;
     session_autojoin_try();
     irc_check_friends_online();
 }

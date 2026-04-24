@@ -372,6 +372,7 @@ do_connect:
                     switch (code) {
                         case 1: // RPL_WELCOME
                             set_attr_priv(); main_print("Connected!");
+                            if (autojoin && nickserv_pass[0]) autojoin_defer_flags |= AUTOJOIN_IDENT_WAIT;
                             connection_state = STATE_IRC_READY; loop_done = 1; rx_pos = 0; continue;
                         case 433: // Nick in use - try alternate
                             // OPT-P2-B: use shared helper
@@ -715,6 +716,7 @@ void cmd_quit(const char *args) __z88dk_fastcall
     // FIX: Ocultar cursor inmediatamente al iniciar desconexión
     cursor_visible = 0;
     redraw_input_full();
+    notif_cancel_current();
 
     main_puts2("Disconnecting from ", irc_server);
     main_print(S_DOTS3);
@@ -1102,6 +1104,7 @@ uint8_t overlay_header(const char *title) __z88dk_fastcall
 static void sys_config(const char *args) __z88dk_fastcall
 {
     (void)args;
+    snapshot_autojoin_channels();
     enter_overlay_mode(OVERLAY_CONFIG);
     overlay_exec(1, 1);
 }
@@ -1369,6 +1372,7 @@ void cmd_save(const char *args) __z88dk_fastcall
     uint16_t had_partial;
     (void)args;
     had_partial = rx_pos;
+    snapshot_autojoin_channels();
     overlay_exec(3, 1);
     if (!had_partial) rx_overflow = 0;
 }

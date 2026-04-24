@@ -1941,6 +1941,8 @@ void force_disconnect(void)
     names_was_manual = 0;
     notif_timeout = 0;
     notif_is_pm = 0;
+    notif_buf[0] = '\0';
+    notif_clear();
     last_pm_nick[0] = '\0';
     autojoin_defer_flags = 0;
     
@@ -2193,6 +2195,8 @@ void notif_cancel_current(void)
 {
     notif_timeout = 0;
     notif_is_pm = 0;
+    notif_buf[0] = '\0';
+    notif_clear();
 }
 
 // Notification slide-in state

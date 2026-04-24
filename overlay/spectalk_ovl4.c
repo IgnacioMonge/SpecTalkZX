@@ -163,6 +163,11 @@ static char *cfg_put_autojoin(char *p)
             p = cfg_put(p, (const char *)ch);
         }
     }
+    if (!any && (search_pattern[0] == '#' || search_pattern[0] == '&')) {
+        p = cfg_put(p, CK_CHANS);
+        p = cfg_put(p, search_pattern);
+        any = 1;
+    }
     if (any) { *p++ = '\r'; *p++ = '\n'; }
     return p;
 }

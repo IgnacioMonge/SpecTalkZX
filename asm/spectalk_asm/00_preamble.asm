@@ -157,6 +157,7 @@ PUBLIC _in_inkey
 PUBLIC asm_in_inkey
 PUBLIC _nav_push
 PUBLIC _find_empty_channel_slot
+PUBLIC _snapshot_autojoin_channels
 PUBLIC _print_char64
 PUBLIC _draw_big_char
 PUBLIC _font_lut

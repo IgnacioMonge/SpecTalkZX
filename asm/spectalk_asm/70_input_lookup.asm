@@ -614,6 +614,84 @@ fecs_found:
     ret
 
 ; =============================================================================
+; void snapshot_autojoin_channels(void)
+; Build search_pattern from active non-query channel slots for !config display.
+; If no active channels exist while connected, clear stale search_pattern.
+; =============================================================================
+EXTERN _search_pattern
+EXTERN _connection_state
+_snapshot_autojoin_channels:
+    ld hl, _channels + 32        ; &channels[1].name
+    ld de, _search_pattern       ; destination CSV buffer
+    ld b, 9                      ; slots 1..9
+    ld c, 31                     ; bytes before final NUL
+sac_loop:
+    push hl
+    ld a, l
+    add a, 30                    ; flags offset inside ChannelInfo
+    ld l, a
+    jr nc, sac_flag_addr
+    inc h
+sac_flag_addr:
+    ld a, (hl)
+    pop hl
+    and 0x03                     ; ACTIVE | QUERY
+    cp 0x01                      ; active channel, not query
+    jr nz, sac_next
+    ld a, (hl)
+    cp '#'
+    jr z, sac_chan
+    cp '&'
+    jr nz, sac_next
+sac_chan:
+    ld a, c
+    cp 31
+    jr z, sac_copy_start
+    cp 2                         ; need room for comma + at least 1 char
+    jr c, sac_finish_any
+    ld a, ','
+    ld (de), a
+    inc de
+    dec c
+sac_copy_start:
+    push hl
+sac_copy:
+    ld a, c
+    or a
+    jr z, sac_full
+    ld a, (hl)
+    or a
+    jr z, sac_copied
+    ld (de), a
+    inc de
+    inc hl
+    dec c
+    jr sac_copy
+sac_full:
+    pop hl
+    jr sac_finish_any
+sac_copied:
+    pop hl
+sac_next:
+    ld a, l
+    add a, 32
+    ld l, a
+    jr nc, sac_next_ok
+    inc h
+sac_next_ok:
+    djnz sac_loop
+    ld a, c
+    cp 31
+    jr nz, sac_finish_any
+    ld a, (_connection_state)
+    cp 3                         ; STATE_IRC_READY
+    ret c
+sac_finish_any:
+    xor a
+    ld (de), a
+    ret
+
+; =============================================================================
 ; int8_t find_query(const char *nick) __z88dk_fastcall
 ; Search for a nick in channels[]. Returns slot index or -1.
 ; HL = nick pointer
