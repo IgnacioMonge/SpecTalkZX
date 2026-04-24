@@ -810,6 +810,7 @@ pci_cache_attr_addr:
 ; -----------------------------------------------------------------------------
 _print_line64_fast:
     call ___sdcc_enter_ix
+    push iy
 
     ; --- Calcular screen_row_base[y] una sola vez ---
     ld a, (ix+4)           ; y
@@ -834,10 +835,9 @@ _print_line64_fast:
     ld l, a
     ld a, 32
     sub c
-    ld b, a
+    ld iyl, a
 
 plf_pair_loop:
-    push bc                ; Guardar contador de pares
     push hl                ; Guardar screen addr del byte actual
 
     ; Fast path: if both chars in this byte are blank after normalization
@@ -847,23 +847,19 @@ plf_pair_loop:
     ld a, (hl)
     or a
     jr z, plf_blank_pair   ; left NUL: right is also padding, DE unchanged
-    cp 32
+    cp 33
     jr c, plf_left_blank
     cp 128
-    jr nc, plf_left_blank
-    cp 32
-    jr nz, plf_left_normal
+    jr c, plf_left_normal
 plf_left_blank:
     inc hl                 ; left consumed
     ld a, (hl)
     or a
     jr z, plf_blank_pair_set_de
-    cp 32
+    cp 33
     jr c, plf_right_blank
     cp 128
-    jr nc, plf_right_blank
-    cp 32
-    jr nz, plf_left_normal
+    jr c, plf_left_blank_right_normal
 plf_right_blank:
     inc hl                 ; right consumed
 plf_blank_pair_set_de:
@@ -880,25 +876,18 @@ plf_blank_loop:
     djnz plf_blank_loop
     jr plf_pair_advance
 
+plf_left_blank_right_normal:
+    inc hl                 ; right consumed; A still holds right char
+    ld (plf_str_ptr), hl
+    call unpack_glyph
+    ex de, hl              ; DE = right glyph
+    ld ix, blank_glyph
+    jr plf_write_pair
+
 plf_left_normal:
-    ; --- Leer char izquierdo ---
-    ld a, (de)
-    or a
-    jr z, plf_left_pad     ; NUL: no avanzar puntero, usar espacio
-    inc de                 ; Avanzar puntero (char v?lido o inv?lido)
-    cp 32
-    jr c, plf_left_space   ; char < 32: tratar como espacio (puntero ya avanz?)
-    cp 128
-    jr c, plf_left_ok      ; char 32-127: OK
-plf_left_space:
-    ld a, 32
-    jr plf_left_ok
-plf_left_pad:
-    ld a, 32
-plf_left_ok:
-    ; Guardar string pointer antes de unpack_glyph (destruye DE)
-    ex de, hl
-    ld (plf_str_ptr), hl   ; HL = string ptr saved; no need to swap back
+    ; A = left char (33..127), HL = string pointer from the lookahead pass.
+    inc hl                 ; consume left char
+    ld (plf_str_ptr), hl
     call unpack_glyph      ; A still has char; HL/DE don't matter (destroyed)
     ; Copiar glyph completo; mask 0xF0 diferida al write loop.
     ld de, plf_left_buf
@@ -907,26 +896,28 @@ plf_left_ok:
 
     ; --- Leer char derecho ---
     ld hl, (plf_str_ptr)
-    ex de, hl              ; DE = string pointer
-    ld a, (de)
+    ld a, (hl)
     or a
     jr z, plf_right_pad    ; NUL: no avanzar puntero, usar espacio
-    inc de                 ; Avanzar puntero
-    cp 32
-    jr c, plf_right_space  ; char < 32: tratar como espacio
+    inc hl                 ; Avanzar puntero
+    cp 33
+    jr c, plf_right_blank_direct  ; control/space: blank, pointer consumed
     cp 128
-    jr c, plf_right_ok     ; char 32-127: OK
-plf_right_space:
-    ld a, 32
-    jr plf_right_ok
+    jr c, plf_right_ok     ; char 33-127: OK
+    jr plf_right_blank_direct
 plf_right_pad:
-    ld a, 32
+plf_right_blank_direct:
+    ld (plf_str_ptr), hl
+    ld de, blank_glyph
+    ld ix, plf_left_buf
+    jr plf_write_pair
 plf_right_ok:
-    ex de, hl
-    ld (plf_str_ptr), hl   ; HL = string ptr saved; no need to swap back
+    ld (plf_str_ptr), hl
     call unpack_glyph      ; A still has char; HL/DE don't matter (destroyed)
     ex de, hl              ; DE = pointer to right glyph
+    ld ix, plf_left_buf
 
+plf_write_pair:
     ; --- Combinar y escribir 8 scanlines ---
     ; Keep vertical alignment identical to _print_str64_char():
     ; blank top scanline, then render glyph rows 0..6 into scanlines 1..7.
@@ -937,7 +928,6 @@ plf_right_ok:
     ld (hl), a             ; scanline 0 stays blank like per-char rendering
     inc h
 
-    ld ix, plf_left_buf
     ld b, 7
 plf_write_loop:
     ld a, (ix+0)           ; Glyph byte izquierdo completo
@@ -958,8 +948,7 @@ plf_pair_advance:
     pop hl                 ; Recuperar screen addr
     inc hl                 ; Siguiente byte (siguiente par de columnas)
 
-    pop bc                 ; Recuperar contador de pares
-    dec b
+    dec iyl
     jp nz, plf_pair_loop
 
     ; --- Attr fill: write attributes from plf_start_byte onwards ---
@@ -988,6 +977,7 @@ plf_no_ldir:
     ; print_str64) setean los globals antes
     ; de usarlos. Ningún consumidor depende del valor post-retorno.
 
+    pop iy
     pop ix
     ret
 

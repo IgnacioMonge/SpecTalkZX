@@ -614,20 +614,15 @@ _scroll_main_zone:
     ld iyl, 0              ; IYL = scanline offset (0..7)
 
 smz_scanline_loop:
-    ; Precompute: C = scanline offset for H/D additions
-    ld c, iyl
-
     ; BLOQUE 1: Filas 4-7 -> 3-6 (Src: 0x4080, Dest: 0x4060, Len: 128)
     ld a, 0x40
-    add a, c
+    add a, iyl
     ld h, a
     ld d, a
     ld l, 0x80
     ld e, 0x60
-    push bc                ; save offset
     ld bc, 128
     ldir
-    pop bc                 ; restore C = offset
 
     ; BLOQUE 2: Fila 8 -> 7 (Src: 0x4800, Dest: 0x40E0, Len: 32)
     ld a, 0x48
@@ -635,15 +630,13 @@ smz_scanline_loop:
 
     ; BLOQUE 3: Filas 9-15 -> 8-14 (Src: 0x4820, Dest: 0x4800, Len: 224)
     ld a, 0x48
-    add a, c
+    add a, iyl
     ld h, a
     ld d, a
     ld l, 0x20
     ld e, 0x00
-    push bc
     ld bc, 224
     ldir
-    pop bc
 
     ; BLOQUE 4: Fila 16 -> 15 (Src: 0x5000, Dest: 0x48E0, Len: 32)
     ld a, 0x50
@@ -651,7 +644,7 @@ smz_scanline_loop:
 
     ; BLOQUE 5: Filas 17-19 -> 16-18 (Src: 0x5020, Dest: 0x5000, Len: 96)
     ld a, 0x50
-    add a, c
+    add a, iyl
     ld h, a
     ld d, a
     ld l, 0x20
@@ -702,19 +695,17 @@ smz_clear19_px:
     ret
 
 ; Cross-page scroll helper: copies 32 bytes from page A to page A-8
-; A = src_page, C = scanline offset (preserved via push/pop)
+; A = src_page, IYL = scanline offset
 ; Used by blocks 2 and 4 (page boundary crossings: row 8?7, row 16?15)
 smz_cross_block:
-    add a, c            ; src_page + scanline offset
+    add a, iyl          ; src_page + scanline offset
     ld h, a
     sub 8               ; dst = src_page - 8 + offset (previous third)
     ld d, a
     ld l, 0x00
     ld e, 0xE0
-    push bc
     ld bc, 32
     ldir
-    pop bc
     ret
 
 ; =============================================================================
