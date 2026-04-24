@@ -79,6 +79,8 @@ static const char cl_click[] = "click=";
 static const char cl_ncol[]  = "nick color=";
 static const char cl_away[]  = "auto away=";
 static const char cl_tz[]    = "timezone=";
+static const char cl_ajoin[] = "autojoin=";
+static const char cl_chans[] = "channels=";
 
 static const char cv_on[]    = "on";
 static const char cv_off[]   = "off";
@@ -94,8 +96,7 @@ static void cfg_item(const char *label, const char *val)
     uint8_t col = cfg_col;
     uint8_t a_nick = theme_attrs[TATTR_MSG_NICK];
 
-    print_char64(r, col, *label & 0xDF, a_nick);
-    print_str64(r, col + 1, label + 1, a_nick);
+    print_str64(r, col, label, a_nick);
     if (g_ps64_col & 1) ++g_ps64_col;
     {
         uint8_t a_val = (val == cv_notset) ? theme_attrs[TATTR_MSG_TIME] : theme_attrs[TATTR_MSG_CHAN];
@@ -127,6 +128,7 @@ void config_render_ovl(void)
     cfg_item(K_TS, show_timestamps == 0 ? cv_off :
                     show_timestamps == 1 ? cv_on : cv_smart);
     cfg_item(K_AUTOCONN, autoconnect ? cv_on : cv_off);
+    cfg_item(cl_ajoin, autojoin ? cv_on : cv_off);
     cfg_item(K_NOTIF, notif_enabled ? cv_on : cv_off);
 
     if (autoaway_minutes) {
@@ -141,10 +143,13 @@ void config_render_ovl(void)
     cfg_item(cl_tz, buf);
 
     if (cfg_col == 34) { g_ps64_y++; cfg_col = 2; }
+    cfg_item(cl_chans, (search_pattern[0] == '#' || search_pattern[0] == '&') ? (const char *)search_pattern : cv_notset);
+
+    if (cfg_col == 34) { g_ps64_y++; cfg_col = 2; }
     {
         uint8_t i, col = 12;
         uint8_t row = g_ps64_y;
-        char *fn;
+        const char *fn;
         print_str64(row, 2, "Friends:", theme_attrs[TATTR_MSG_NICK]);
         for (i = 0, fn = friend_nicks[0]; i < MAX_FRIENDS; i++, fn += IRC_NICK_SIZE) {
             if (*fn) { print_str64(row, col, fn, theme_attrs[TATTR_MSG_CHAN]); col += st_strlen(fn) + 1; }

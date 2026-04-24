@@ -1,3 +1,4 @@
+IRC session bookmarks
 Nick coloring (per-nick hash)
 Smart notifications (configurable)
 Word navigation (SS+arrows)
@@ -8,4 +9,3 @@ Ikkle-4 mini font
 Better esxDOS file management
 Code optimizations (-2KB)
 What's New screen
-And much much more!

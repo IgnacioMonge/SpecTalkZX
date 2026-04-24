@@ -378,6 +378,7 @@ void start_search_command(uint8_t type, const char *arg) __z88dk_callee;
 extern uint8_t show_timestamps;
 extern uint8_t last_ts_hour;
 extern uint8_t last_ts_minute;
+extern uint8_t autojoin;
 
 // IRC parsing
 extern char *irc_params[IRC_MAX_PARAMS];

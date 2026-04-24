@@ -216,7 +216,7 @@ uint8_t post_cancel_quiet;               // Frames restantes tras BREAK cancel p
 
 // SEARCH state
 uint8_t search_mode;
-char    search_pattern[SEARCH_PATTERN_SIZE];  // También usado como argumento pendiente durante drenaje
+char    search_pattern[SEARCH_PATTERN_SIZE];  // También usado como argumento pendiente/autojoin transitorio
 uint16_t search_index;
 
 void draw_status_bar(void)
@@ -373,6 +373,7 @@ char irc_pass[IRC_PASS_SIZE];
 char nickserv_pass[IRC_PASS_SIZE];
 char nickserv_nick[IRC_NICK_SIZE];
 uint8_t autoconnect;
+uint8_t autojoin;
 uint8_t has_esxdos;
 // friend_nicks mapped to UDG area 0xFF58 via ASM defc
 uint8_t friends_ison_sent;
@@ -2523,9 +2524,12 @@ static void cfg_apply(char *key, char *val) __z88dk_callee {
         uint8_t v = (uint8_t)str_to_u16(val);
         if (v >= 1 && v <= 3) current_theme = v;
     } else if (k0 == 'a' && k1 == 'u') {
-        uint8_t v = (uint8_t)str_to_u16(val);
-        if (key[4] == 'c') autoconnect = v & 1;
-        else if (key[4] == 'a') { if (v <= 60) autoaway_minutes = v; }
+        if (key[4] == 'j') cfg_b(&autojoin);
+        else {
+            uint8_t v = (uint8_t)str_to_u16(val);
+            if (key[4] == 'c') autoconnect = v & 1;
+            else if (key[4] == 'a') { if (v <= 60) autoaway_minutes = v; }
+        }
     } else if (k0 == 'f' && k1 == 'r') {  // friends
         uint8_t idx = 0;
         char *tok, *p = val;
@@ -2535,6 +2539,8 @@ static void cfg_apply(char *key, char *val) __z88dk_callee {
         char *tok, *p = val;
         while (ignore_count < MAX_IGNORES && (tok = csv_next_tok(&p)) != NULL)
             add_ignore(tok);
+    } else if (k0 == 'c' && k1 == 'h') {
+        cfg_s(search_pattern, SEARCH_PATTERN_SIZE);
     } else if (k0 == 'b' && k1 == 'e') cfg_b(&beep_enabled);
       else if (k0 == 'c' && k1 == 'l') cfg_b(&keyclick_enabled);
       else if (k0 == 't' && k1 == 'r') cfg_b(&show_traffic);

@@ -104,6 +104,8 @@ void help_render_ovl(void)
         while (rem > 0) { total_pages++; rem = (rem > LINES_PER_PAGE) ? rem - LINES_PER_PAGE : 0; }
       }
 
+    if (help_page >= total_pages) help_page = 0;
+
     /* Which line does the current page start at? */
     target_line = help_page * LINES_PER_PAGE;
 

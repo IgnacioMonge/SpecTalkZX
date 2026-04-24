@@ -133,6 +133,8 @@ extern void ui_err(const char *s) __z88dk_fastcall;
 
 static const char CK_HDR[]  = "; SpecTalkZX config\r\n";
 static const char CK_NKS[]  = "nickserv=";
+static const char CK_AJOIN[] = "autojoin=";
+static const char CK_CHANS[] = "channels=";
 
 static char *cfg_put_csv(char *p, const char *key,
                          const char *list, uint8_t elem_size, uint8_t count) __z88dk_callee
@@ -144,6 +146,22 @@ static char *cfg_put_csv(char *p, const char *key,
         if (!any) { p = cfg_put(p, key); *p++ = '='; any = 1; }
         else *p++ = ',';
         p = cfg_put(p, s);
+    }
+    if (any) { *p++ = '\r'; *p++ = '\n'; }
+    return p;
+}
+
+static char *cfg_put_autojoin(char *p)
+{
+    uint8_t i, any = 0;
+    uint8_t *ch = channels + CH_SIZE;
+
+    for (i = MAX_CHANNELS - 1; i; --i, ch += CH_SIZE) {
+        if ((ch[CH_FLAGS_OFF] & (CH_FLAG_ACTIVE | CH_FLAG_QUERY)) == CH_FLAG_ACTIVE) {
+            if (!any) { p = cfg_put(p, CK_CHANS); any = 1; }
+            else *p++ = ',';
+            p = cfg_put(p, (const char *)ch);
+        }
     }
     if (any) { *p++ = '\r'; *p++ = '\n'; }
     return p;
@@ -173,6 +191,7 @@ void save_config_ovl(void)
     p = cfg_kv(p, K_TRAFFIC, (const char *)(uint16_t)show_traffic);
     p = cfg_kv(p, K_TS, (const char *)(uint16_t)show_timestamps);
     p = cfg_kv(p, K_AUTOCONN, (const char *)(uint16_t)autoconnect);
+    p = cfg_kv(p, CK_AJOIN, (const char *)(uint16_t)autojoin);
     p = cfg_kv(p, K_NOTIF, (const char *)(uint16_t)notif_enabled);
 
     if (autoaway_minutes) {
@@ -189,6 +208,8 @@ void save_config_ovl(void)
     }
     tmp[2] = 0;
     p = cfg_put(p, tmp); *p++ = '\r'; *p++ = '\n';
+
+    p = cfg_put_autojoin(p);
 
     /* Capacity guard: leave 12B headroom for CSV trailing bytes.
      * Explicit OVERLAY_SLOT_SIZE so future key additions fail loudly. */

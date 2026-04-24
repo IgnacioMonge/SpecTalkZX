@@ -58,6 +58,7 @@ static const uint8_t wn_logo[760] = {
 
 /* Packed changelog: null-terminated entries, walk with pointer */
 static const char wn_changes[] =
+    "IRC session bookmarks\0"
     "Nick coloring (per-nick hash)\0"
     "Smart notifications (configurable)\0"
     "Word navigation (SS+arrows)\0"
@@ -68,5 +69,4 @@ static const char wn_changes[] =
     "Better esxDOS file management\0"
     "Code optimizations (-2KB)\0"
     "What's New screen\0"
-    "And much much more!\0"
 ;

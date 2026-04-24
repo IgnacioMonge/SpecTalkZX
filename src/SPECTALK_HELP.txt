@@ -8,12 +8,13 @@
 !click	Toggle key click
 !notif	Toggle notifications
 !changelog	What's New
-!save	Save config to SD
+!save	Save config/session
 !clear	Clear chat screen
 !traffic	Toggle join/part msgs
 !timestamps	Toggle time display
 !nickcolor	Toggle nick colors
 !autoconnect	Toggle auto-connect
+!autojoin	Toggle saved channels
 !autoaway	Auto-away (min, 0=off)
 !tz	Timezone (-12..+14)
 !friend	Add/remove friend nick

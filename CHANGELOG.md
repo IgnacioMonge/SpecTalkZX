@@ -1,8 +1,8 @@
 # SpecTalkZX — Changelog
 
-## [Unreleased] — 2026-04-23 (HEAD `dccb3fb`)
+## [Unreleased] — 2026-04-24 (HEAD `dccb3fb`)
 
-**Local build verificado con `make` el 2026-04-23.** Estado actual sobre `v1.3.7.1`.
+**Local build verificado con `make` el 2026-04-24.** Estado actual sobre `v1.3.7.1`.
 Snapshots progresivos en `Development/dev-1.3.7.N/`.
 
 ### TAP size progression
@@ -22,6 +22,20 @@ Snapshots progresivos en `Development/dev-1.3.7.N/`.
 | + Printer Buffer scratch reloc + overlay exit fragment-discard fix | 36,144 | +425 |
 
 ### Functional fixes
+
+#### Help overlay pagination
+- **Bug**: when the help text filled an exact number of pages, pressing a key on the last page rendered an empty extra page.
+- **Fix**: `help_render_ovl()` now wraps `help_page >= total_pages` before calculating the first line to render.
+- **Check**: `src/SPECTALK_HELP.txt` has all primary commands from `USER_COMMANDS` plus the direct `/0-9` switch; with 48 lines and 12 lines/page it now cycles cleanly over 4 pages.
+- **Verificación**: `make` OK el 2026-04-24, `build/SpecTalkZX.tap` = 36,259B, BSS slack = 45B, overlays `1396/2037/1593/1986`.
+
+#### IRC session bookmarks / autojoin
+- **Feature**: `!save` now persists the open IRC session: configured server/port plus active non-query channels.
+- **Controls**: `autoconnect=0|1` now controls only server connection; new `!autojoin` / `autojoin=0|1` controls whether saved channels are joined after registration.
+- **Restore path**: config `channels=#chan,#other` is loaded as transient startup state and replayed as a single IRC `JOIN` after `001 RPL_WELCOME`; explicit `/server host` clears the pending session restore.
+- **UI**: `!config` shows both `autojoin=` and the saved `channels=` list, and autojoin uses `Autojoining #chan...` instead of the manual join wording.
+- **Scope**: this is the resident-safe MVP. Named multi-server bookmark selection stays deferred to an overlay/shrink pass.
+- **Verificación**: `make` OK el 2026-04-24, `build/SpecTalkZX.tap` = 36,259B, BSS slack = 45B, overlays `1396/2037/1593/1986`.
 
 #### NiCK service fix
 - **Bug**: auto-identify y detección de servicio fallaban cuando el servicio se llama "NiCK" en vez de "NickServ" — heurística fallback solo buscaba "Serv" en sender

@@ -90,8 +90,10 @@ extern uint8_t  nick_color_mode;
 extern uint8_t  show_traffic;
 extern uint8_t  show_timestamps;
 extern uint8_t  autoconnect;
+extern uint8_t  autojoin;
 extern uint8_t  autoaway_minutes;
 extern int8_t   sntp_tz;
+extern char     search_pattern[];
 extern char     friend_nicks[][18];   /* MAX_FRIENDS(5) x IRC_NICK_SIZE(18) */
 extern char     ignore_list[][16];
 extern uint8_t  ignore_count;

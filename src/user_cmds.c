@@ -42,6 +42,7 @@ static const char K_NCOLOR[]   = "nickcolor=";
 static const char K_TRAFFIC[]  = "traffic=";
 static const char K_TS[]       = "timestamps=";
 static const char K_TOPIC[]    = "TOPIC";
+static const char K_JOIN_CMD[] = "JOIN";
 static const char K_MODE_SP[]  = "MODE ";
 static const char K_CFG_PRI[]  = "/SYS/CONFIG/SPECTALK.CFG";
 static const char K_CFG_ALT[]  = "/SYS/SPECTALK.CFG";
@@ -177,6 +178,15 @@ wcr_ok:
 // COMMAND HANDLERS
 // =============================================================================
 
+static void session_autojoin_replay(void)
+{
+    char c = search_pattern[0];
+    if (autojoin && (c == '#' || c == '&')) {
+        notify2("Autojoining ", search_pattern, ATTR_MSG_JOIN);
+        irc_send_cmd1(K_JOIN_CMD, search_pattern);
+    }
+}
+
 // OPT L3: cmd_connect_abort eliminada - inlined en call site
 
 static void cmd_connect(const char *args) __z88dk_fastcall
@@ -186,6 +196,7 @@ static void cmd_connect(const char *args) __z88dk_fastcall
     uint8_t server_len;
     uint8_t result;
     uint8_t use_ssl = 0;
+    uint8_t use_saved_session = 0;
 
     if (connection_state < STATE_WIFI_OK) {
         ui_err("No WiFi. Use !init");
@@ -202,6 +213,7 @@ static void cmd_connect(const char *args) __z88dk_fastcall
         }
         // No args + not connected: reconnect using config-preloaded server if available
         if (irc_server[0]) {
+            use_saved_session = 1;
             goto do_connect;
         }
         ui_usage("server host [port]");
@@ -250,6 +262,7 @@ do_connect:
     main_puts2("Connecting to ", irc_server); main_putc(':'); main_puts2(irc_port, "... ");
     
     force_disconnect();
+    if (!use_saved_session) search_pattern[0] = 0;
     reset_rx_state(); rx_line[0] = '\0';
     result = 0;
     
@@ -368,7 +381,7 @@ do_connect:
                     switch (code) {
                         case 1: // RPL_WELCOME
                             set_attr_priv(); main_print("Connected!");
-                            connection_state = STATE_IRC_READY; loop_done = 1; rx_pos = 0; continue;
+                            connection_state = STATE_IRC_READY; session_autojoin_replay(); loop_done = 1; rx_pos = 0; continue;
                         case 433: // Nick in use - try alternate
                             // OPT-P2-B: use shared helper
                             nick_try_alternate();
@@ -553,7 +566,7 @@ static void cmd_join(const char *args) __z88dk_fastcall
 
     if (find_empty_channel_slot() == -1) { ui_err(S_MAXWIN); main_print("Use /close or /part first."); return; }
 
-    irc_send_cmd1("JOIN", lookup);
+    irc_send_cmd1(K_JOIN_CMD, lookup);
     notify2("Joining ", lookup, ATTR_MSG_JOIN);
 }
 
@@ -1274,6 +1287,11 @@ static void cmd_autoconnect(const char *args) __z88dk_fastcall
     set_or_toggle_flag(&autoconnect, "Autoconnect: ", args);
 }
 
+static void cmd_autojoin(const char *args) __z88dk_fastcall
+{
+    set_or_toggle_flag(&autojoin, "Autojoin: ", args);
+}
+
 static void cmd_tz(const char *args) __z88dk_fastcall
 {
     if (args && *args) {
@@ -1443,7 +1461,7 @@ typedef struct {
 static void sys_help(const char *args) __z88dk_fastcall;
 
 #define CMD_IDX_NONE  ((uint8_t)0xFF)
-#define SYS_CMDS_COUNT 19
+#define SYS_CMDS_COUNT 20
 
 // Command names/aliases pool (help strings moved to /SYS/SPECTALK.HLP)
 static const char cmd_pool[] =
@@ -1452,7 +1470,7 @@ static const char cmd_pool[] =
     "\0away\0autoaway\0aa\0raw\0whois\0wi\0who\0list\0ls\0names\0topic\0sea"
     "rch\0ignore\0kick\0k\0channels\0w\0beep\0traffic\0timestamps\0ts\0clear\0cls\0"
     "save\0sv\0autoconnect\0ac\0tz\0friend\0nickcolor\0nc\0notif\0nf\0"
-    "changelog\0click\0mode\0reply\0notice\0"
+    "changelog\0click\0mode\0reply\0notice\0autojoin\0"
 ;
 
 static const PackedCmd USER_COMMANDS[] = {
@@ -1472,6 +1490,7 @@ static const PackedCmd USER_COMMANDS[] = {
     {  47,  48, (void (*)(const char *))clear_main },
     {  49,  50, cmd_save },
     {  51,  52, cmd_autoconnect },
+    {  64, 255, cmd_autojoin },
     {  53, 255, cmd_tz },
     {  54, 255, cmd_friend },
     {  55,  56, cmd_nickcolor },

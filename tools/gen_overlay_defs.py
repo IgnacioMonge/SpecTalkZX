@@ -85,8 +85,8 @@ REQUIRED_VARIABLES = [
     # Config variables (read-only from overlay)
     '_irc_nick', '_irc_server', '_irc_port', '_irc_pass', '_nickserv_pass', '_nickserv_nick',
     '_current_theme', '_beep_enabled', '_keyclick_enabled', '_nick_color_mode', '_show_traffic',
-    '_show_timestamps', '_autoconnect', '_autoaway_minutes', '_sntp_tz',
-    '_friend_nicks', '_ignore_list', '_ignore_count',
+    '_show_timestamps', '_autoconnect', '_autojoin', '_autoaway_minutes',
+    '_sntp_tz', '_search_pattern', '_friend_nicks', '_ignore_list', '_ignore_count',
 ]
 
 
