@@ -506,12 +506,31 @@ _fast_fill_attr:
 
 _cls_fast:
     ; --- BORRADO DE BITMAP (0x4000..0x57FF) = 6144 bytes ---
-    ld hl, 0x4000
-    xor a
-    ld (hl), a
-    ld de, 0x4001
-    ld bc, 6143
-    ldir
+    ; Stack clear: 6 * 256 iterations * 2 PUSHes = 6144 bytes.
+    ; Preserve the incoming IFF state: do not enable interrupts if the caller
+    ; entered with them disabled.
+    ld a, i
+    di
+    push af
+    ld (cls_restore_sp + 1), sp
+    ld sp, 0x5800
+    ld hl, 0
+    ld de, 0
+    ld c, 6
+cls_outer:
+    ld b, 0
+cls_inner:
+    push hl
+    push de
+    djnz cls_inner
+    dec c
+    jr nz, cls_outer
+cls_restore_sp:
+    ld sp, 0
+    pop af
+    jp po, cls_no_ei
+    ei
+cls_no_ei:
 
     ; --- ATRIBUTOS ---
     jr _reapply_screen_attributes
@@ -666,21 +685,19 @@ smz_scanline_loop:
 
     ; Clear last chat row (19) directly; avoids general clear_line setup.
     ld hl, 0x5060          ; SCREEN_ROW_ADDR(19)
-    ld b, 8
-smz_clear19_px:
-    push bc
-    push hl
+    ld iyl, 8
     xor a
+smz_clear19_px:
     ld (hl), a
     ld d, h
     ld e, l
     inc de
     ld bc, 31
     ldir
-    pop hl
-    pop bc
+    ld l, 0x60
     inc h
-    djnz smz_clear19_px
+    dec iyl
+    jr nz, smz_clear19_px
 
     ld a, (_current_attr)
     ld hl, 0x5A60          ; ATTR row 19

@@ -867,7 +867,6 @@ plf_blank_pair_set_de:
     ld e, l
 plf_blank_pair:
     pop hl                 ; screen addr
-    push hl
     xor a
     ld b, 8
 plf_blank_loop:
@@ -922,7 +921,6 @@ plf_write_pair:
     ; Keep vertical alignment identical to _print_str64_char():
     ; blank top scanline, then render glyph rows 0..6 into scanlines 1..7.
     pop hl                 ; HL = screen addr
-    push hl                ; Re-guardar para avanzar despu?s
 
     xor a
     ld (hl), a             ; scanline 0 stays blank like per-char rendering
@@ -942,10 +940,13 @@ plf_write_loop:
     inc h                  ; Siguiente scanline
     djnz plf_write_loop
 
-    ld hl, (plf_str_ptr)
-    ex de, hl              ; DE = string pointer para siguiente iteraci?n
+    ld de, (plf_str_ptr)   ; DE = string pointer para siguiente iteraci?n
 plf_pair_advance:
-    pop hl                 ; Recuperar screen addr
+    ; HL is one screen character cell below the byte just written (H += 8).
+    ; Restore the row base without another stack round-trip.
+    ld a, h
+    sub 8
+    ld h, a
     inc hl                 ; Siguiente byte (siguiente par de columnas)
 
     dec iyl
