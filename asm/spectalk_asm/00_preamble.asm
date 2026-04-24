@@ -122,6 +122,7 @@ PUBLIC _input_cache_invalidate
 PUBLIC _print_str64_char
 PUBLIC _print_line64_fast
 PUBLIC _draw_indicator
+PUBLIC _draw_cursor_underline
 ; draw_indicator_big removed (big mode eliminated)
 PUBLIC _clear_line
 PUBLIC _clear_zone
@@ -143,7 +144,9 @@ PUBLIC _reapply_screen_attributes
 PUBLIC _cls_fast
 PUBLIC _uart_drain_to_buffer
 PUBLIC _scroll_main_zone
+PUBLIC _main_print
 PUBLIC _main_newline
+PUBLIC _main_hline
 PUBLIC _tokenize_params
 PUBLIC _sb_append
 PUBLIC _draw_badge_dither
@@ -258,7 +261,9 @@ PUBLIC _plf_start_byte
 defc _plf_start_byte = 0x5BD4  ; 1B  wrap_indent/2 (seteado por callers ASM)
 defc bpe_rstack      = 0x5BD5  ; 16B BPE return stack (8 niveles x 2B)
 defc bpe_rsp         = 0x5BE5  ; 2B  BPE stack pointer
-; $5BE7-$5BFF (25B libres para futuro scratch transitorio)
+; $5BE7-$5BE8 2B  main_print_wrapped_ram() last-space scratch
+; $5BE9-$5BF0 8B  C fmt_buf transient decimal/time scratch
+; $5BF1-$5BFF (15B libres para futuro scratch transitorio)
 
 ; =============================================================================
 ; VARIABLES BSS (solo las que deben sobrevivir a llamadas esxDOS RST 8)

@@ -45,10 +45,14 @@ REQUIRED_FUNCTIONS = [
     '_in_inkey',
     '_frame_wait',
 
-    # Screen output (for save status messages)
+    # Screen output (for save status messages and cold local commands)
+    '_main_putc',
     '_main_puts',
+    '_main_newline',
     '_main_print',
     '_set_attr_sys',
+    '_set_attr_priv',
+    '_sys_puts_print',
     '_ui_err',
     '_u16_to_dec',
 
@@ -84,7 +88,7 @@ REQUIRED_VARIABLES = [
 
     # Config variables (read-only from overlay)
     '_irc_nick', '_irc_server', '_irc_port', '_irc_pass', '_nickserv_pass', '_nickserv_nick',
-    '_current_theme', '_beep_enabled', '_keyclick_enabled', '_nick_color_mode', '_show_traffic',
+    '_current_theme', '_current_channel_idx', '_beep_enabled', '_keyclick_enabled', '_nick_color_mode', '_show_traffic',
     '_show_timestamps', '_autoconnect', '_autojoin', '_autoaway_minutes',
     '_sntp_tz', '_search_pattern', '_friend_nicks', '_ignore_list', '_ignore_count',
 ]

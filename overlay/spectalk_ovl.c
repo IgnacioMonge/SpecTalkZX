@@ -4,6 +4,8 @@
  * overlay_slot (512B, aliased to rx_line) available as scratch data buffer.
  *
  * Entry 0: help_render_ovl
+ * Entry 2: windows_render_ovl
+ * Entry 3: theme_msg_ovl
  *
  * Strings are plain text (not BPE) — stored in OVL on SD, not in TAP.
  * Supports arbitrary help text length via multi-segment reading (512B each).
@@ -17,6 +19,14 @@ static uint8_t cur_seg;     /* currently loaded segment */
 
 #define SEGMENT_SIZE 512
 #define MAX_SEGS     4      /* up to 2048B of help text */
+
+#define MAX_CHANNELS    10
+#define CH_SIZE         32
+#define CH_FLAG_ACTIVE  0x01
+#define CH_FLAG_QUERY   0x02
+#define CH_FLAG_UNREAD  0x04
+#define CH_FLAG_MENTION 0x08
+#define CH_FLAGS_OFF    30
 
 static const char s_hnot[] = "ANY KEY: NEXT / BREAK: EXIT";
 
@@ -217,5 +227,70 @@ void banner_render_ovl(void)
         print_big_str(0, bp ? 58 : 61, bp ? "_ [] X" : "<<<", banner_attr);
     }
     { uint8_t i; uint8_t *p = (uint8_t *)0x4040; for (i = 0; i < 32; i++) *p++ = 0xFF; }
+    rb_head = 0; rb_tail = 0; rx_pos = 0;
+}
+
+/* ================================================================
+ * ENTRY 2 — /channels listing
+ * ================================================================ */
+
+void windows_render_ovl(void)
+{
+    uint8_t i, n = 0;
+    uint8_t *ch = channels;
+
+    set_attr_sys();
+    main_puts("Open windows:");
+
+    for (i = 0; i < MAX_CHANNELS; i++, ch += CH_SIZE) {
+        uint8_t f = ch[CH_FLAGS_OFF];
+
+        if (f & CH_FLAG_ACTIVE) {
+            main_putc(' ');
+            if (i == current_channel_idx) main_putc('*');
+
+            main_putc((char)('0' + i));
+            main_putc(':');
+
+            if (i == 0) {
+                main_puts("Server");
+            } else {
+                if (f & CH_FLAG_MENTION) {
+                    set_attr_priv();
+                    main_putc('!');
+                }
+                if (f & CH_FLAG_QUERY)  main_putc('@');
+                if (f & CH_FLAG_UNREAD) main_putc('+');
+
+                main_puts((const char *)ch);
+
+                if (f & CH_FLAG_MENTION) set_attr_sys();
+            }
+            n++;
+        }
+    }
+
+    if (n == 0) main_puts(" (none)");
+    main_newline();
+    rb_head = 0; rb_tail = 0; rx_pos = 0;
+}
+
+/* ================================================================
+ * ENTRY 3 — /theme status line
+ * search_pattern[0]: 0 already, 1 changed
+ * search_pattern[1]: theme id 1..3
+ * ================================================================ */
+
+static const char *theme_name_ovl(uint8_t t)
+{
+    if (t == 2) return "The Terminal";
+    if (t == 3) return "The Commander";
+    return "Default";
+}
+
+void theme_msg_ovl(void)
+{
+    sys_puts_print(search_pattern[0] ? "Theme set to " : "Already using ",
+                   theme_name_ovl((uint8_t)search_pattern[1]));
     rb_head = 0; rb_tail = 0; rx_pos = 0;
 }

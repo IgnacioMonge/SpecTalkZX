@@ -34,9 +34,6 @@
 #define ST_NAKED
 #endif
 
-// Theme helper (defined in spectalk.c)
-const char *theme_get_name(uint8_t theme_id) __z88dk_fastcall;
-
 // =============================================================================
 // VERSION
 // =============================================================================
@@ -308,7 +305,6 @@ extern uint8_t theme_attrs[20];
 // CROSS-MODULE FUNCTIONS (defined in spectalk.c)
 // =============================================================================
 extern void main_print_time_prefix(void);
-extern void main_run_u16(uint16_t val, uint8_t attr) __z88dk_callee;
 extern void reset_all_channels(void);
 extern void send_identify(const char *pass) __z88dk_fastcall;
 void sntp_process_response(const char *line) __z88dk_fastcall;
@@ -379,6 +375,7 @@ extern uint8_t show_timestamps;
 extern uint8_t last_ts_hour;
 extern uint8_t last_ts_minute;
 extern uint8_t autojoin;
+extern uint8_t autojoin_defer_flags;
 
 // IRC parsing
 extern char *irc_params[IRC_MAX_PARAMS];
@@ -514,7 +511,6 @@ void main_hline(void);
 void utf8_to_ascii(char *s) __z88dk_fastcall;  // UTF-8 → ASCII conversion
 void print_char64(uint8_t y, uint8_t col, uint8_t c, uint8_t attr) __z88dk_callee;
 void print_str64(uint8_t y, uint8_t col, const char *s, uint8_t attr) __z88dk_callee;
-void print_str64_bpe(uint8_t y, uint8_t col, const char *s, uint8_t attr) __z88dk_callee;
 void print_big_str(uint8_t y, uint8_t col, const char *s, uint8_t attr) __z88dk_callee;
 
 // Overlay modes

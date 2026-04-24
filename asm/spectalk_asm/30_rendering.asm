@@ -716,6 +716,91 @@ nd_done:
     ret
 
 ; -----------------------------------------------------------------------------
+; void put_char64_input_cached(uint8_t y, uint8_t col, char ch, uint8_t attr)
+; __z88dk_callee. Preserves the C helper contract, but specializes the hot
+; input rows and fixed Printer Buffer cache addresses.
+; Stack: [ret] [y] [col] [ch] [attr]
+; -----------------------------------------------------------------------------
+PUBLIC _put_char64_input_cached
+_put_char64_input_cached:
+    pop de                  ; return address
+    pop bc                  ; C = y, B = col
+    pop hl                  ; L = ch, H = attr
+    push de
+    ld d, l                 ; D = ch
+    ld e, h                 ; E = attr
+
+    ld a, c
+    cp 22
+    jr c, pci_draw
+    cp 24
+    jr nc, pci_draw
+    ld a, b
+    cp 64
+    jr nc, pci_draw
+
+    call pci_char_addr
+    ld a, (hl)
+    cp d
+    jr nz, pci_update
+
+    ; VRAM attr for input rows: row 22=$5AC0, row 23=$5AE0.
+    ld a, b
+    srl a
+    ld l, a
+    ld h, 0x5A
+    set 7, l
+    set 6, l
+    ld a, c
+    cp 23
+    jr nz, pci_vattr_ready
+    set 5, l
+pci_vattr_ready:
+    ld a, (hl)
+    cp e
+    jr nz, pci_update
+    call pci_cache_attr_addr
+    ld (hl), e
+    ret
+
+pci_update:
+    call pci_char_addr
+    ld (hl), d
+    call pci_cache_attr_addr
+    ld (hl), e
+
+pci_draw:
+    ld a, c
+    ld (_g_ps64_y), a
+    ld a, b
+    ld (_g_ps64_col), a
+    ld a, e
+    ld (_g_ps64_attr), a
+    ld l, d
+    jp _print_str64_char
+
+pci_char_addr:
+    ld l, b
+    ld h, 0x5B
+    ld a, c
+    cp 23
+    ret nz
+    set 6, l
+    ret
+
+pci_cache_attr_addr:
+    ld a, b
+    srl a
+    ld l, a
+    ld h, 0x5B
+    set 7, l
+    ld a, c
+    cp 23
+    ret nz
+    set 5, l
+    ret
+
+; -----------------------------------------------------------------------------
 ; void print_line64_fast(uint8_t y, const char *s, uint8_t attr)
 ; Stack layout (con push ix):
 ;   [IX+4]=y, [IX+5,6]=s (pointer), [IX+7]=attr
@@ -755,6 +840,47 @@ plf_pair_loop:
     push bc                ; Guardar contador de pares
     push hl                ; Guardar screen addr del byte actual
 
+    ; Fast path: if both chars in this byte are blank after normalization
+    ; (space, NUL padding, or invalid control/high byte), skip glyph unpacking.
+    ld h, d
+    ld l, e                ; HL = candidate string pointer
+    ld a, (hl)
+    or a
+    jr z, plf_blank_pair   ; left NUL: right is also padding, DE unchanged
+    cp 32
+    jr c, plf_left_blank
+    cp 128
+    jr nc, plf_left_blank
+    cp 32
+    jr nz, plf_left_normal
+plf_left_blank:
+    inc hl                 ; left consumed
+    ld a, (hl)
+    or a
+    jr z, plf_blank_pair_set_de
+    cp 32
+    jr c, plf_right_blank
+    cp 128
+    jr nc, plf_right_blank
+    cp 32
+    jr nz, plf_left_normal
+plf_right_blank:
+    inc hl                 ; right consumed
+plf_blank_pair_set_de:
+    ld d, h
+    ld e, l
+plf_blank_pair:
+    pop hl                 ; screen addr
+    push hl
+    xor a
+    ld b, 8
+plf_blank_loop:
+    ld (hl), a
+    inc h
+    djnz plf_blank_loop
+    jr plf_pair_advance
+
+plf_left_normal:
     ; --- Leer char izquierdo ---
     ld a, (de)
     or a
@@ -828,11 +954,13 @@ plf_write_loop:
 
     ld hl, (plf_str_ptr)
     ex de, hl              ; DE = string pointer para siguiente iteraci?n
+plf_pair_advance:
     pop hl                 ; Recuperar screen addr
     inc hl                 ; Siguiente byte (siguiente par de columnas)
 
     pop bc                 ; Recuperar contador de pares
-    djnz plf_pair_loop
+    dec b
+    jp nz, plf_pair_loop
 
     ; --- Attr fill: write attributes from plf_start_byte onwards ---
     ld a, (plf_y_val)
@@ -857,7 +985,7 @@ plf_no_ldir:
 
     ; (S01) Trailing update de _g_ps64_col/y/attr eliminado. Verificado:
     ; todos los readers (main_puts, main_newline, print_char64, print_big_str,
-    ; print_str64, print_str64_bpe, main_run_u16) setean los globals antes
+    ; print_str64) setean los globals antes
     ; de usarlos. Ningún consumidor depende del valor post-retorno.
 
     pop ix
@@ -1037,6 +1165,85 @@ di_pattern_loop:
     ld (hl), c              ; attr
 
     pop ix
+    ret
+
+; -----------------------------------------------------------------------------
+; void draw_cursor_underline(uint8_t y, uint8_t col) __z88dk_callee
+; Input cursor overlay for the 64-col input rows. Same behavior as the former C
+; helper: force ATTR_INPUT, clear both scanline 0/7 cursor bits, then draw the
+; active caps indicator on scanline 0 or scanline 7.
+; Stack: [ret] [y] [col]
+; -----------------------------------------------------------------------------
+_draw_cursor_underline:
+    pop de                  ; DE = return address
+    pop bc                  ; C = y, B = col
+    push de                 ; restore return address
+
+    ld a, b
+    srl a                   ; A = phys_x = col / 2
+    ld e, a                 ; E = phys_x
+    ld a, b
+    and 1
+    jr nz, dcu_right
+    ld d, 0xF0              ; D = cursor mask
+    ld b, 0x0F              ; B = inverse mask
+    jr dcu_masks
+dcu_right:
+    ld d, 0x0F
+    ld b, 0xF0
+dcu_masks:
+    ; Attribute: attr_addr(y, phys_x) = ATTR_INPUT.
+    push de                 ; save mask/phys_x
+    push bc                 ; save inv_mask/y
+    ld a, c
+    call _compute_attr_base
+    pop bc
+    pop de
+    ld a, e
+    add a, l                ; attr rows are 32-byte aligned; no carry
+    ld l, a
+    ld a, (_theme_attrs + 6) ; ATTR_INPUT
+    ld (hl), a
+
+    ; Bitmap: compute scanline 0 cell address once.
+    push de
+    push bc
+    ld a, c
+    call _compute_screen_base
+    pop bc
+    pop de
+    ld a, e
+    add a, l                ; screen rows are 32-byte aligned; no carry
+    ld l, a                 ; HL = scanline 0 cell
+
+    ; Clear cursor nibble on scanline 0 and scanline 7.
+    ld a, (hl)
+    and b
+    ld (hl), a
+    ld a, h
+    add a, 7
+    ld h, a                 ; HL = scanline 7 cell
+    ld a, (hl)
+    and b
+    ld (hl), a
+
+    ; Effective caps = caps_lock_mode XOR key_shift_held().
+    push de                 ; save cursor mask
+    push hl                 ; save scanline 7 cell
+    call _key_shift_held
+    ld a, (_caps_lock_mode)
+    xor l
+    pop hl                  ; HL = scanline 7 cell
+    pop de                  ; D = cursor mask
+    or a
+    jr z, dcu_draw
+    ld a, h
+    sub 7
+    ld h, a                 ; effective caps: draw on scanline 0
+dcu_draw:
+    ld a, (hl)
+    or d
+    ld (hl), a
     ret
 
 

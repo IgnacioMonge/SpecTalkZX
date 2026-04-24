@@ -28,6 +28,12 @@ extern void draw_badge_dither(uint8_t count) __z88dk_fastcall;
 extern void notif_draw(uint8_t start_col, const char *str, uint8_t attr);
 extern void notif_center(const char *str, uint8_t attr);
 extern void input_cache_invalidate(void);
+extern void main_putc(char c) __z88dk_fastcall;
+extern void main_puts(const char *s) __z88dk_fastcall;
+extern void main_newline(void);
+extern void set_attr_sys(void);
+extern void set_attr_priv(void);
+extern void sys_puts_print(const char *label, const char *value) __z88dk_callee;
 
 /* ===== String/number utilities ===== */
 
@@ -84,6 +90,8 @@ extern char     irc_pass[];
 extern char     nickserv_pass[];
 extern char     nickserv_nick[];
 extern uint8_t  current_theme;
+extern uint8_t  current_channel_idx;
+extern uint8_t  channels[];
 extern uint8_t  beep_enabled;
 extern uint8_t  keyclick_enabled;
 extern uint8_t  nick_color_mode;

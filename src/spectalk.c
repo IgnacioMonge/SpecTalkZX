@@ -36,17 +36,6 @@
 // Theme data loaded from SPECTALK.DAT at startup (in ASM bss_user, contiguous with font)
 extern uint8_t theme_raw[75];
 
-// Theme names (kept in ROM — only used by cmd_theme display)
-static const char theme_name_pool[] = "Default\0The Terminal\0The Commander";
-
-const char *theme_get_name(uint8_t theme_id) __z88dk_fastcall
-{
-    const char *p = theme_name_pool;
-    uint8_t n;
-    if ((uint8_t)(theme_id - 1) > 2) theme_id = 1;
-    for (n = theme_id - 1; n; n--) { while (*p++) {} }
-    return p;
-}
 // Forward declaration for internal function
 void draw_status_bar_real(void);
 void text_shift_right(char *addr, uint16_t count) __z88dk_callee; 
@@ -240,31 +229,8 @@ static void overlay_exit_maybe_discard(void)
 }
 
 
-// Input cell cache (mapped to Printer Buffer 0x5B00 via ASM defc)
-
-static void put_char64_input_cached(uint8_t y, uint8_t col, char ch, uint8_t attr) __z88dk_callee
-{
-    if (y < INPUT_START || y > INPUT_END || col >= SCREEN_COLS) {
-        print_char64(y, col, ch, attr);
-        return;
-    }
-    
-    uint8_t r = y - INPUT_START;
-    uint8_t ax = col >> 1;
-    
-    // Skip if char unchanged AND attr matches VRAM (not just cache)
-    // FIX: VRAM can be modified by draw_cursor_underline/clear_zone bypassing cache
-    if (input_cache_char[r][col] == (uint8_t)ch && 
-        *attr_addr(y, ax) == attr) {
-        input_cache_attr[r][ax] = attr;  // Sync cache with VRAM
-        return;
-    }
-    
-    input_cache_char[r][col] = (uint8_t)ch;
-    input_cache_attr[r][ax] = attr;
-    
-    print_char64(y, col, ch, attr);
-}
+// Input cell cache helper: resident ASM in 30_rendering.asm
+extern void put_char64_input_cached(uint8_t y, uint8_t col, char ch, uint8_t attr) __z88dk_callee;
 
 // =============================================================================
 // UART DRIVER AND RING buffer
@@ -374,6 +340,7 @@ char nickserv_pass[IRC_PASS_SIZE];
 char nickserv_nick[IRC_NICK_SIZE];
 uint8_t autoconnect;
 uint8_t autojoin;
+uint8_t autojoin_defer_flags;
 uint8_t has_esxdos;
 // friend_nicks mapped to UDG area 0xFF58 via ASM defc
 uint8_t friends_ison_sent;
@@ -875,8 +842,9 @@ uint8_t wrap_indent;             // Indentación para líneas que continúan (wr
 uint8_t current_attr;  // Initialized in apply_theme()
 
 // Shared scratch buffer for u16-to-string conversions (8 bytes).
-// Used by main_run_u16, draw_clock, draw_status_bar_real (never simultaneously).
-static char fmt_buf[8];
+// Lives in the free Printer Buffer tail; $5BE7-$5BE8 is mpwr_last_space.
+// Used by draw_clock, draw_status_bar_real and search index rendering (never simultaneously).
+#define fmt_buf ((char *)0x5BE9)
 // COMMAND HISTORY
 #define HISTORY_SIZE    4
 // E2: Reduced from 128 to 96 - saves 128 bytes BSS
@@ -960,8 +928,9 @@ volatile uint8_t g_ps64_attr;
 
 // print_char64() moved to spectalk_asm.asm (OPT: 33 -> 19 bytes)
 
-// Pure C implementation — no inline ASM avoids __z88dk_callee + frame pointer
-// conflict that caused crash without --max-allocs-per-node200000.
+// Pure C implementation: this wrapper is intentionally not hand-written in ASM.
+// It is called from stack/BSS UI builders, so keep the SDCC/z88dk stack contract
+// boring unless a pixel-perfect HW test proves an ASM replacement safe.
 void print_str64(uint8_t y, uint8_t col, const char *s, uint8_t attr) __z88dk_callee
 {
     g_ps64_y = y;
@@ -972,35 +941,6 @@ void print_str64(uint8_t y, uint8_t col, const char *s, uint8_t attr) __z88dk_ca
             print_str64_char(*s);
         g_ps64_col++;
         s++;
-    }
-}
-
-// BPE-aware variant: expands BPE tokens (>= 0x80) from bpe_dict
-extern uint8_t bpe_dict[];
-void print_str64_bpe(uint8_t y, uint8_t col, const char *s, uint8_t attr) __z88dk_callee
-{
-    const char *stack[4];  // BPE return stack (4 levels enough for overlay strings)
-    uint8_t sp = 0;
-    uint8_t c;
-    g_ps64_y = y;
-    g_ps64_col = col;
-    g_ps64_attr = attr;
-    for (;;) {
-        c = (uint8_t)*s++;
-        if (c == 0) {
-            if (sp == 0) return;
-            s = stack[--sp];
-            continue;
-        }
-        if (c >= 0x80) {
-            if (sp >= 4) continue;
-            stack[sp++] = s;
-            s = (const char *)&bpe_dict[(c - 0x80) * 3];
-            continue;
-        }
-        if (g_ps64_col < 64)
-            print_str64_char(c);
-        g_ps64_col++;
     }
 }
 
@@ -1084,100 +1024,7 @@ uint8_t pagination_pause(void)
 /* main_newline moved to ASM (see asm/spectalk_asm.asm) */
 extern void main_newline(void);
 
-// ============================================================
-// Versión optimizada de main_run: Calcula punteros de fila una vez por segmento
-// ============================================================
-
-// OPTIMIZACIÓN: Helper para evitar duplicar lógica de alineación de atributos
-static void ensure_attr_alignment(uint8_t target_attr) __z88dk_fastcall
-{
-    if (current_attr != target_attr) {
-        if (main_col & 1) {
-            if (main_col >= SCREEN_COLS) {
-                main_newline();
-            } else {
-                print_char64(main_line, main_col, ' ', current_attr);
-                main_col++;
-            }
-        }
-        current_attr = target_attr;
-    }
-}
-
-
-void main_run_u16(uint16_t val, uint8_t attr) __z88dk_callee
-{
-    char *q = u16_to_dec(fmt_buf, val);
-    (void)q;  
-    
-    ensure_attr_alignment(attr);
-    
-    g_ps64_y = main_line;
-    g_ps64_attr = attr;
-    
-    q = fmt_buf;
-    while (*q) {
-        if (main_col >= SCREEN_COLS) {
-            main_newline();
-            g_ps64_y = main_line;
-        }
-        g_ps64_col = main_col;
-        print_str64_char((uint8_t)*q++);
-        main_col++;
-    }
-}
-
-
-void main_print(const char *s) __z88dk_fastcall
-{
-    // During help overlay, suppress IRC message output to prevent
-    // overwriting the help display. PING/PONG is handled by process_irc_data
-    // since ring_buffer is free between help pages.
-    if (overlay_mode) return;
-
-    // Fast path: Solo si estamos al inicio de la línea y el texto cabe en una línea
-    // Para textos largos, usamos slow path que hace wrap automático
-
-    if (main_col == 0 && wrap_indent == 0) {
-        // Verificar si el texto es corto (cabe en pantalla)
-        const char *p = s;
-        uint8_t len = 0;
-        while (*p && len < SCREEN_COLS) { p++; len++; }
-
-        if (*p == '\0') {
-            // Texto corto - usar fast path
-            print_line64_fast(main_line, s, current_attr);
-            main_newline();
-            return;
-        }
-        // Texto largo - usar slow path para wrap
-    }
-
-    // Slow path: Carácter a carácter (maneja wrap automático)
-    main_puts(s);
-    wrap_indent = 0;  // Resetear indentación antes del newline final
-    main_newline();
-}
-
-// Draw 1-pixel separator line in main area
-void main_hline(void)
-{
-    uint8_t x;
-    uint8_t *screen_ptr;
-    uint8_t *attr_ptr;
-    
-    if (main_col > 0) main_newline();
-    
-    // Inline: draw_hline(main_line, 0, 32, 3, current_attr)
-    screen_ptr = (uint8_t*)(SCREEN_ROW_ADDR(main_line) + (3 << 8));  // scanline 3
-    attr_ptr = (uint8_t*)(0x5800 + ((uint16_t)main_line << 5));
-    for (x = 0; x < 32; x++) {
-        *screen_ptr++ = 0xFF;
-        *attr_ptr++ = current_attr;
-    }
-    
-    main_newline();
-}
+// main_print: resident ASM in 50_main_output.asm
 
 // =============================================================================
 // SEARCH SYSTEM — Lógica simplificada
@@ -1587,41 +1434,7 @@ void draw_status_bar_real(void)
 
 // INPUT AREA
 
-static void draw_cursor_underline(uint8_t y, uint8_t col) __z88dk_callee
-{
-    uint8_t phys_x = col >> 1;
-    uint8_t half = col & 1;
-    uint8_t *ptr0, *ptr7;
-    
-    // Máscara: 0xF0 para izquierda, 0x0F para derecha
-    uint8_t mask = (half == 0) ? 0xF0 : 0x0F;
-    uint8_t inv_mask = ~mask;
-    
-    // 1. Forzar atributo
-    *attr_addr(y, phys_x) = ATTR_INPUT;
-    
-    // 2. LIMPIEZA PREVIA (borrar cursor viejo en ambas lines)
-    ptr0 = screen_line_addr(y, phys_x, 0);  // Scanline superior (sobreline)
-    ptr7 = screen_line_addr(y, phys_x, 7);  // Scanline inferior (subrayado)
-    
-    *ptr0 &= inv_mask; 
-    *ptr7 &= inv_mask; 
-    
-    // 3. LÓGICA EFECTIVA (Caps Lock XOR Shift)
-    // Si Caps=1 y Shift=0 -> Efectivo=1 (Mayús -> Arriba)
-    // Si Caps=1 y Shift=1 -> Efectivo=0 (Minús -> Abajo)
-    uint8_t shift_pressed = key_shift_held();
-    uint8_t effective_caps = (caps_lock_mode ^ shift_pressed);
-
-    // 4. DIBUJAR NUEVO cursor
-    if (effective_caps) {
-        // Modo Mayúsculas efectivas: Sobreline (Scanline 0)
-        *ptr0 |= mask;
-    } else {
-        // Modo Minúsculas efectivas: Subrayado (Scanline 7)
-        *ptr7 |= mask;
-    }
-}
+extern void draw_cursor_underline(uint8_t y, uint8_t col) __z88dk_callee;
 
 void refresh_cursor_char(uint8_t idx, uint8_t show_cursor) __z88dk_callee
 {
@@ -2129,6 +1942,7 @@ void force_disconnect(void)
     notif_timeout = 0;
     notif_is_pm = 0;
     last_pm_nick[0] = '\0';
+    autojoin_defer_flags = 0;
     
     cancel_search_state();
     

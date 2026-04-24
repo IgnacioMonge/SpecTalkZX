@@ -17,6 +17,64 @@ EXTERN _last_ts_minute
 defc mpwr_last_space = 0x5BE7
 
 ; -----------------------------------------------------------------------------
+; void main_print(const char *s) __z88dk_fastcall
+; HL = string. Mirrors the former C wrapper.
+; -----------------------------------------------------------------------------
+_main_print:
+    ld a, (_overlay_mode)
+    or a
+    ret nz
+
+    ld a, (_main_col)
+    or a
+    jr nz, mp_slow
+    ld a, (_wrap_indent)
+    or a
+    jr nz, mp_slow
+
+    push hl                     ; save original string
+    ld d, h
+    ld e, l
+    ld b, 64
+mp_scan:
+    ld a, (de)
+    or a
+    jr z, mp_fast
+    cp 128
+    jr nc, mp_bpe_slow
+    inc de
+    djnz mp_scan
+    ld a, (de)                  ; exactly 64 chars also uses fast path
+    or a
+    jr z, mp_fast
+    pop hl
+
+mp_slow:
+    call _main_puts
+    xor a
+    ld (_wrap_indent), a
+    jp _main_newline
+
+mp_bpe_slow:
+    pop hl
+    jr mp_slow
+
+mp_fast:
+    pop de                      ; DE = original string
+    ld a, (_current_attr)
+    ld b, a
+    ld c, d                     ; C = str_hi
+    push bc                     ; [str_hi][attr]
+    ld a, (_main_line)
+    ld c, a                     ; C = y
+    ld b, e                     ; B = str_lo
+    push bc                     ; [y][str_lo]
+    call _print_line64_fast
+    pop bc
+    pop bc
+    jp _main_newline
+
+; -----------------------------------------------------------------------------
 ; void main_print_time_prefix(void)
 ; Prints "HH:MM| " using ATTR_MSG_TIME, then restores current_attr.
 ; show_timestamps: 0=off, 1=always, 2=on-change (only when HH:MM differs)

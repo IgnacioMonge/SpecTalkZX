@@ -185,6 +185,34 @@ static void h_ping(void)
     irc_send_pong(token);
 }
 
+#define AJ_MOTD_DONE   0x01
+#define AJ_IDENT_WAIT  0x02
+
+static void session_autojoin_replay(void)
+{
+    char c = search_pattern[0];
+    if (autojoin && (c == '#' || c == '&')) {
+        notify2("Autojoining ", search_pattern, ATTR_MSG_JOIN);
+        irc_send_cmd1("JOIN", search_pattern);
+        search_pattern[0] = 0;
+    }
+}
+
+static void session_autojoin_try(void)
+{
+    if (!(autojoin_defer_flags & AJ_MOTD_DONE)) return;
+    if (autojoin_defer_flags & AJ_IDENT_WAIT) return;
+    session_autojoin_replay();
+}
+
+static void session_autoidentify_done(void)
+{
+    if (autojoin_defer_flags & AJ_IDENT_WAIT) {
+        autojoin_defer_flags &= (uint8_t)~AJ_IDENT_WAIT;
+        session_autojoin_try();
+    }
+}
+
 static void h_mode(void)
 {
     const char *target = irc_param(0);
@@ -259,6 +287,7 @@ static void h_privmsg_notice(void)
         if (ok) {
             if (!nickserv_nick[0]) st_copy_n(nickserv_nick, pkt_usr, IRC_NICK_SIZE);
             send_identify(nickserv_pass);
+            autojoin_defer_flags |= AJ_IDENT_WAIT;
             notify("Auto-identifying...", ATTR_MSG_SYS);
             return;
         }
@@ -294,6 +323,7 @@ static void h_privmsg_notice(void)
                 st_stricmp(pkt_usr, S_NICKSERV) == 0 ||
                 st_stricmp(pkt_usr, "MemoServ") == 0 ||
                 st_stricmp(pkt_usr, "InfoServ") == 0) {
+                session_autoidentify_done();
                 // Filter verbose auth messages
                 if (!pkt_txt[0]) return;
                 if (pkt_txt[0] == '*') return;
@@ -953,10 +983,12 @@ static void h_end_of_list(void)
 
 // D9: Shared preamble for search result index rendering
 static void search_render_index(void) {
+    char buf[6];
     search_index++;
     set_attr_sys();
     main_putc(' ');
-    main_run_u16(search_index, ATTR_MSG_SYS);
+    u16_to_dec(buf, search_index);
+    main_puts(buf);
     main_puts(S_DOT_SP);
     set_attr_nick();
 }
@@ -1053,8 +1085,18 @@ static void h_numeric_1(void)
     notify2("Connected to ", irc_server, ATTR_MSG_SYS);
 }
 
-// End of MOTD: check friends online
-// h_numeric_376 removed: CMD_TABLE points directly to irc_check_friends_online
+static void h_logged_in(void)
+{
+    session_autoidentify_done();
+}
+
+// End of MOTD / no MOTD: delayed autojoin, then friend ISON.
+static void h_motd_done(void)
+{
+    autojoin_defer_flags |= AJ_MOTD_DONE;
+    session_autojoin_try();
+    irc_check_friends_online();
+}
 
 // RPL_ISON (303): show friends online via ikkle notification
 static void h_numeric_303(void)
@@ -1241,7 +1283,7 @@ typedef struct {
     void (*fn)(void);
 } CmdEntry;
 
-static void h_ignore(void) { /* Intentional no-op: suppress numerics 2,3,4,900 */ }
+static void h_ignore(void) { /* Intentional no-op: suppress numerics 2,3,4 */ }
 
 static void h_pong(void)
 {
@@ -1287,7 +1329,7 @@ static const CmdEntry CMD_TABLE[] = {
     { 2,   h_ignore },
     { 3,   h_ignore },
     { 4,   h_ignore },
-    { 900, h_ignore },           // RPL_LOGGEDIN (after NickServ IDENTIFY)
+    { 900, h_logged_in },        // RPL_LOGGEDIN (after NickServ IDENTIFY)
     { 5,   h_numeric_5 },
     { 303, h_numeric_303 },
     { 305, h_numeric_305_306 },
@@ -1295,10 +1337,10 @@ static const CmdEntry CMD_TABLE[] = {
     { 321, h_numeric_321 },
     { 324, h_numeric_324 },
     { 332, h_numeric_332 },
-    { 376, irc_check_friends_online },
+    { 376, h_motd_done },
     { 401, h_numeric_401 },
     { 433, h_numeric_433 },
-    { 422, irc_check_friends_online },
+    { 422, h_motd_done },
     { 451, h_numeric_451 },
 
     { 403, h_join_error },

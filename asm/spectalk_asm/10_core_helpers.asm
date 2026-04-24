@@ -146,7 +146,6 @@ _reset_rx_state:
     ld (_rb_tail), hl
     ret
 
-
 ; -----------------------------------------------------------------------------
 ; check_status_irc: check_status(LVL_IRC=2) ? copt fuses ld l,2 / call
 ; Saves 2 bytes per site (13 sites)

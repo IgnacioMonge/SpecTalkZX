@@ -178,15 +178,6 @@ wcr_ok:
 // COMMAND HANDLERS
 // =============================================================================
 
-static void session_autojoin_replay(void)
-{
-    char c = search_pattern[0];
-    if (autojoin && (c == '#' || c == '&')) {
-        notify2("Autojoining ", search_pattern, ATTR_MSG_JOIN);
-        irc_send_cmd1(K_JOIN_CMD, search_pattern);
-    }
-}
-
 // OPT L3: cmd_connect_abort eliminada - inlined en call site
 
 static void cmd_connect(const char *args) __z88dk_fastcall
@@ -381,7 +372,7 @@ do_connect:
                     switch (code) {
                         case 1: // RPL_WELCOME
                             set_attr_priv(); main_print("Connected!");
-                            connection_state = STATE_IRC_READY; session_autojoin_replay(); loop_done = 1; rx_pos = 0; continue;
+                            connection_state = STATE_IRC_READY; loop_done = 1; rx_pos = 0; continue;
                         case 433: // Nick in use - try alternate
                             // OPT-P2-B: use shared helper
                             nick_try_alternate();
@@ -636,6 +627,11 @@ static void cmd_msg(const char *args) __z88dk_fastcall
     *space = '\0';
     char *msg = space + 1;
     msg = skip_spaces(msg);
+
+    if (target[0] != '#') {
+        int8_t idx = add_query(target);
+        if (idx >= 0) switch_to_channel((uint8_t)idx);
+    }
 
     irc_send_privmsg(target, msg);
 }
@@ -1155,6 +1151,7 @@ static void sys_init(const char *args) __z88dk_fastcall
 static void cmd_theme(const char *args) __z88dk_fastcall
 {
     uint8_t t;
+    uint16_t had_partial;
     const char *p;
     /* Require exactly one digit (1..3), allow trailing spaces only */
     if (!args || args[0] < '1' || args[0] > '3') goto theme_usage;
@@ -1162,16 +1159,22 @@ static void cmd_theme(const char *args) __z88dk_fastcall
     if (*p) goto theme_usage;
 
     t = (uint8_t)(args[0] - '0');
+    had_partial = rx_pos;
+    search_pattern[1] = (char)t;
 
     if (t == current_theme) {
-        sys_puts_print("Already using ", theme_get_name(t));
+        search_pattern[0] = 0;
+        overlay_exec(0, 3);
+        if (had_partial) rx_overflow = 1;
         return;
     }
 
     current_theme = t;
     apply_theme();
 
-    sys_puts_print("Theme set to ", theme_get_name(t));
+    search_pattern[0] = 1;
+    overlay_call(3);
+    if (had_partial) rx_overflow = 1;
     config_dirty = 1;
     return;
 theme_usage:
@@ -1403,44 +1406,11 @@ static void cmd_close_wrapper(const char *a) __z88dk_fastcall {
 
 static void cmd_windows_wrapper(const char *a) __z88dk_fastcall
 {
+    uint16_t had_partial;
     (void)a;
-    uint8_t i, n = 0;
-    uint8_t f;
-    ChannelInfo *ch = channels;
-
-    set_attr_sys();
-    main_puts("Open windows:");
-
-    for (i = 0; i < MAX_CHANNELS; i++, ch++) {
-        f = ch->flags;
-
-        if (f & CH_FLAG_ACTIVE) {
-            main_putc(' ');
-            if (i == current_channel_idx) main_putc('*');
-
-            main_putc('0' + i);
-            main_putc(':');
-
-            if (i == 0) {
-                main_puts(S_SERVER);
-            } else {
-                if (f & CH_FLAG_MENTION) {
-                    set_attr_priv();
-                    main_putc('!');
-                }
-                if (f & CH_FLAG_QUERY)   main_putc('@');
-                if (f & CH_FLAG_UNREAD)  main_putc('+');
-                
-                main_puts(ch->name);
-                
-                if (f & CH_FLAG_MENTION) set_attr_sys();
-            }
-            n++;
-        }
-    }
-
-    if (n == 0) main_puts(" (none)");
-    main_newline();
+    had_partial = rx_pos;
+    overlay_exec(0, 2);
+    if (had_partial) rx_overflow = 1;
 }
 
 

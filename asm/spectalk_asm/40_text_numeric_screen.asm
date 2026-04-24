@@ -516,6 +516,42 @@ _cls_fast:
     ; --- ATRIBUTOS ---
     jr _reapply_screen_attributes
 
+; =============================================================================
+; void main_hline(void)
+; Draws the 1-pixel main-area separator used by startup/info screens.
+; Keeps the C contract: newline first if main_col > 0, draw scanline 3 of
+; main_line plus 32 attrs with current_attr, then newline again.
+; =============================================================================
+_main_hline:
+    ld a, (_main_col)
+    or a
+    call nz, _main_newline
+
+    ld a, (_main_line)
+    call _compute_screen_base
+    inc h
+    inc h
+    inc h                       ; scanline 3
+    ld a, 0xFF
+    ld (hl), a
+    ld d, h
+    ld e, l
+    inc de
+    ld bc, 31
+    ldir
+
+    ld a, (_main_line)
+    call _compute_attr_base
+    ld a, (_current_attr)
+    ld (hl), a
+    ld d, h
+    ld e, l
+    inc de
+    ld bc, 31
+    ldir
+
+    jp _main_newline
+
 
 ; =============================================================================
 ; void uart_drain_to_buffer(void)
@@ -568,8 +604,9 @@ drain_exit:
 ; UNROLLED version: eliminates table and inner loop maintaining exactly
 ; the same 5 blocks and lengths as original version.
 ; 
-; Timing: ~12,000 t-states (~3.4ms @ 3.5MHz)
-; Note: Interrupts disabled during scroll to avoid visual artifacts
+; Timing note: bitmap LDIR alone copies 4096 bytes, so the old ~12k estimate
+; was not credible. Treat this as a >100k T-state contended-screen operation
+; until measured on the target emulator/hardware.
 ; =============================================================================
 _scroll_main_zone:
     push iy
@@ -634,11 +671,32 @@ smz_scanline_loop:
     ld bc, 512
     ldir
 
-    ; Limpiar ?ltima l?nea (19) p?xeles + atributos
+    ; Clear last chat row (19) directly; avoids general clear_line setup.
+    ld hl, 0x5060          ; SCREEN_ROW_ADDR(19)
+    ld b, 8
+smz_clear19_px:
+    push bc
+    push hl
+    xor a
+    ld (hl), a
+    ld d, h
+    ld e, l
+    inc de
+    ld bc, 31
+    ldir
+    pop hl
+    pop bc
+    inc h
+    djnz smz_clear19_px
+
     ld a, (_current_attr)
-    ld c, a
-    ld a, 19
-    call cli_internal
+    ld hl, 0x5A60          ; ATTR row 19
+    ld (hl), a
+    ld d, h
+    ld e, l
+    inc de
+    ld bc, 31
+    ldir
 
     pop iy
     ret
