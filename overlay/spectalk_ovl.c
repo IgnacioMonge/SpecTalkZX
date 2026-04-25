@@ -6,6 +6,7 @@
  * Entry 0: help_render_ovl
  * Entry 2: windows_render_ovl
  * Entry 3: theme_msg_ovl
+ * Entry 4: tz_cmd_ovl
  *
  * Strings are plain text (not BPE) — stored in OVL on SD, not in TAP.
  * Supports arbitrary help text length via multi-segment reading (512B each).
@@ -292,5 +293,45 @@ void theme_msg_ovl(void)
 {
     sys_puts_print(search_pattern[0] ? "Theme set to " : "Already using ",
                    theme_name_ovl((uint8_t)search_pattern[1]));
+    rb_head = 0; rb_tail = 0; rx_pos = 0;
+}
+
+/* ================================================================
+ * ENTRY 4 — !tz cold command
+ * overlay_slot contains the copied argument string from cmd_tz().
+ * ================================================================ */
+
+void tz_cmd_ovl(void)
+{
+    const char *args = (const char *)overlay_slot;
+
+    if (*args) {
+        int8_t tz;
+        const char *p = args;
+        uint8_t neg = 0;
+        if (*p == '-') { neg = 1; p++; }
+        else if (*p == '+') p++;
+        if (*p < '0' || *p > '9') { ui_err("Range: -12 to +12"); goto done; }
+        { uint16_t raw = str_to_u16(p);
+        if (raw > 12) { ui_err("Range: -12 to +12"); goto done; }
+        tz = (int8_t)raw; }
+        if (neg) tz = -tz;
+        { uint8_t h = time_hour + (uint8_t)(tz - sntp_tz + 24);
+        while (h >= 24) h -= 24;
+        time_hour = h; }
+        sntp_tz = tz;
+        status_bar_dirty = 1;
+        config_dirty = 1;
+    }
+    {
+        uint8_t abs_tz = (uint8_t)(sntp_tz < 0 ? -sntp_tz : sntp_tz);
+        set_attr_sys();
+        main_puts(K_TZ);
+        main_putc(sntp_tz >= 0 ? '+' : '-');
+        puts_u8_nolz(abs_tz);
+        main_newline();
+    }
+
+done:
     rb_head = 0; rb_tail = 0; rx_pos = 0;
 }

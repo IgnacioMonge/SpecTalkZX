@@ -628,6 +628,10 @@ drain_exit:
 ; until measured on the target emulator/hardware.
 ; =============================================================================
 _scroll_main_zone:
+IFDEF SCROLL_PROFILE
+    ld a, 2                ; red: bitmap copy phase
+    out (0xFE), a
+ENDIF
     push iy
 
     ld iyl, 0              ; IYL = scanline offset (0..7)
@@ -678,12 +682,20 @@ smz_scanline_loop:
     jr nz, smz_scanline_loop
 
     ; Scroll atributos (16 filas: 4->3 ... 19->18)
+IFDEF SCROLL_PROFILE
+    ld a, 6                ; yellow: attribute copy phase
+    out (0xFE), a
+ENDIF
     ld de, 0x5860
     ld hl, 0x5880
     ld bc, 512
     ldir
 
     ; Clear last chat row (19) directly; avoids general clear_line setup.
+IFDEF SCROLL_PROFILE
+    ld a, 5                ; cyan: row-19 clear phase
+    out (0xFE), a
+ENDIF
     ld hl, 0x5060          ; SCREEN_ROW_ADDR(19)
     ld iyl, 8
     xor a
@@ -709,6 +721,10 @@ smz_clear19_px:
     ldir
 
     pop iy
+IFDEF SCROLL_PROFILE
+    ld a, (_theme_attrs + TA_BORDER)
+    out (0xFE), a
+ENDIF
     ret
 
 ; Cross-page scroll helper: copies 32 bytes from page A to page A-8
@@ -733,6 +749,7 @@ smz_cross_block:
 ;  - _print_str64_char clobbers BC/DE/HL/AF: preserve BC (loop counter) and HL.
 ;  - micro-opt: keep HL -> _g_ps64_col and store (hl)=c each iteration.
 ; =============================================================================
+PUBLIC _main_clear_indent6
 _main_newline:
     ; Suppress output during help overlay
     ld a, (_overlay_mode)
@@ -776,6 +793,7 @@ mn_no_pagination:
     ld a, (_main_line)
     cp 19               ; MAIN_END = 19
     jr c, mn_inc_line_do
+    call _uart_drain_to_buffer
     call _scroll_main_zone
     jr mn_indent
 
@@ -788,75 +806,52 @@ mn_inc_line_do:
     ld (_main_line), a
 
 mn_indent:
-    ; if (wrap_indent > 0) clear indent zone directly and set main_col
+    ; if (wrap_indent > 0) clear the fixed 6-column timestamp/wrap indent.
     ld a, (_wrap_indent)
     or a
-    jr z, mn_ret
-
-    ; Guardar wrap_indent para despu?s
-    ld c, a             ; C = wrap_indent (num cols)
-
-    ; --- Calcular screen addr de la fila ---
-    ld a, (_main_line)
-    call _compute_screen_base
-
-    ; Bytes a borrar = (wrap_indent + 1) / 2  (redondeo arriba)
-    ld a, c
-    inc a
-    srl a               ; A = bytes a borrar
-    ld b, a             ; B = byte count
-
-    ; Borrar 8 scanlines por cada byte
-    push hl             ; Guardar screen base
-    push bc             ; Guardar byte count + wrap_indent en C
-mn_indent_scanline:
-    push hl             ; Guardar inicio de scanline
-    push bc             ; Guardar counters
-    xor a
-mn_indent_byte:
-    ld (hl), a
-    inc hl
-    djnz mn_indent_byte
-    pop bc              ; Restaurar counters
-    pop hl              ; Restaurar inicio de scanline
-    inc h               ; Siguiente scanline
-    ld a, h
-    and 0x07
-    jr nz, mn_indent_scanline
-
-    pop bc              ; Restaurar byte count (B) + wrap_indent (C)
-    pop hl              ; (descartar screen base)
-
-    ; --- Escribir atributos ---
-    ld a, (_main_line)
-    call _compute_attr_base  ; HL = attr base de la fila
-
-    ld a, (_current_attr)
-mn_indent_attr:
-    ld (hl), a
-    inc hl
-    djnz mn_indent_attr
-mn_indent_attr_done:
-
-    ; Actualizar main_col y g_ps64_col/y/attr para consistencia
-    ld a, c
-    ld (_main_col), a
-    ld (_g_ps64_col), a
-    ld a, (_main_line)
-    ld (_g_ps64_y), a
-    ld a, (_current_attr)
-    ld (_g_ps64_attr), a
-
-    ; Pre-warm row cache for next line's first character
-    ; Saves ~600 T-states when line starts with spaces (wrap indent)
-    call p64_get_scr_base
+    call nz, _main_clear_indent6
 
 mn_ret:
     pop iy
     pop ix
     ret
 
+; Clear the fixed 6-column main-text indent (3 physical bytes) on _main_line,
+; set main_col/g_ps64 state to column 6, and prewarm the row cache.
+_main_clear_indent6:
+    ld a, (_main_line)
+    call _compute_screen_base
+    xor a
+    ld b, 8
+    ld c, l
+mci6_scan:
+    ld (hl), a
+    inc l
+    ld (hl), a
+    inc l
+    ld (hl), a
+    ld l, c
+    inc h
+    djnz mci6_scan
 
+    ld a, (_main_line)
+    call _compute_attr_base
+    ld a, (_current_attr)
+    ld (hl), a
+    inc l
+    ld (hl), a
+    inc l
+    ld (hl), a
+
+    ld a, 6
+    ld (_main_col), a
+    ld (_g_ps64_col), a
+    ld a, (_main_line)
+    ld (_g_ps64_y), a
+    ld a, (_current_attr)
+    ld (_g_ps64_attr), a
+    call p64_get_scr_base
+    ret
 
 
 ; =============================================================================

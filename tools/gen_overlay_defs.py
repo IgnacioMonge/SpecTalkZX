@@ -28,6 +28,7 @@ REQUIRED_FUNCTIONS = [
 
     # String/number utilities
     '_st_strlen',
+    '_st_stricmp',
     '_fast_u8_to_str',
 
     # esxDOS
@@ -36,10 +37,6 @@ REQUIRED_FUNCTIONS = [
     '_esx_fwrite',
     '_esx_fcreate',
     '_esx_fclose',
-
-    # Config save helpers (ASM frameless callees)
-    '_cfg_put',
-    '_cfg_kv',
 
     # Input / frame sync used by overlays
     '_in_inkey',
@@ -54,7 +51,9 @@ REQUIRED_FUNCTIONS = [
     '_set_attr_priv',
     '_sys_puts_print',
     '_ui_err',
+    '_str_to_u16',
     '_u16_to_dec',
+    '_puts_u8_nolz',
 
     # SDCC runtime (called implicitly by compiled C)
     '___sdcc_enter_ix',
@@ -68,6 +67,7 @@ REQUIRED_VARIABLES = [
 
     # Overlay state
     '_overlay_mode', '_help_page', '_config_dirty', '_notif_enabled',
+    '_status_bar_dirty',
 
     # Buffers
     '_overlay_slot', '_ring_buffer',
@@ -81,7 +81,8 @@ REQUIRED_VARIABLES = [
     '_network_name', '_ping_latency', '_uptime_minutes',
 
     # Shared strings
-    '_K_DAT', '_S_APPDESC',
+    '_K_DAT', '_S_APPDESC', '_S_AUTOAWAY',
+    '_SB_ON', '_SB_OFF', '_SB_NOTSET', '_SB_SMART', '_SB_MIN',
     '_K_NICK', '_K_SERVER', '_K_PORT', '_K_PASS', '_K_NKPASS',
     '_K_AUTOCONN', '_K_THEME', '_K_AUTOAWAY', '_K_BEEP', '_K_NCOLOR',
     '_K_TRAFFIC', '_K_TS', '_K_CFG_PRI', '_K_CFG_ALT', '_K_TZ', '_K_NOTIF',
@@ -90,8 +91,21 @@ REQUIRED_VARIABLES = [
     '_irc_nick', '_irc_server', '_irc_port', '_irc_pass', '_nickserv_pass', '_nickserv_nick',
     '_current_theme', '_current_channel_idx', '_beep_enabled', '_keyclick_enabled', '_nick_color_mode', '_show_traffic',
     '_show_timestamps', '_autoconnect', '_autojoin', '_autoaway_minutes',
-    '_sntp_tz', '_search_pattern', '_friend_nicks', '_ignore_list', '_ignore_count',
+    '_autoaway_counter', '_autoaway_active',
+    '_sntp_tz', '_time_hour', '_search_pattern', '_autojoin_channels',
+    '_friend_nicks', '_ignore_list', '_ignore_count',
 ]
+
+SYMBOL_ALIASES = {
+    # Normal builds BPE-rename audited screen strings to SB_*; nobpe/debug
+    # maps may still expose the original S_* names.  Overlays always link
+    # against SB_* so the ABI surface stays stable.
+    '_SB_ON': '_S_ON',
+    '_SB_OFF': '_S_OFF',
+    '_SB_NOTSET': '_S_NOTSET',
+    '_SB_SMART': '_S_SMART',
+    '_SB_MIN': '_S_MIN',
+}
 
 
 def parse_map(map_path):
@@ -121,6 +135,9 @@ def main():
         if name in symbols:
             print(f"PUBLIC {name}")
             print(f"DEFC {name} = ${symbols[name]:04X}")
+        elif name in SYMBOL_ALIASES and SYMBOL_ALIASES[name] in symbols:
+            print(f"PUBLIC {name}")
+            print(f"DEFC {name} = ${symbols[SYMBOL_ALIASES[name]]:04X}")
         else:
             missing.append(name)
             print(f";; WARNING: {name} not found in .map!")

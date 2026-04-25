@@ -164,13 +164,12 @@ PUBLIC _font_lut
 PUBLIC _sys_puts_print
 PUBLIC _irc_send_cmd1
 PUBLIC _irc_send_cmd2
-PUBLIC _cfg_put
 PUBLIC _ensure_args
 PUBLIC _fast_u8_to_str
 PUBLIC _print_big_str
-PUBLIC _cfg_kv
 PUBLIC _sb_put_u8_2d
 PUBLIC _puts_u8_nolz
+PUBLIC _has_other_mention
 PUBLIC _input_word_left
 PUBLIC _input_word_right
 PUBLIC _input_delete_word
@@ -201,7 +200,7 @@ EXTERN _force_status_redraw
 EXTERN _status_bar_dirty
 EXTERN _uart_drain_limit
 EXTERN _ay_uart_ready   ; Retorna L=1 si hay datos
-; _line_buffer, _temp_input, _input_cache_char/attr: via defc at end of file
+; _line_buffer, _temp_input, _input_cache_char: via defc at end of file
 ; (mapped to system RAM: Printer Buffer, CHANS workspace)
 EXTERN _irc_pass
 EXTERN _nickserv_pass
@@ -253,7 +252,7 @@ DEFC RB_MASK_H = 0x07   ; High byte mask for 2048 (0x0800)
 ; esxDOS mid-execution → la zona es estable dentro de cada render.
 ; Zero-fill inicial cubierto por CRT init (zero_fill_256 en $5B00).
 ; =============================================================================
-defc glyph_buffer    = 0x5BC0  ; 8B  scratch unpack_glyph
+defc glyph_buffer    = 0x5BC0  ; 7B  scratch unpack_glyph
 defc plf_left_buf    = 0x5BC8  ; 8B  scratch print_line64_fast (nibbles izq)
 defc plf_str_ptr     = 0x5BD0  ; 2B  scratch print_line64_fast
 defc plf_attr_val    = 0x5BD2  ; 1B  scratch print_line64_fast

@@ -134,7 +134,7 @@ extern void ui_err(const char *s) __z88dk_fastcall;
 static const char CK_HDR[]  = "; SpecTalkZX config\r\n";
 static const char CK_NKS[]  = "nickserv=";
 static const char CK_AJOIN[] = "autojoin=";
-static const char CK_CHANS[] = "channels=";
+extern char *cfg_put_autojoin(char *p) __z88dk_fastcall;
 
 static char *cfg_put_csv(char *p, const char *key,
                          const char *list, uint8_t elem_size, uint8_t count) __z88dk_callee
@@ -146,27 +146,6 @@ static char *cfg_put_csv(char *p, const char *key,
         if (!any) { p = cfg_put(p, key); *p++ = '='; any = 1; }
         else *p++ = ',';
         p = cfg_put(p, s);
-    }
-    if (any) { *p++ = '\r'; *p++ = '\n'; }
-    return p;
-}
-
-static char *cfg_put_autojoin(char *p)
-{
-    uint8_t i, any = 0;
-    uint8_t *ch = channels + CH_SIZE;
-
-    for (i = MAX_CHANNELS - 1; i; --i, ch += CH_SIZE) {
-        if ((ch[CH_FLAGS_OFF] & (CH_FLAG_ACTIVE | CH_FLAG_QUERY)) == CH_FLAG_ACTIVE) {
-            if (!any) { p = cfg_put(p, CK_CHANS); any = 1; }
-            else *p++ = ',';
-            p = cfg_put(p, (const char *)ch);
-        }
-    }
-    if (!any && (search_pattern[0] == '#' || search_pattern[0] == '&')) {
-        p = cfg_put(p, CK_CHANS);
-        p = cfg_put(p, search_pattern);
-        any = 1;
     }
     if (any) { *p++ = '\r'; *p++ = '\n'; }
     return p;
@@ -249,11 +228,7 @@ void save_config_ovl(void)
         if (!write_ok) {
             ui_err("Write error");
         } else {
-            char nbuf[6];
-            main_puts("OK (");
-            u16_to_dec(nbuf, expected);
-            main_puts(nbuf);
-            main_print(" bytes)");
+            main_print("OK");
             config_dirty = 0;
         }
     }

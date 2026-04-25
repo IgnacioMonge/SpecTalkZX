@@ -253,7 +253,10 @@ do_connect:
     main_puts2("Connecting to ", irc_server); main_putc(':'); main_puts2(irc_port, "... ");
     
     force_disconnect();
-    if (!use_saved_session) search_pattern[0] = 0;
+    if (!use_saved_session) {
+        search_pattern[0] = 0;
+        autojoin_channels[0] = 0;
+    }
     reset_rx_state(); rx_line[0] = '\0';
     result = 0;
     
@@ -1104,7 +1107,7 @@ uint8_t overlay_header(const char *title) __z88dk_fastcall
 static void sys_config(const char *args) __z88dk_fastcall
 {
     (void)args;
-    snapshot_autojoin_channels();
+    if (snapshot_autojoin_channels()) config_dirty = 1;
     enter_overlay_mode(OVERLAY_CONFIG);
     overlay_exec(1, 1);
 }
@@ -1186,48 +1189,10 @@ theme_usage:
 
 static void cmd_autoaway(const char *args) __z88dk_fastcall
 {
-    uint8_t mins;
-    const char *p;
-
-    if (!args || !*args) {
-        // Mostrar estado
-        set_attr_sys();
-        main_puts(S_AUTOAWAY); main_puts(S_COLON_SP);
-        if (autoaway_minutes) {
-            puts_u8_nolz(autoaway_minutes);
-            main_print(S_MIN);
-        } else {
-            main_print(S_OFF);
-        }
-        return;
-    }
-
-    p = args;
-
-    // off / 0 = disable
-    if (*p == '0' || st_stricmp(p, S_OFF) == 0) {
-        autoaway_minutes = 0;
-        autoaway_counter = 0;
-        autoaway_active = 0;
-        sys_puts_print(S_AUTOAWAY, " disabled");
-        config_dirty = 1;
-        return;
-    }
-
-    // Parsear minutos (1-60)
-    { uint16_t raw = str_to_u16(p);
-    if (raw < 1 || raw > 60) {
-        ui_err(S_RANGE_MINUTES);
-        return;
-    }
-
-    mins = (uint8_t)raw; }
-    autoaway_minutes = mins;
-    autoaway_counter = 0;
-    set_attr_sys(); main_puts(S_AUTOAWAY); main_puts(" set to ");
-    puts_u8_nolz(mins);
-    main_print(S_MIN);
-    config_dirty = 1;
+    uint16_t had_partial = rx_pos;
+    st_copy_n((char *)overlay_slot, args ? args : "", 16);
+    overlay_exec(2, 1);
+    if (had_partial) rx_overflow = 1;
 }
 
 // OPT H4: Helper para comandos toggle con argumento directo opcional
@@ -1300,32 +1265,10 @@ static void cmd_autojoin(const char *args) __z88dk_fastcall
 
 static void cmd_tz(const char *args) __z88dk_fastcall
 {
-    if (args && *args) {
-        int8_t tz;
-        const char *p = args;
-        uint8_t neg = 0;
-        if (*p == '-') { neg = 1; p++; }
-        else if (*p == '+') p++;
-        if (*p < '0' || *p > '9') { ui_err("Range: -12 to +12"); return; }
-        { uint16_t raw = str_to_u16(p);
-        if (raw > 12) { ui_err("Range: -12 to +12"); return; }
-        tz = (int8_t)raw; }
-        if (neg) tz = -tz;
-        { uint8_t h = time_hour + (uint8_t)(tz - sntp_tz + 24);
-        while (h >= 24) h -= 24;
-        time_hour = h; }
-        sntp_tz = tz;
-        status_bar_dirty = 1;
-        config_dirty = 1;
-    }
-    {
-        uint8_t abs_tz = (uint8_t)(sntp_tz < 0 ? -sntp_tz : sntp_tz);
-        set_attr_sys();
-        main_puts(K_TZ);
-        main_putc(sntp_tz >= 0 ? '+' : '-');
-        puts_u8_nolz(abs_tz);
-        main_newline();
-    }
+    uint16_t had_partial = rx_pos;
+    st_copy_n((char *)overlay_slot, args ? args : "", 8);
+    overlay_exec(0, 4);
+    if (had_partial) rx_overflow = 1;
 }
 
 static void cmd_friend(const char *args) __z88dk_fastcall

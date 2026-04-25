@@ -162,7 +162,7 @@ _uart_privmsg:
 _in_inkey:
 asm_in_inkey:
     ld bc, 0xFEFE          ; B = row $FE, C = port $FE
-    ld e, 0                ; E = table offset accumulator
+    ld de, 0               ; E = table offset accumulator, D = 0 for table add
 
     ; --- Row 0: CAPS SHIFT row (port $FEFE) ---
     in a,(c)
@@ -198,7 +198,6 @@ ik_nokey:
 ik_found:
     ; A = row reading (one of bits 0-4 is 0 = pressed key)
     ; Bit-scan from bit 0 to find key position
-    ld d, 0
 ik_bitscan:
     rra
     jr nc, ik_gotkey
@@ -584,25 +583,6 @@ isc_do_call:
     pop ix              ; restore IX
     ret                 ; return via saved addr
 
-; char *cfg_put(char *p, const char *s) __z88dk_callee
-; Copies s to p, returns pointer past last byte written.
-_cfg_put:
-    pop bc              ; return address
-    pop de              ; p (dest)
-    pop hl              ; s (src)
-    push bc             ; restore return addr
-cfg_put_loop:
-    ld a, (hl)
-    or a
-    jr z, cfg_put_done
-    ld (de), a
-    inc hl
-    inc de
-    jr cfg_put_loop
-cfg_put_done:
-    ex de, hl           ; HL = advanced dest pointer (return value)
-    ret
-
 ; uint8_t ensure_args(const char *args, const char *usage) __z88dk_callee
 ; Returns 1 if args non-empty, else calls ui_usage(usage) and returns 0.
 _ensure_args:
@@ -683,42 +663,6 @@ pbs_loop:
     inc hl              ; next char
     jr pbs_loop
 
-; char *cfg_kv(char *p, const char *key, const char *val) __z88dk_callee
-; Writes key, then val (or digit if val<=9), then \r\n. Returns advanced pointer.
-_cfg_kv:
-    pop hl              ; return addr
-    pop de              ; p
-    pop bc              ; key (BC)
-    ex (sp), hl         ; HL = val, (SP) = return addr
-    push hl             ; save val
-    ; Reuse cfg_put() without disturbing the saved return address below val.
-    push bc             ; key
-    push de             ; p
-    call _cfg_put       ; HL = advanced p
-    pop de              ; DE = val
-    ; Check if val <= 9 (small int ? single digit)
-    ld a, d
-    or a
-    jr nz, ckv_string   ; high byte != 0 ? real pointer
-    ld a, e
-    cp 10
-    jr nc, ckv_string   ; val >= 10 ? real pointer
-    ; val is 0-9: write single digit
-    add a, '0'
-    ld (hl), a
-    inc hl
-    jr ckv_crlf
-ckv_string:
-    push de             ; val
-    push hl             ; p
-    call _cfg_put       ; HL = advanced p
-ckv_crlf:
-    ld (hl), 13         ; \r
-    inc hl
-    ld (hl), 10         ; \n
-    inc hl              ; HL = return value (advanced pointer)
-    ret
-
 ; char *sb_put_u8_2d(char *p, uint8_t v) __z88dk_callee
 ; Status-bar slot counters are bounded by MAX_CHANNELS=10, so both callsites
 ; only ever pass 0..9 and the helper can stay single-digit.
@@ -753,6 +697,38 @@ pu8_skip_tens:
     ld l, a             ; fastcall arg
     jp _main_putc       ; tail call
 
+; uint8_t has_other_mention(void)
+; Scan ChannelInfo[10] flags, skipping current_channel_idx.
+EXTERN _channels
+_has_other_mention:
+    ld hl, _channels + 30       ; flags field, ChannelInfo stride is 32
+    ld a, (_current_channel_idx)
+    ld e, a                     ; E = current index
+    ld b, 10
+    ld c, 0                     ; C = slot index
+homm_loop:
+    ld a, c
+    cp e
+    jr z, homm_next
+    ld a, (hl)
+    and 0x09                    ; CH_FLAG_ACTIVE | CH_FLAG_MENTION
+    cp 0x09
+    jr z, homm_yes
+homm_next:
+    ld a, l
+    add a, 32
+    ld l, a
+    jr nc, homm_next_ok
+    inc h
+homm_next_ok:
+    inc c
+    djnz homm_loop
+    ld l, 0
+    ret
+homm_yes:
+    ld l, 1
+    ret
+
 ; =============================================================================
 ; FRAME WAIT ? Wait for next frame (50Hz sync via IM1 ROM ISR)
 ; ROM ISR at $0038 increments FRAMES (23672) and scans keyboard.
@@ -778,10 +754,8 @@ _frame_wait:
 
 ; PRINTER BUFFER (0x5B00 - 0x5BFF: 256 bytes, unused ? no ZX Printer)
 PUBLIC _input_cache_char
-PUBLIC _input_cache_attr
 
 defc _input_cache_char = 0x5B00  ; 128 bytes (INPUT_LINES * SCREEN_COLS)
-defc _input_cache_attr = 0x5B80  ;  64 bytes (INPUT_LINES * 32)
 ; 0x5BC0-0x5BFF: scratch transitorio mapeado en 00_preamble.asm. No persistente
 ; a llamadas esxDOS; render paths no cruzan esxDOS → estable mid-render.
 ; irc_pass, nickserv_pass, network_name en BSS (deben sobrevivir esxDOS).

@@ -149,11 +149,11 @@ u8a_store:
 u8a_tbl_c0:
     defb 'A','A','A','A','A','A','A','C'  ; C0-C7: ????????
     defb 'E','E','E','E','I','I','I','I'  ; C8-CF: ????????
-    defb 'D','N','O','O','O','O','O','x'  ; D0-D7: ????????
+    defb 'D',127,'O','O','O','O','O','x'  ; D0-D7: D,Ñ,O...
     defb 'O','U','U','U','U','Y','T','s'  ; D8-DF: ????????
     defb 'a','a','a','a','a','a','a','c'  ; E0-E7: ????????
     defb 'e','e','e','e','i','i','i','i'  ; E8-EF: ????????
-    defb 'o','n','o','o','o','o','o','/'  ; F0-F7: ????????
+    defb 'o',127,'o','o','o','o','o','/'  ; F0-F7: o,ñ,o...
     defb 'o','u','u','u','u','y','t','y'  ; F8-FF: ????????
 
 ; =============================================================================
@@ -173,33 +173,10 @@ EXTERN _tick_accum
 EXTERN _draw_status_bar
 
 _sntp_process_response:
-    ; Validate: if (!line || !*line) return
+    ; Validate: if (!line || line[0] != '+' || line[1] != 'C') return
     ld a, h
     or l
     ret z
-    ld a, (hl)
-    or a
-    ret z
-
-    ; Count length into B, keep HL = start
-    push hl
-    ld b, 0
-spr_len:
-    ld a, (hl)
-    or a
-    jr z, spr_len_done
-    inc hl
-    inc b
-    jr nz, spr_len     ; max 255
-spr_len_done:
-    pop hl              ; HL = line start, B = len
-
-    ; if (len < 20) return
-    ld a, b
-    cp 20
-    ret c
-
-    ; if (line[0] != '+' || line[1] != 'C') return
     ld a, (hl)
     cp '+'
     ret nz
@@ -207,59 +184,13 @@ spr_len_done:
     ld a, (hl)
     cp 'C'
     ret nz
-    dec hl              ; HL = line start again
-
-    ; Check for "1970" at end: line[len-4..len-1]
-    ; DE = line + len - 4
-    push hl
-    ld c, b             ; C = len (save)
-    ld a, b
-    sub 4
-    ld e, a
-    ld d, 0
-    add hl, de          ; HL = &line[len-4]
-    ld a, (hl)
-    cp '1'
-    jr nz, spr_no1970
-    inc hl
-    ld a, (hl)
-    cp '9'
-    jr nz, spr_no1970
-    inc hl
-    ld a, (hl)
-    cp '7'
-    jr nz, spr_no1970
-    inc hl
-    ld a, (hl)
-    cp '0'
-    jr nz, spr_no1970
-    ; It's 1970 ? ESP not synced yet
-    jr spr_notfound
-
-spr_no1970:
-    pop hl              ; HL = line start
-    ; C = len (still)
-
-    ; Search for HH:MM:SS pattern starting at offset 13
-    ; Pattern: line[i] in '0'..'2', line[i+2]==':',  line[i+5]==':'
-    ; Loop from i=13 to i < len-7
-    ld a, c
-    sub 7
-    ld b, a             ; B = len-7 (upper bound exclusive)
-
-    ; Advance HL to line+13
-    push hl             ; save line start on stack
-    ld de, 13
-    add hl, de          ; HL = &line[13]
-    ld c, 13            ; C = i (current index)
+    ld de, 12
+    add hl, de          ; HL = &line[13], first char after "+CIPSNTPTIME:"
 
 spr_scan:
-    ld a, c
-    cp b
-    jr nc, spr_notfound  ; OPT: jp?jr (i >= len-7)
-
-    ; Check line[i] >= '0' && line[i] <= '2'
     ld a, (hl)
+    or a
+    jr z, spr_notfound
     cp '0'
     jr c, spr_next
     cp '3'              ; '2'+1
@@ -282,7 +213,29 @@ spr_scan:
     cp ':'
     jr nz, spr_next
 
+    ; Check for ESP placeholder year: "HH:MM:SS 1970"
+    inc de
+    inc de
+    inc de
+    inc de              ; DE = &line[i+9]
+    ld a, (de)
+    cp '1'
+    jr nz, spr_found
+    inc de
+    ld a, (de)
+    cp '9'
+    jr nz, spr_found
+    inc de
+    ld a, (de)
+    cp '7'
+    jr nz, spr_found
+    inc de
+    ld a, (de)
+    cp '0'
+    jr z, spr_notfound
+
     ; === FOUND HH:MM:SS at HL ===
+spr_found:
     ; Parse hour
     call spr_parse2
     ld (_time_hour), a
@@ -319,22 +272,18 @@ spr_scan:
     ld a, 1
     ld (_sntp_queried), a
 
-    pop hl              ; clean stack (line start)
     jp _draw_status_bar ; tail call
 
 spr_next:
     inc hl
-    inc c
-    jr spr_scan             ; OPT: jp?jr (backward ~100 bytes)
+    jr spr_scan
 
 spr_notfound:
-    pop hl              ; clean stack (line start)
     xor a
     ld (_sntp_waiting), a
     ret
 
 spr_invalid:
-    pop hl              ; clean stack (line start)
     ret                 ; keep sntp_waiting=1 so it retries
 
 ; --- subroutine: parse 2-digit decimal at (HL) ---
@@ -620,11 +569,14 @@ fecs_found:
 ; =============================================================================
 EXTERN _search_pattern
 EXTERN _connection_state
+DEFC SAC_MAX = 63
 _snapshot_autojoin_channels:
+    xor a
+    ex af, af'                  ; shadow A = changed flag (0/1)
     ld hl, _channels + 32        ; &channels[1].name
     ld de, _search_pattern       ; destination CSV buffer
     ld b, 9                      ; slots 1..9
-    ld c, 31                     ; bytes before final NUL
+    ld c, SAC_MAX                ; bytes before final NUL
 sac_loop:
     push hl
     ld a, l
@@ -645,13 +597,12 @@ sac_flag_addr:
     jr nz, sac_next
 sac_chan:
     ld a, c
-    cp 31
+    cp SAC_MAX
     jr z, sac_copy_start
     cp 2                         ; need room for comma + at least 1 char
     jr c, sac_finish_any
     ld a, ','
-    ld (de), a
-    inc de
+    call sac_put_a
     dec c
 sac_copy_start:
     push hl
@@ -662,8 +613,7 @@ sac_copy:
     ld a, (hl)
     or a
     jr z, sac_copied
-    ld (de), a
-    inc de
+    call sac_put_a
     inc hl
     dec c
     jr sac_copy
@@ -681,14 +631,32 @@ sac_next:
 sac_next_ok:
     djnz sac_loop
     ld a, c
-    cp 31
+    cp SAC_MAX
     jr nz, sac_finish_any
     ld a, (_connection_state)
     cp 3                         ; STATE_IRC_READY
-    ret c
+    jr c, sac_ret_changed
 sac_finish_any:
     xor a
-    ld (de), a
+    call sac_put_a
+sac_ret_changed:
+    ex af, af'
+    ld l, a
+    ret
+
+; A = byte to write, DE = destination, HL = current channel name pointer.
+; Increments DE, preserves HL, and updates shadow A when the byte changed.
+sac_put_a:
+    ex de, hl                    ; HL = dest, DE = source
+    cp (hl)
+    jr z, sac_put_same
+    ex af, af'
+    ld a, 1
+    ex af, af'
+sac_put_same:
+    ld (hl), a
+    inc hl
+    ex de, hl                    ; HL = source, DE = dest + 1
     ret
 
 ; =============================================================================

@@ -51,6 +51,11 @@ endif
 
 EXTRA_CFLAGS ?=
 BUILD_PROFILE ?= NORMAL
+SCROLL_PROFILE ?= 0
+ifeq ($(SCROLL_PROFILE),1)
+EXTRA_CFLAGS += -Ca-DSCROLL_PROFILE
+BUILD_PROFILE := SCROLL_PROFILE
+endif
 CFLAGS = -vn -SO3 -startup=31 -compiler=sdcc -clib=sdcc_iy \
          -zorg=$(ZORG) --opt-code-size --fomit-frame-pointer \
          -Cc--Werror \
@@ -248,7 +253,7 @@ $(TAP): $(C_SOURCES) $(ASM_DEP_SOURCES) $(TAP_PREP)
 	$(call STEP,3/4,Build)
 	@echo "Compiling SpecTalkZX..."
 	@echo "UART mode: $(UART_DESC)"
-	@if [ "$(BUILD_PROFILE)" = "RELEASE" ]; then printf "$(C_BOLD)$(C_YEL)Build profile: RELEASE$(C_RESET)\n"; fi
+	@if [ "$(BUILD_PROFILE)" != "NORMAL" ]; then printf "$(C_BOLD)$(C_YEL)Build profile: $(BUILD_PROFILE)$(C_RESET)\n"; fi
 	@echo "Log: $(LOG)"
 	@build_rc=0; $(BUILD_CMD) 2>&1 | tee "$(LOG)" || build_rc=$$?; \
 	if [ "$$build_rc" -ne 0 ]; then \
@@ -402,7 +407,7 @@ info: $(TAP)
 	@printf "$(C_BOLD)Memory map:$(C_RESET) $(C_YEL)%s$(C_RESET)\n" "$(MAP)"
 	@printf "$(C_BOLD)Build log:$(C_RESET) $(C_YEL)%s$(C_RESET)\n" "$(LOG)"
 	@printf "$(C_BOLD)UART mode:$(C_RESET) $(C_YEL)%s$(C_RESET)\n" "$(UART_DESC)"
-	@if [ "$(BUILD_PROFILE)" = "RELEASE" ]; then printf "$(C_BOLD)Build profile:$(C_RESET) $(C_YEL)RELEASE$(C_RESET)\n"; fi
+	@if [ "$(BUILD_PROFILE)" != "NORMAL" ]; then printf "$(C_BOLD)Build profile:$(C_RESET) $(C_YEL)$(BUILD_PROFILE)$(C_RESET)\n"; fi
 	@printf "$(C_BOLD)Code origin:$(C_RESET) $(C_YEL)%s$(C_RESET)\n" "$(ZORG)"
 	@printf "$(C_BOLD)Stack size:$(C_RESET) $(C_YEL)%s bytes$(C_RESET)\n" "$(STACK_SIZE)"
 	@printf "$(C_BOLD)Binary TAP size:$(C_RESET) $(C_YEL)%s bytes$(C_RESET)\n" "$$($(SIZE_TAP))"

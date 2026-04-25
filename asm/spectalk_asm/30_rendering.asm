@@ -34,7 +34,8 @@ _compute_attr_base:
 ; =============================================================================
 ; Solo 10 valores ?nicos en toda la fuente original:
 ; 0x00, 0x22, 0x44, 0x55, 0x66, 0x88, 0xAA, 0xCC, 0xEE, 0xFF
-; Lines 6 and 7 of each glyph are ALWAYS 0x00 (se regeneran en runtime)
+; Line 6 of each glyph is ALWAYS 0x00 (regenerated in runtime).
+; Renderers consume 7 glyph bytes after their explicit blank top scanline.
 ; Each glyph: 3 compressed bytes (6 nibbles = l?neas 0-5)
 
 ; Data loaded from SPECTALK.DAT at startup (font + themes)
@@ -43,7 +44,7 @@ SECTION bss_user
 ; ALIGN 16 does not reliably pad BSS across module boundaries in z80asm
 ; (empirically left font_lut at $F1ED). unpack_glyph relies on
 ;   (font_lut_lo + nibble_index) < 0x100
-; so that `add a, e / ld l, a / ld h, d` never needs a carry into H.
+; so that `add a, e / ld l, a` never needs a carry into the hoisted H'.
 ; Nibble range is 0..9 (only 10 LUT entries), so low byte ≤ 0xF6 is SAFE.
 ; Explicit defs keeps the low byte at $F0 (target $F1F0) with ~6B margin
 ; against future BSS growth before this block.
@@ -68,22 +69,17 @@ SECTION code_user
 ; =============================================================================
 ; GLYPH DECOMPRESSOR
 ; Input: A = char (ASCII 32-127)
-; Output: HL = pointer to 8-byte glyph data (glyph_buffer or blank_glyph)
+; Output: HL = pointer to 7-byte glyph data (glyph_buffer)
 ; Preserves: IY (required by z88dk)
 ; Destroys: AF, BC, DE. Uses alternate HL'/E' via EXX (ISR safe: called between frames, not during ISR)
 ; Timing: ~136 t-states/iteration (EXX LUT access, no push/pop)
 ; =============================================================================
 blank_glyph:
-    defb 0, 0, 0, 0, 0, 0, 0, 0
+    defb 0, 0, 0, 0, 0, 0, 0
 
 unpack_glyph:
     ; Calculate offset: (char - 32) * 3
     sub 32
-    jr nz, unpack_not_space
-    ; --- Space short-circuit: return immutable zero glyph ---
-    ld hl, blank_glyph
-    ret
-unpack_not_space:
     ld l, a
     ld h, 0
     ld c, l
@@ -101,6 +97,7 @@ unpack_not_space:
     ; font_lut is ALIGN 16 and nibble index is 0..15, so low-byte add never carries.
     exx
     ld de, font_lut      ; D' = lut hi, E' = lut lo
+    ld h, d              ; H' stays as lut hi for all nibble lookups
     exx
 
     ; Unpack 3 bytes -> 6 lines (0-5)
@@ -119,11 +116,10 @@ unpack_loop:
     exx                  ; switch to alt set (D'=lut_hi, E'=lut_lo)
     add a, e             ; A = font_lut_lo + nibble
     ld l, a
-    ld h, d
     ld a, (hl)           ; LUT lookup
     exx                  ; back to main set
     ld (hl), a           ; store to glyph_buffer
-    inc hl
+    inc l                ; glyph_buffer is fixed at $5BC0 and cannot cross page
 
     ; Low nibble -> line N+1
     ld a, c
@@ -132,19 +128,17 @@ unpack_loop:
     exx
     add a, e
     ld l, a
-    ld h, d
     ld a, (hl)
     exx
     ld (hl), a
-    inc hl
+    inc l
 
     inc de               ; 6 T  - Next compressed byte
     djnz unpack_loop     ; 13/8 T
 
-    ; Lines 6 and 7 always 0x00
+    ; Line 6 always 0x00. The destination screen scanline 0 is blanked
+    ; explicitly by the renderers, so glyph_buffer[7] is never consumed.
     xor a
-    ld (hl), a
-    inc hl
     ld (hl), a
 
     ld hl, glyph_buffer
@@ -759,15 +753,11 @@ pci_vattr_ready:
     ld a, (hl)
     cp e
     jr nz, pci_update
-    call pci_cache_attr_addr
-    ld (hl), e
     ret
 
 pci_update:
     call pci_char_addr
     ld (hl), d
-    call pci_cache_attr_addr
-    ld (hl), e
 
 pci_draw:
     ld a, c
@@ -786,18 +776,6 @@ pci_char_addr:
     cp 23
     ret nz
     set 6, l
-    ret
-
-pci_cache_attr_addr:
-    ld a, b
-    srl a
-    ld l, a
-    ld h, 0x5B
-    set 7, l
-    ld a, c
-    cp 23
-    ret nz
-    set 5, l
     ret
 
 ; -----------------------------------------------------------------------------
@@ -888,30 +866,33 @@ plf_left_normal:
     inc hl                 ; consume left char
     ld (plf_str_ptr), hl
     call unpack_glyph      ; A still has char; HL/DE don't matter (destroyed)
-    ; Copiar glyph completo; mask 0xF0 diferida al write loop.
-    ld de, plf_left_buf
-    ld bc, 8
-    ldir
+    push hl                ; save left glyph pointer above saved screen addr
 
-    ; --- Leer char derecho ---
+    ; --- Leer char derecho antes de copiar el izquierdo ---
+    ; If the right side is blank, glyph_buffer will not be overwritten by a
+    ; second unpack, so the write loop can use it directly as the left source.
     ld hl, (plf_str_ptr)
     ld a, (hl)
     or a
-    jr z, plf_right_pad    ; NUL: no avanzar puntero, usar espacio
+    jr z, plf_right_blank_left_direct ; NUL: no avanzar puntero, usar espacio
     inc hl                 ; Avanzar puntero
     cp 33
-    jr c, plf_right_blank_direct  ; control/space: blank, pointer consumed
+    jr c, plf_right_blank_left_direct ; control/space: blank, pointer consumed
     cp 128
     jr c, plf_right_ok     ; char 33-127: OK
-    jr plf_right_blank_direct
-plf_right_pad:
-plf_right_blank_direct:
+plf_right_blank_left_direct:
     ld (plf_str_ptr), hl
     ld de, blank_glyph
-    ld ix, plf_left_buf
+    pop ix                 ; IX = left glyph_buffer; screen addr remains stacked
     jr plf_write_pair
 plf_right_ok:
     ld (plf_str_ptr), hl
+    ; Copy the left glyph only when the right glyph must also be unpacked.
+    ; unpack_glyph returns glyph_buffer, and LDIR preserves A = right char.
+    pop hl                 ; HL = left glyph_buffer; screen addr remains stacked
+    ld de, plf_left_buf
+    ld bc, 7
+    ldir
     call unpack_glyph      ; A still has char; HL/DE don't matter (destroyed)
     ex de, hl              ; DE = pointer to right glyph
     ld ix, plf_left_buf
@@ -999,35 +980,39 @@ DEFC INPUT_ROW_2 = 23
 
 _redraw_input_asm:
     ; === L?nea 1: "> " + primeros 62 chars ===
-    ld a, INPUT_ROW_1
-    ld (_g_ps64_y), a
-    xor a
-    ld (_g_ps64_col), a
-    
     ; Prompt char: '@' if query AND idx>0, '>' otherwise
-    ld a, (_theme_attrs + 8)  ; ATTR_PROMPT
-    ld (_g_ps64_attr), a
+    ld c, '>'
+    ld a, (_current_channel_idx)
+    or a
+    jr z, ria_prompt_ready     ; idx==0 is Server, always '>'
     ld hl, (_cur_chan_ptr)     ; HL = pointer to current ChannelInfo
     ld de, 30                  ; offset of flags in ChannelInfo (22+6+2)
     add hl, de
-    ld a, (hl)                 ; A = flags
-    and 0x02                   ; CH_FLAG_QUERY
-    ld l, '>'
-    jr z, ria_not_query
-    ld a, (_current_channel_idx)
-    or a
-    jr z, ria_not_query        ; idx==0 is Server, always '>'
-    ld l, '@'
-ria_not_query:
-    call _print_str64_char
-    ld hl, _g_ps64_col
-    inc (hl)
-    
-    ; Espacio con ATTR_PROMPT
-    ld l, ' '
-    call _print_str64_char
-    ld hl, _g_ps64_col
-    inc (hl)
+    bit 1, (hl)                ; CH_FLAG_QUERY
+    jr z, ria_prompt_ready
+    ld c, '@'
+ria_prompt_ready:
+    ld a, c
+    ; Draw byte 0 directly: prompt glyph on the left, blank on the right.
+    ; Vertical layout matches print_str64_char(): blank top scanline, 7 glyph rows.
+    call unpack_glyph
+    ex de, hl                  ; DE = glyph source
+    ld hl, 0x50C0              ; INPUT_ROW_1 bitmap base
+    xor a
+    ld (hl), a
+    inc h
+    ld b, 7
+ria_prompt_loop:
+    ld a, (de)
+    and 0xF0
+    ld (hl), a
+    inc de
+    inc h
+    djnz ria_prompt_loop
+
+    ld hl, 0x5AC0              ; INPUT_ROW_1 attr base
+    ld a, (_theme_attrs + 8)   ; ATTR_PROMPT
+    ld (hl), a
     
     ; L?nea 1: byte 0 reservado para prompt, texto desde byte 1 (62 cols)
     ld a, 1
@@ -1042,28 +1027,22 @@ ria_not_query:
     jr c, ria_l2_ofs_ok
     ld a, 62
 ria_l2_ofs_ok:
-    ld e, a
-    ld d, 0
     ld hl, _line_buffer
-    add hl, de
-    xor a
-    ld (_plf_start_byte), a
+    add a, l                    ; _line_buffer=$5CB6, +62 max: no carry
+    ld l, a
     ld a, INPUT_ROW_2
     ; fall through
 
 ; Helper: call print_line64_fast(y, hl, ATTR_INPUT)
 ; Input: A = y, HL = string ptr
 ria_call_plf:
-    ld e, l
-    ld d, h
-    ld l, a                     ; save y
+    ld c, h                     ; C = str_hi
+    ld h, l                     ; H = str_lo
+    ld l, a                     ; L = y
     ld a, (_theme_attrs + 6)    ; ATTR_INPUT
     ld b, a                     ; B = attr
-    ld c, d                     ; C = str_hi
     push bc                     ; [str_hi][attr]
-    ld b, e                     ; B = str_lo
-    ld c, l                     ; C = y
-    push bc
+    push hl                     ; [y][str_lo]
     call _print_line64_fast
     pop bc
     pop bc

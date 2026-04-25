@@ -6,6 +6,9 @@
 SECTION code_user
 
 EXTERN _ring_buffer
+EXTERN _rb_head
+EXTERN _rb_tail
+EXTERN _rx_pos
 EXTERN _esx_fopen
 EXTERN _esx_fread
 EXTERN _esx_fclose
@@ -33,7 +36,7 @@ _overlay_exec:
     call _esx_fopen
     ld a, (_esx_handle)
     or a
-    jr z, ovl_fail
+    jp z, ovl_fail
 
     ; Set buffer to ring_buffer, count = 2048
     ld hl, _ring_buffer
@@ -67,14 +70,14 @@ ovl_read:
     jr nz, ovl_read_ok   ; >= 256B, OK
     ld a, l
     cp 64
-    jr c, ovl_fail        ; < 64B, corrupted/truncated
+    jp c, ovl_fail        ; < 64B, corrupted/truncated
 ovl_read_ok:
 
     ; W7 fix: validate entry_id < entry_count
     ld a, (ix+5)        ; entry_id
     ld hl, _ring_buffer
     cp (hl)             ; compare entry_id vs entry_count (low byte)
-    jr nc, ovl_fail     ; entry_id >= entry_count -> invalid
+    jp nc, ovl_fail     ; entry_id >= entry_count -> invalid
 
     ; Look up entry point: ring_buffer[2 + entry_id*2]
     add a, a            ; *2
@@ -97,13 +100,35 @@ ovl_read_ok:
     sbc hl, de          ; offset >= 2048?
     jr nc, ovl_bad_entry
     pop de
+    push de             ; preserve entry address while RX cleanup uses DE
 
-    ; Clear rx_overflow so overlay return starts with clean UART state
+    ; The overlay has overwritten ring_buffer. Drop any pre-load UART bytes
+    ; that were in the ring, and mark overflow if that discarded a fragment.
+    ld a, (_rx_overflow)
+    ld b, a
+    ld hl, (_rb_head)
+    ld de, (_rb_tail)
+    or a
+    sbc hl, de
+    jr z, ovl_no_ring_discard
+    ld b, 1
+ovl_no_ring_discard:
+    ld hl, (_rb_head)
+    ld (_rb_tail), hl
+    ld hl, (_rx_pos)
+    ld a, h
+    or l
+    or b
+    jr z, ovl_rx_clean
+    ld a, 1
+    jr ovl_set_rx_overflow
+ovl_rx_clean:
     xor a
+ovl_set_rx_overflow:
     ld (_rx_overflow), a
 
     ; Callee cleanup: restore IX, remove params, jump to overlay
-    ex de, hl           ; HL = entry address
+    pop hl              ; HL = entry address
     pop ix              ; restore IX
     pop de              ; DE = ret addr (caller's return)
     inc sp

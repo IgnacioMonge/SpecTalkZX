@@ -6,6 +6,7 @@ EXTERN _ignore_list
 EXTERN _show_timestamps
 EXTERN _wrap_indent
 EXTERN _current_attr
+EXTERN _main_clear_indent6
 EXTERN _time_hour
 EXTERN _time_minute
 ; _ATTR_MSG_TIME = _theme_attrs + 12
@@ -82,6 +83,10 @@ mp_fast:
 ; -----------------------------------------------------------------------------
 PUBLIC _main_print_time_prefix
 _main_print_time_prefix:
+    ld a, (_overlay_mode)
+    or a
+    ret nz
+
     ld a, (_show_timestamps)
     or a
     jr z, mptp_off          ; mode 0: off
@@ -101,17 +106,11 @@ _main_print_time_prefix:
     cp b
     jr nz, mptp_changed     ; minute differs
 
-    ; Same time ? print spaces as indent (6 chars) instead of timestamp
+    ; Same time ? clear the fixed 6-char indent directly instead of
+    ; paying six full _main_putc(' ') calls.
     ld a, 6
     ld (_wrap_indent), a
-    ld b, 6
-mptp_spaces:
-    push bc
-    ld l, ' '
-    call _main_putc
-    pop bc
-    djnz mptp_spaces
-    ret
+    jp _main_clear_indent6
 
 mptp_changed:
     ; Update last printed time
@@ -246,6 +245,10 @@ mputc_no_wrap:
 ; -----------------------------------------------------------------------------
 PUBLIC _main_print_wrapped_ram
 _main_print_wrapped_ram:
+    ld a, (_overlay_mode)
+    or a
+    ret nz
+
     ; Convertir UTF-8 a ASCII in-place antes de procesar
     call _utf8_to_ascii     ; HL se preserva (fastcall, mismo puntero)
 
@@ -339,7 +342,7 @@ mpwr_cut_common:
 
     ; Set start byte offset from wrap_indent (0 if no indent)
     ld a, (_wrap_indent)
-    rrca                         ; indent_bytes = wrap_indent / 2 (0 or 6 only)
+    rrca                         ; indent_bytes = wrap_indent / 2 (wrap_indent 0/6)
     ld (_plf_start_byte), a
 
     ; Args para _print_line64_fast: [y][start_lo][start_hi][attr]

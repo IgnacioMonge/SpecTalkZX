@@ -30,16 +30,21 @@ extern void notif_center(const char *str, uint8_t attr);
 extern void input_cache_invalidate(void);
 extern void main_putc(char c) __z88dk_fastcall;
 extern void main_puts(const char *s) __z88dk_fastcall;
+extern void main_print(const char *s) __z88dk_fastcall;
 extern void main_newline(void);
 extern void set_attr_sys(void);
 extern void set_attr_priv(void);
 extern void sys_puts_print(const char *label, const char *value) __z88dk_callee;
+extern void ui_err(const char *s) __z88dk_fastcall;
 
 /* ===== String/number utilities ===== */
 
 extern uint8_t st_strlen(const char *s) __z88dk_fastcall;
+extern int st_stricmp(const char *a, const char *b);
+extern uint16_t str_to_u16(const char *s) __z88dk_fastcall;
 extern char *u16_to_dec(char *dst, uint16_t v);
 extern void fast_u8_to_str(char *buf, uint8_t val) __z88dk_callee;
+extern void puts_u8_nolz(uint8_t v) __z88dk_fastcall;
 
 /* ===== esxDOS file I/O ===== */
 
@@ -61,6 +66,7 @@ extern uint8_t  help_page;
 extern uint8_t  config_dirty;
 extern uint8_t  notif_enabled;
 extern uint8_t  rx_overflow;
+extern uint8_t  status_bar_dirty;
 
 /* Buffers */
 #define OVERLAY_SLOT_SIZE 512     /* MUST match RX_LINE_SIZE (spectalk.h) — aliased */
@@ -81,6 +87,12 @@ extern volatile uint8_t g_ps64_col;
 /* Shared string constants from resident */
 extern const char K_DAT[];
 extern const char S_APPDESC[];
+extern const char S_AUTOAWAY[];
+extern const char SB_ON[];
+extern const char SB_OFF[];
+extern const char SB_NOTSET[];
+extern const char SB_SMART[];
+extern const char SB_MIN[];
 
 /* === Config variables (read-only from overlay) === */
 extern char     irc_nick[];
@@ -100,8 +112,12 @@ extern uint8_t  show_timestamps;
 extern uint8_t  autoconnect;
 extern uint8_t  autojoin;
 extern uint8_t  autoaway_minutes;
+extern uint16_t autoaway_counter;
+extern uint8_t  autoaway_active;
 extern int8_t   sntp_tz;
+extern uint8_t  time_hour;
 extern char     search_pattern[];
+extern char     autojoin_channels[];
 extern char     friend_nicks[][18];   /* MAX_FRIENDS(5) x IRC_NICK_SIZE(18) */
 extern char     ignore_list[][16];
 extern uint8_t  ignore_count;

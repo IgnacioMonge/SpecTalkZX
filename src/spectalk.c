@@ -201,11 +201,13 @@ static uint8_t search_pending_type;      // Tipo de comando pendiente
 uint8_t search_header_rcvd;              // Flag: recibimos 321/352 header (no rate-limited)
 uint8_t search_saw_server_notice;        // Flag: server NOTICE durante pagination (rate limit, etc.)
 uint8_t post_cancel_quiet;               // Frames restantes tras BREAK cancel para suprimir h_default_cmd
-// NOTA: Usamos search_pattern[] para almacenar el argumento pendiente (ahorra 32 bytes)
+// NOTA: search_pattern[] es scratch para busquedas/snapshots; channels= persistente
+// vive separado en autojoin_channels[] para que overlays y busquedas no lo pisen.
 
 // SEARCH state
 uint8_t search_mode;
-char    search_pattern[SEARCH_PATTERN_SIZE];  // También usado como argumento pendiente/autojoin transitorio
+char    search_pattern[SEARCH_PATTERN_SIZE];  // Scratch: busquedas, snapshots de !config
+char    autojoin_channels[SEARCH_PATTERN_SIZE]; // channels= persistente cargado desde config
 uint16_t search_index;
 
 void draw_status_bar(void)
@@ -570,7 +572,7 @@ extern uint8_t last_frames_lo;
 // (sw_active and sw_dirty declared earlier for live-update from add/remove channel)
 static uint8_t sw_sel;
 static uint8_t sw_first;
-// OPT: sw_map + sw_flags_snap aliased onto search_pattern[32] — mutually exclusive:
+// OPT: sw_map + sw_flags_snap aliased onto search_pattern[] — mutually exclusive:
 // switcher requires !pagination_active && search_mode==SEARCH_NONE (line 3068),
 // search requires user ENTER which is consumed while switcher is open (line 3067).
 #define sw_map       ((uint8_t *)search_pattern)        // [0..9]
@@ -582,8 +584,8 @@ static uint16_t sw_timeout;  // frames since last key press (auto-close)
 // Even-width tabs + 2-char separator " |" → all tab boundaries align to
 // attribute cell boundaries (8px), so inverse video never bleeds into separators.
 // Tab format: " N:name " with N = slot number (0-9).
-// Uses print_str64 (not print_line64_fast) → font at scanlines 1-7, matching
-// the status bar's vertical alignment.
+// Uses print_line64_fast(), which now matches print_str64_char vertical layout:
+// scanline 0 blank, glyph rows on scanlines 1-7.
 
 static void switcher_close(void);
 
@@ -674,11 +676,7 @@ static void switcher_render(void)
     if (sw_first > 0) buf[0] = '<';
     if (last_shown < sw_count - 1) buf[SCREEN_COLS - 1] = '>';
 
-    // print_str64 renders font at scanlines 1-7 (scanline 0 cleared per char),
-    // matching the status bar's vertical alignment. No clear_line needed —
-    // print_str64_char updates every nibble across all 8 scanlines, so no
-    // old content persists, and there's no blank-then-repaint flicker.
-    print_str64(2, 0, buf, ATTR_STATUS);
+    print_line64_fast(2, buf, ATTR_STATUS);
 
     // Patch attributes: inverse=selected, BRIGHT=unread, FLASH=mention
     {
@@ -1326,18 +1324,7 @@ static char *sb_format_channel(char *p, char *central_limit, uint8_t cur_flags) 
 //   - central_limit reserva espacio para sección 3 antes de escribir sección 2
 // =============================================================================
 
-// Check if any non-current channel has an active mention
-static uint8_t has_other_mention(void)
-{
-    uint8_t i;
-    for (i = 0; i < MAX_CHANNELS; i++) {
-        uint8_t f = channels[i].flags;
-        if ((f & (CH_FLAG_ACTIVE | CH_FLAG_MENTION)) == (CH_FLAG_ACTIVE | CH_FLAG_MENTION) &&
-            i != current_channel_idx)
-            return 1;
-    }
-    return 0;
-}
+uint8_t has_other_mention(void);
 
 void draw_status_bar_real(void)
 {
@@ -1421,7 +1408,7 @@ void draw_status_bar_real(void)
     while (p < limit_end) *p++ = ' ';
     *p = 0;
 
-    print_str64(INFO_LINE, 0, sb_left_part, ATTR_STATUS);
+    print_line64_fast(INFO_LINE, sb_left_part, ATTR_STATUS);
     force_status_redraw = 0;
 
     draw_clock();
@@ -1456,9 +1443,7 @@ void refresh_cursor_char(uint8_t idx, uint8_t show_cursor) __z88dk_callee
         print_char64(row, col, c, ATTR_INPUT);
         // Update cache to match
         uint8_t r = row - INPUT_START;
-        uint8_t ax = col >> 1;
         input_cache_char[r][col] = (uint8_t)c;
-        input_cache_attr[r][ax] = ATTR_INPUT;
     }
 }
 
@@ -2358,6 +2343,7 @@ static void cfg_apply(char *key, char *val) __z88dk_callee {
         while (ignore_count < MAX_IGNORES && (tok = csv_next_tok(&p)) != NULL)
             add_ignore(tok);
     } else if (k0 == 'c' && k1 == 'h') {
+        cfg_s(autojoin_channels, SEARCH_PATTERN_SIZE);
         cfg_s(search_pattern, SEARCH_PATTERN_SIZE);
     } else if (k0 == 'b' && k1 == 'e') cfg_b(&beep_enabled);
       else if (k0 == 'c' && k1 == 'l') cfg_b(&keyclick_enabled);
@@ -2588,7 +2574,7 @@ void main(void)
             }
             // Notification slide-in animation (3 chars/frame, right to left)
             // Skip during overlays: overlay footer is static, don't overwrite it
-            if (notif_slide_pos < notif_slide_len && !overlay_mode) {
+            if (notif_timeout && notif_slide_pos < notif_slide_len && !overlay_mode) {
                 notif_slide_pos += 3;
                 if (notif_slide_pos > notif_slide_len) notif_slide_pos = notif_slide_len;
                 notif_draw(64 - notif_slide_pos,

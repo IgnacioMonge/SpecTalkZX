@@ -187,11 +187,11 @@ static void h_ping(void)
 
 static void session_autojoin_replay(void)
 {
-    char c = search_pattern[0];
+    char c = autojoin_channels[0];
     if (autojoin && (c == '#' || c == '&')) {
-        notify2("Autojoining ", search_pattern, ATTR_MSG_JOIN);
-        irc_send_cmd1("JOIN", search_pattern);
-        search_pattern[0] = 0;
+        notify2("Autojoining ", autojoin_channels, ATTR_MSG_JOIN);
+        irc_send_cmd1("JOIN", autojoin_channels);
+        autojoin_defer_flags = 0;
     }
 }
 
@@ -205,7 +205,7 @@ static void session_autojoin_try(void)
 static void session_autoidentify_done(void)
 {
     if (autojoin_defer_flags & AUTOJOIN_IDENT_WAIT) {
-        autojoin_defer_flags &= (uint8_t)~AUTOJOIN_IDENT_WAIT;
+        autojoin_defer_flags &= (uint8_t)~(AUTOJOIN_IDENT_WAIT | AUTOJOIN_IDENT_SENT);
         session_autojoin_try();
     }
 }
@@ -293,7 +293,7 @@ static void h_privmsg_notice(void)
         if (ok) {
             if (!nickserv_nick[0]) st_copy_n(nickserv_nick, pkt_usr, IRC_NICK_SIZE);
             send_identify(nickserv_pass);
-            autojoin_defer_flags |= AUTOJOIN_IDENT_WAIT;
+            autojoin_defer_flags |= (AUTOJOIN_IDENT_WAIT | AUTOJOIN_IDENT_SENT);
             notify("Auto-identifying...", ATTR_MSG_SYS);
             return;
         }
@@ -1106,6 +1106,10 @@ static void h_logged_in(void)
 static void h_motd_done(void)
 {
     autojoin_defer_flags |= AUTOJOIN_MOTD_DONE;
+    if ((autojoin_defer_flags & AUTOJOIN_IDENT_WAIT) &&
+        !(autojoin_defer_flags & AUTOJOIN_IDENT_SENT)) {
+        autojoin_defer_flags &= (uint8_t)~AUTOJOIN_IDENT_WAIT;
+    }
     session_autojoin_try();
     irc_check_friends_online();
 }

@@ -27,6 +27,12 @@ HELP_TEXT_PATH = os.path.join(ROOT, 'src', 'SPECTALK_HELP.txt')
 SRC_FILES = ['spectalk.c', 'irc_handlers.c', 'user_cmds.c']
 HDR_FILES = ['spectalk.h']
 
+# Internal display-only codepoint: UTF-8 ñ/Ñ maps to byte 127.
+# The 64-col renderer accepts 32..127, while BPE tokens start at 128.
+FONT_DATA_OFFSET = 10
+SPANISH_N_CODE = 127
+SPANISH_N_PACKED = bytes((0x47, 0x66, 0x66))
+
 # Constants audited as safe for BPE (screen-only)
 SAFE_CONSTANTS = [
     'S_NOTCONN', 'S_FAIL', 'S_NOTSET', 'S_DISCONN', 'S_APPNAME', 'S_COPYRIGHT',
@@ -268,7 +274,11 @@ def main():
     with open(dat_orig, 'rb') as f:
         orig = f.read()
 
-    header = orig[:373]          # font + glyphs + themes
+    header = bytearray(orig[:373])  # font + glyphs + themes
+    # Patch glyph slot 127 (DEL, not typeable by input) as display-only ñ.
+    # Packed nibbles 4,7,6,6,6,6 -> tilde row + compact 'n' body.
+    n_tilde_off = FONT_DATA_OFFSET + (SPANISH_N_CODE - 32) * 3
+    header[n_tilde_off:n_tilde_off + 3] = SPANISH_N_PACKED
     with open(HELP_TEXT_PATH, 'rb') as f:
         help_text = f.read()     # tracked help text source
 
@@ -306,7 +316,7 @@ def main():
 
     dat_out = os.path.join(BUILD_DIR, 'SPECTALK.DAT')
     with open(dat_out, 'wb') as f:
-        f.write(header + dict_bin + bytes(padded))
+        f.write(bytes(header) + dict_bin + bytes(padded))
 
     # Step 6: Install compressed files for compilation
     for f in SRC_FILES:

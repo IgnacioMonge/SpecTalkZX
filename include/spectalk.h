@@ -71,6 +71,7 @@
 
 #define AUTOJOIN_MOTD_DONE   0x01
 #define AUTOJOIN_IDENT_WAIT  0x02
+#define AUTOJOIN_IDENT_SENT  0x04
 
 #define CH_FLAG_ACTIVE     0x01
 #define CH_FLAG_QUERY      0x02
@@ -94,7 +95,7 @@
 
 // Cross-module buffers (must match definitions in spectalk.c)
 #define NAMES_TARGET_CHANNEL_SIZE 32
-#define SEARCH_PATTERN_SIZE       32
+#define SEARCH_PATTERN_SIZE       64
 // RX_LINE_SIZE: duplicado como RX_LINE_MAX EQU en spectalk_asm.asm
 // Si cambias este valor, actualiza también RX_LINE_MAX en el ASM
 #define RX_LINE_SIZE              512
@@ -380,6 +381,7 @@ extern uint8_t last_ts_hour;
 extern uint8_t last_ts_minute;
 extern uint8_t autojoin;
 extern uint8_t autojoin_defer_flags;
+extern char autojoin_channels[SEARCH_PATTERN_SIZE];
 
 // IRC parsing
 extern char *irc_params[IRC_MAX_PARAMS];
@@ -414,7 +416,6 @@ extern uint8_t caps_latch;
 
 // Input cache
 extern uint8_t input_cache_char[][SCREEN_COLS];
-extern uint8_t input_cache_attr[][32];
 
 // =============================================================================
 // COMMON STRINGS (save ROM by sharing)
@@ -538,8 +539,6 @@ void fast_u8_to_str(char *buf, uint8_t val) __z88dk_callee;
 void sys_puts_print(const char *label, const char *value) __z88dk_callee;
 uint8_t ensure_args(const char *args, const char *usage) __z88dk_callee;
 void puts_u8_nolz(uint8_t v) __z88dk_fastcall;
-char *cfg_put(char *p, const char *s) __z88dk_callee;
-char *cfg_kv(char *p, const char *key, const char *val) __z88dk_callee;
 char *sb_put_u8_2d(char *p, uint8_t v) __z88dk_callee;
 
 // =============================================================================
@@ -549,7 +548,7 @@ int8_t find_channel(const char *name) __z88dk_fastcall;
 int8_t find_query(const char *nick) __z88dk_fastcall;
 int8_t find_empty_channel_slot(void);
 int8_t add_channel(const char *name) __z88dk_fastcall;
-void snapshot_autojoin_channels(void);
+uint8_t snapshot_autojoin_channels(void);
 int8_t add_query(const char *nick) __z88dk_fastcall;
 void remove_channel(uint8_t idx) __z88dk_fastcall;
 void switch_to_channel(uint8_t idx) __z88dk_fastcall;

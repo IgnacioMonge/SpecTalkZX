@@ -4,16 +4,15 @@
 
 ; -----------------------------------------------------------------------------
 ; void input_cache_invalidate(void)
-; Rellena input_cache_char (128 bytes) y input_cache_attr (64 bytes) con 0xFF
+; Rellena input_cache_char (128 bytes) con 0xFF
 ; -----------------------------------------------------------------------------
 _input_cache_invalidate:
-    ; _input_cache_char (128B @ 0x5B00) + _input_cache_attr (64B @ 0x5B80) son contiguas
     ld hl, _input_cache_char
     ld (hl), 0xFF
     ld d, h
     ld e, l
     inc de
-    ld bc, 191              ; 128 + 64 - 1 = 191 (ambas zonas en un solo LDIR)
+    ld bc, 127
     ldir
     ret
 
