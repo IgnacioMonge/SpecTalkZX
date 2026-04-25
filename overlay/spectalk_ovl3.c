@@ -14,7 +14,9 @@
 #include "whatsnew_data.h"
 
 static const char s_exit[] = "ANY KEY TO EXIT";
+static const char s_off[] = "off";
 static const char s_colon_sp[] = ": ";
+static const char s_min[] = " min";
 static const char s_disabled[] = " disabled";
 static const char s_set_to[] = " set to ";
 static const char s_range_minutes[] = "Range: 1-60 minutes (0=off)";
@@ -108,14 +110,14 @@ void autoaway_cmd_ovl(void)
         main_puts(s_colon_sp);
         if (autoaway_minutes) {
             puts_u8_nolz(autoaway_minutes);
-            main_print(SB_MIN);
+            main_print(s_min);
         } else {
-            main_print(SB_OFF);
+            main_print(s_off);
         }
         goto done;
     }
 
-    if (*args == '0' || st_stricmp(args, SB_OFF) == 0) {
+    if (*args == '0' || st_stricmp(args, s_off) == 0) {
         autoaway_minutes = 0;
         autoaway_counter = 0;
         autoaway_active = 0;
@@ -138,7 +140,7 @@ void autoaway_cmd_ovl(void)
     main_puts(S_AUTOAWAY);
     main_puts(s_set_to);
     puts_u8_nolz(autoaway_minutes);
-    main_print(SB_MIN);
+    main_print(s_min);
     config_dirty = 1;
 
 done:

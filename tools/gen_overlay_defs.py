@@ -82,7 +82,6 @@ REQUIRED_VARIABLES = [
 
     # Shared strings
     '_K_DAT', '_S_APPDESC', '_S_AUTOAWAY',
-    '_SB_ON', '_SB_OFF', '_SB_NOTSET', '_SB_SMART', '_SB_MIN',
     '_K_NICK', '_K_SERVER', '_K_PORT', '_K_PASS', '_K_NKPASS',
     '_K_AUTOCONN', '_K_THEME', '_K_AUTOAWAY', '_K_BEEP', '_K_NCOLOR',
     '_K_TRAFFIC', '_K_TS', '_K_CFG_PRI', '_K_CFG_ALT', '_K_TZ', '_K_NOTIF',
@@ -95,17 +94,6 @@ REQUIRED_VARIABLES = [
     '_sntp_tz', '_time_hour', '_search_pattern', '_autojoin_channels',
     '_friend_nicks', '_ignore_list', '_ignore_count',
 ]
-
-SYMBOL_ALIASES = {
-    # Normal builds BPE-rename audited screen strings to SB_*; nobpe/debug
-    # maps may still expose the original S_* names.  Overlays always link
-    # against SB_* so the ABI surface stays stable.
-    '_SB_ON': '_S_ON',
-    '_SB_OFF': '_S_OFF',
-    '_SB_NOTSET': '_S_NOTSET',
-    '_SB_SMART': '_S_SMART',
-    '_SB_MIN': '_S_MIN',
-}
 
 
 def parse_map(map_path):
@@ -135,9 +123,6 @@ def main():
         if name in symbols:
             print(f"PUBLIC {name}")
             print(f"DEFC {name} = ${symbols[name]:04X}")
-        elif name in SYMBOL_ALIASES and SYMBOL_ALIASES[name] in symbols:
-            print(f"PUBLIC {name}")
-            print(f"DEFC {name} = ${symbols[SYMBOL_ALIASES[name]]:04X}")
         else:
             missing.append(name)
             print(f";; WARNING: {name} not found in .map!")

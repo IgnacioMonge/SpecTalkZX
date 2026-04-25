@@ -2,6 +2,7 @@
 SECTION code_user
 EXTERN _status_render_ovl
 EXTERN _save_config_ovl
+EXTERN _overlay_slot
 PUBLIC _cfg_put
 PUBLIC _cfg_kv
 PUBLIC _cfg_put_autojoin
@@ -16,16 +17,34 @@ _cfg_put:
     pop de
     pop hl
     push bc
+    ex de, hl
 ovl4_cfg_put_loop:
-    ld a, (hl)
+    ld a, (de)
     or a
     jr z, ovl4_cfg_put_done
-    ld (de), a
-    inc hl
+    call ovl4_put_a_hl
     inc de
     jr ovl4_cfg_put_loop
 ovl4_cfg_put_done:
-    ex de, hl
+    ret
+
+; A=byte, HL=destination. Returns HL=destination+1, or overlay_slot+513
+; when no room remains. Preserves DE so callers can keep source pointers live.
+ovl4_put_a_hl:
+    push de
+    push hl
+    ld de, _overlay_slot + 512
+    or a
+    sbc hl, de
+    pop hl
+    jr c, ovl4_put_room
+    ld hl, _overlay_slot + 513
+    pop de
+    ret
+ovl4_put_room:
+    ld (hl), a
+    inc hl
+    pop de
     ret
 
 ; char *cfg_kv(char *p, const char *key, const char *val) __z88dk_callee
@@ -47,18 +66,17 @@ _cfg_kv:
     cp 10
     jr nc, ovl4_ckv_string
     add a, '0'
-    ld (hl), a
-    inc hl
+    call ovl4_put_a_hl
     jr ovl4_ckv_crlf
 ovl4_ckv_string:
     push de
     push hl
     call _cfg_put
 ovl4_ckv_crlf:
-    ld (hl), 13
-    inc hl
-    ld (hl), 10
-    inc hl
+    ld a, 13
+    call ovl4_put_a_hl
+    ld a, 10
+    call ovl4_put_a_hl
     ret
 
 ; char *cfg_put_autojoin(char *p) __z88dk_fastcall
@@ -106,10 +124,8 @@ ovl4_cpa_chan:
     jr ovl4_cpa_put_chan
 ovl4_cpa_comma:
     push hl
-    ld hl, (ovl4_cpa_dest)
-    ld (hl), ','
-    inc hl
-    ld (ovl4_cpa_dest), hl
+    ld a, ','
+    call ovl4_cpa_put_a
     pop hl
 ovl4_cpa_put_chan:
     push bc
@@ -144,28 +160,31 @@ ovl4_cpa_fallback:
     ld de, _autojoin_channels
     call ovl4_cpa_put_de
 ovl4_cpa_crlf:
+    ld a, 13
+    call ovl4_cpa_put_a
+    ld a, 10
+    call ovl4_cpa_put_a
     ld hl, (ovl4_cpa_dest)
-    ld (hl), 13
-    inc hl
-    ld (hl), 10
-    inc hl
     ret
 ovl4_cpa_ret_dest:
     ld hl, (ovl4_cpa_dest)
     ret
 
-ovl4_cpa_put_de:
+ovl4_cpa_put_a:
     ld hl, (ovl4_cpa_dest)
+    call ovl4_put_a_hl
+    ld (ovl4_cpa_dest), hl
+    ret
+
+ovl4_cpa_put_de:
 ovl4_cpa_put_loop:
     ld a, (de)
     or a
     jr z, ovl4_cpa_put_done
-    ld (hl), a
-    inc hl
+    call ovl4_cpa_put_a
     inc de
     jr ovl4_cpa_put_loop
 ovl4_cpa_put_done:
-    ld (ovl4_cpa_dest), hl
     ret
 
 ovl4_cpa_dest: defw 0

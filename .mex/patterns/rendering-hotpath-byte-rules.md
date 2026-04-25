@@ -21,12 +21,16 @@ When touching `asm/spectalk_asm/30_rendering.asm`, prefer local byte wins that a
 - If a live screen pointer is still valid in `HL`, keep it there; do not round-trip it through `BC`/stack or save/restore it across a helper that already preserves `HL`.
 - If a loop reaches the next stage only via `djnz`, treat `B=0` as an established postcondition and do not immediately zero it again before `add hl,bc` / `ldir`.
 - If a notification/footer row is explicitly cleared before drawing and text advances left-to-right, an even column is the first nibble written in its byte; write it directly instead of read-modify-write preserving an empty partner nibble.
+- A local manual fill of exactly 32 bytes can be tail-called or called through `_fast_fill_attr` when `A=value`, `HL=start`, `BC=32`, and the caller does not need to preserve `A` for loop state. This is valid for `_notif_clear` attributes, `_main_hline` pixel/attr rows, and `_scroll_main_zone` row-19 attrs.
+- Do not rewrite `cli_internal`'s attribute fill through `_fast_fill_attr` unless `A=line` is restored before return. `clear_zone()` depends on `A` surviving `cli_internal` so it can `inc a` for the next row; loading `A=C` for the fill breaks that loop.
+- `call helper / ret` may become `jp helper` only when the helper's `ret` should return to the original caller and no cleanup remains. This is valid for `dbc_render_bot -> dbc_mask_2sc` and `_main_clear_indent6 -> p64_get_scr_base`.
 
 ## Rejected Here
 - The generic-space-path rewrite for `_print_str64_char()` was reverted after real testing: letting `blank_glyph` replace the dedicated space-clearing path saved bytes, but caused status-bar corruption and attribute mixing in practice.
 - The follow-up `draw_big_char()` / `_print_big_str()` internal-`A` entry plus the `EXX` cache-miss save in `p64_get_scr_base()` were reverted together with that experiment to return to the last known-good rendering baseline.
 - Reusing `sw_flags_snap[]` as a temporary switcher tab-width cache looked attractive but grew the current SDCC build by about `+20B`; keep the repeated `sw_tab_width()` call unless the switcher is rewritten more deeply.
 - Replacing the `notify()` `strchr(notif_buf, 1)` plus `st_strlen()` path with a fused local C scan grew the current build by nearly `+100B`; keep the library/helper shape.
+- The proposed `cli_internal` `_fast_fill_attr` rewrite saves no safe bytes as written and breaks `clear_zone()` by returning with `A=attr` instead of `A=line`. A preserving version needs `push af`/`pop af` around the fill and has no byte win.
 
 ## Applied In
 - `asm/spectalk_asm/30_rendering.asm` `unpack_glyph()`

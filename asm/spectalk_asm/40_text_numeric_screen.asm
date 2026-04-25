@@ -507,11 +507,11 @@ _fast_fill_attr:
 _cls_fast:
     ; --- BORRADO DE BITMAP (0x4000..0x57FF) = 6144 bytes ---
     ; Stack clear: 6 * 256 iterations * 2 PUSHes = 6144 bytes.
-    ; Preserve the incoming IFF state: do not enable interrupts if the caller
-    ; entered with them disabled.
-    ld a, i
+    ; Startup-only clear: the sole caller is init_screen(), reached after ROM
+    ; startup with interrupts enabled.  Use fixed DI/EI instead of saving IFF
+    ; with `ld a,i`, whose P/V result is affected by a known Z80 interrupt
+    ; acceptance edge case.
     di
-    push af
     ld (cls_restore_sp + 1), sp
     ld sp, 0x5800
     ld hl, 0
@@ -527,10 +527,7 @@ cls_inner:
     jr nz, cls_outer
 cls_restore_sp:
     ld sp, 0
-    pop af
-    jp po, cls_no_ei
     ei
-cls_no_ei:
 
     ; --- ATRIBUTOS ---
     jr _reapply_screen_attributes
@@ -552,22 +549,14 @@ _main_hline:
     inc h
     inc h                       ; scanline 3
     ld a, 0xFF
-    ld (hl), a
-    ld d, h
-    ld e, l
-    inc de
-    ld bc, 31
-    ldir
+    ld bc, 32
+    call _fast_fill_attr
 
     ld a, (_main_line)
     call _compute_attr_base
     ld a, (_current_attr)
-    ld (hl), a
-    ld d, h
-    ld e, l
-    inc de
-    ld bc, 31
-    ldir
+    ld bc, 32
+    call _fast_fill_attr
 
     jp _main_newline
 
@@ -713,12 +702,8 @@ smz_clear19_px:
 
     ld a, (_current_attr)
     ld hl, 0x5A60          ; ATTR row 19
-    ld (hl), a
-    ld d, h
-    ld e, l
-    inc de
-    ld bc, 31
-    ldir
+    ld bc, 32
+    call _fast_fill_attr
 
     pop iy
 IFDEF SCROLL_PROFILE
@@ -850,8 +835,7 @@ mci6_scan:
     ld (_g_ps64_y), a
     ld a, (_current_attr)
     ld (_g_ps64_attr), a
-    call p64_get_scr_base
-    ret
+    jp p64_get_scr_base
 
 
 ; =============================================================================

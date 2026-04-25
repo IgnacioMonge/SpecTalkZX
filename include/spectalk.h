@@ -72,6 +72,7 @@
 #define AUTOJOIN_MOTD_DONE   0x01
 #define AUTOJOIN_IDENT_WAIT  0x02
 #define AUTOJOIN_IDENT_SENT  0x04
+#define AUTOJOIN_IDENT_GRACE_FRAMES 250
 
 #define CH_FLAG_ACTIVE     0x01
 #define CH_FLAG_QUERY      0x02
@@ -381,6 +382,7 @@ extern uint8_t last_ts_hour;
 extern uint8_t last_ts_minute;
 extern uint8_t autojoin;
 extern uint8_t autojoin_defer_flags;
+extern uint8_t autojoin_ident_grace;
 extern char autojoin_channels[SEARCH_PATTERN_SIZE];
 
 // IRC parsing

@@ -82,7 +82,11 @@ static const char cl_tz[]    = "timezone=";
 static const char cl_ajoin[] = "autojoin=";
 static const char cl_chans[] = "channels=";
 
+static const char cv_on[]    = "on";
+static const char cv_off[]   = "off";
 static const char cv_set[]   = "set";
+static const char cv_notset[]= "(not set)";
+static const char cv_smart[] = "smart";
 
 static uint8_t cfg_col;
 
@@ -95,7 +99,7 @@ static void cfg_item(const char *label, const char *val)
     print_str64(r, col, label, a_nick);
     if (g_ps64_col & 1) ++g_ps64_col;
     {
-        uint8_t a_val = (val == SB_NOTSET) ? theme_attrs[TATTR_MSG_TIME] : theme_attrs[TATTR_MSG_CHAN];
+        uint8_t a_val = (val == cv_notset) ? theme_attrs[TATTR_MSG_TIME] : theme_attrs[TATTR_MSG_CHAN];
         print_char64(r, g_ps64_col, ' ', a_val);
         print_str64(r, g_ps64_col + 1, val, a_val);
     }
@@ -110,28 +114,28 @@ void config_render_ovl(void)
     g_ps64_y = overlay_header("Config");
     cfg_col = 2;
 
-    cfg_item(K_NICK, irc_nick[0] ? (const char*)irc_nick : SB_NOTSET);
-    cfg_item(K_SERVER, irc_server[0] ? (const char*)irc_server : SB_NOTSET);
+    cfg_item(K_NICK, irc_nick[0] ? (const char*)irc_nick : cv_notset);
+    cfg_item(K_SERVER, irc_server[0] ? (const char*)irc_server : cv_notset);
     cfg_item(K_PORT, irc_port);
-    cfg_item(K_PASS, irc_pass[0] ? cv_set : SB_NOTSET);
-    cfg_item(cl_nkp, nickserv_pass[0] ? cv_set : SB_NOTSET);
+    cfg_item(K_PASS, irc_pass[0] ? cv_set : cv_notset);
+    cfg_item(cl_nkp, nickserv_pass[0] ? cv_set : cv_notset);
     buf[0] = '0' + current_theme; buf[1] = 0;
     cfg_item(K_THEME, buf);
-    cfg_item(K_BEEP, beep_enabled ? SB_ON : SB_OFF);
-    cfg_item(cl_click, keyclick_enabled ? SB_ON : SB_OFF);
-    cfg_item(cl_ncol, nick_color_mode ? SB_ON : SB_OFF);
-    cfg_item(K_TRAFFIC, show_traffic ? SB_ON : SB_OFF);
-    cfg_item(K_TS, show_timestamps == 0 ? SB_OFF :
-                    show_timestamps == 1 ? SB_ON : SB_SMART);
-    cfg_item(K_AUTOCONN, autoconnect ? SB_ON : SB_OFF);
-    cfg_item(cl_ajoin, autojoin ? SB_ON : SB_OFF);
-    cfg_item(K_NOTIF, notif_enabled ? SB_ON : SB_OFF);
+    cfg_item(K_BEEP, beep_enabled ? cv_on : cv_off);
+    cfg_item(cl_click, keyclick_enabled ? cv_on : cv_off);
+    cfg_item(cl_ncol, nick_color_mode ? cv_on : cv_off);
+    cfg_item(K_TRAFFIC, show_traffic ? cv_on : cv_off);
+    cfg_item(K_TS, show_timestamps == 0 ? cv_off :
+                    show_timestamps == 1 ? cv_on : cv_smart);
+    cfg_item(K_AUTOCONN, autoconnect ? cv_on : cv_off);
+    cfg_item(cl_ajoin, autojoin ? cv_on : cv_off);
+    cfg_item(K_NOTIF, notif_enabled ? cv_on : cv_off);
 
     if (autoaway_minutes) {
         fast_u8_to_str(buf, autoaway_minutes); buf[2] = 'm'; buf[3] = 0;
         cfg_item(cl_away, buf);
     } else {
-        cfg_item(cl_away, SB_NOTSET);
+        cfg_item(cl_away, cv_notset);
     }
     if (sntp_tz < 0) { buf[0] = '-'; fast_u8_to_str(buf + 1, (uint8_t)(-sntp_tz)); }
     else { buf[0] = '+'; fast_u8_to_str(buf + 1, (uint8_t)sntp_tz); }
@@ -139,7 +143,7 @@ void config_render_ovl(void)
     cfg_item(cl_tz, buf);
 
     if (cfg_col == 34) { g_ps64_y++; cfg_col = 2; }
-    cfg_item(cl_chans, (search_pattern[0] == '#' || search_pattern[0] == '&') ? (const char *)search_pattern : SB_NOTSET);
+    cfg_item(cl_chans, (search_pattern[0] == '#' || search_pattern[0] == '&') ? (const char *)search_pattern : cv_notset);
 
     if (cfg_col == 34) { g_ps64_y++; cfg_col = 2; }
     {
@@ -150,11 +154,11 @@ void config_render_ovl(void)
         for (i = 0, fn = friend_nicks[0]; i < MAX_FRIENDS; i++, fn += IRC_NICK_SIZE) {
             if (*fn) { print_str64(row, col, fn, theme_attrs[TATTR_MSG_CHAN]); col += st_strlen(fn) + 1; }
         }
-        if (col == 12) print_str64(row, col, SB_NOTSET, theme_attrs[TATTR_MSG_TIME]);
+        if (col == 12) print_str64(row, col, cv_notset, theme_attrs[TATTR_MSG_TIME]);
         row++;
         col = 12;
         print_str64(row, 2, "Ignores:", theme_attrs[TATTR_MSG_NICK]);
-        if (ignore_count == 0) print_str64(row, col, SB_NOTSET, theme_attrs[TATTR_MSG_TIME]);
+        if (ignore_count == 0) print_str64(row, col, cv_notset, theme_attrs[TATTR_MSG_TIME]);
         else for (i = 0; i < ignore_count; i++) {
             print_str64(row, col, ignore_list[i], theme_attrs[TATTR_MSG_CHAN]);
             col += st_strlen(ignore_list[i]) + 1;

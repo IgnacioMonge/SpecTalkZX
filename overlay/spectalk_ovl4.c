@@ -8,7 +8,7 @@
 
 #include "overlay_api.h"
 
-static const char s_exit[] = "ANY KEY TO EXIT";
+static const char s_exit[] = "KEY TO EXIT";
 
 /* ================================================================
  * ENTRY 0 — Status display
@@ -30,12 +30,12 @@ extern uint16_t uptime_minutes;
 #define STATE_IRC_READY     3
 
 static const char ss_nick[]  = "Nick:";
-static const char ss_srv[]   = "Server:";
-static const char ss_net[]   = "Network:";
-static const char ss_state[] = "State:";
-static const char ss_lag[]   = "Latency:";
-static const char ss_up[]    = "Uptime:";
-static const char ss_chans[] = "Channels:";
+static const char ss_srv[]   = "Srv:";
+static const char ss_net[]   = "Net:";
+static const char ss_state[] = "St:";
+static const char ss_lag[]   = "Lag:";
+static const char ss_up[]    = "Up:";
+static const char ss_chans[] = "Chans:";
 
 void status_render_ovl(void)
 {
@@ -56,7 +56,7 @@ void status_render_ovl(void)
     print_str64(r, 2, ss_state, a_nick);
     { const char *st;
       switch (connection_state) {
-          case STATE_IRC_READY:     st = "IRC ready"; break;
+          case STATE_IRC_READY:     st = "IRC"; break;
           case STATE_TCP_CONNECTED: st = "TCP"; break;
           case STATE_WIFI_OK:       st = "WiFi OK"; break;
           default:                  st = "Offline"; break;
@@ -69,7 +69,7 @@ void status_render_ovl(void)
     { const char *lag;
       switch (ping_latency) {
           case 0:  lag = "Good"; break;
-          case 1:  lag = "Medium"; break;
+          case 1:  lag = "Med"; break;
           default: lag = "High"; break;
       }
       print_str64(r++, 11, lag, a_chan);
@@ -134,6 +134,8 @@ extern void ui_err(const char *s) __z88dk_fastcall;
 static const char CK_HDR[]  = "; SpecTalkZX config\r\n";
 static const char CK_NKS[]  = "nickserv=";
 static const char CK_AJOIN[] = "autojoin=";
+#define CFG_END       ((char *)overlay_slot + OVERLAY_SLOT_SIZE)
+#define CFG_TOO_LARGE (CFG_END + 1)
 extern char *cfg_put_autojoin(char *p) __z88dk_fastcall;
 
 static char *cfg_put_csv(char *p, const char *key,
@@ -143,11 +145,21 @@ static char *cfg_put_csv(char *p, const char *key,
     const char *s = list;
     for (i = 0; i < count; i++, s += elem_size) {
         if (!*s) continue;
-        if (!any) { p = cfg_put(p, key); *p++ = '='; any = 1; }
-        else *p++ = ',';
+        if (!any) {
+            p = cfg_put(p, key);
+            if (p >= CFG_END) return CFG_TOO_LARGE;
+            *p++ = '=';
+            any = 1;
+        } else {
+            if (p >= CFG_END) return CFG_TOO_LARGE;
+            *p++ = ',';
+        }
         p = cfg_put(p, s);
     }
-    if (any) { *p++ = '\r'; *p++ = '\n'; }
+    if (any) {
+        if (p > (CFG_END - 2)) return CFG_TOO_LARGE;
+        *p++ = '\r'; *p++ = '\n';
+    }
     return p;
 }
 
@@ -195,18 +207,15 @@ void save_config_ovl(void)
 
     p = cfg_put_autojoin(p);
 
-    /* Capacity guard: leave 12B headroom for CSV trailing bytes.
-     * Explicit OVERLAY_SLOT_SIZE so future key additions fail loudly. */
-    if (p < (char *)overlay_slot + (OVERLAY_SLOT_SIZE - 12))
-        p = cfg_put_csv(p, "friends", (const char *)friend_nicks, IRC_NICK_SIZE, MAX_FRIENDS);
-    if (p < (char *)overlay_slot + (OVERLAY_SLOT_SIZE - 12))
-        p = cfg_put_csv(p, "ignores", (const char *)ignore_list, 16, ignore_count);
+    /* CSV writes punctuation in C; cfg_put() bounds the string spans. */
+    p = cfg_put_csv(p, "friends", (const char *)friend_nicks, IRC_NICK_SIZE, MAX_FRIENDS);
+    p = cfg_put_csv(p, "ignores", (const char *)ignore_list, 16, ignore_count);
 
     set_attr_sys();
     main_puts("Saving config... ");
 
-    /* Final bounds check: abort write if any earlier phase overflowed the slot. */
-    if (p > (char *)overlay_slot + OVERLAY_SLOT_SIZE) {
+    /* Bounded helpers return CFG_TOO_LARGE before any out-of-slot write. */
+    if (p > CFG_END) {
         ui_err("Config too large");
         goto done;
     }

@@ -343,6 +343,7 @@ char nickserv_nick[IRC_NICK_SIZE];
 uint8_t autoconnect;
 uint8_t autojoin;
 uint8_t autojoin_defer_flags;
+uint8_t autojoin_ident_grace;
 uint8_t has_esxdos;
 // friend_nicks mapped to UDG area 0xFF58 via ASM defc
 uint8_t friends_ison_sent;
@@ -1930,6 +1931,7 @@ void force_disconnect(void)
     notif_clear();
     last_pm_nick[0] = '\0';
     autojoin_defer_flags = 0;
+    autojoin_ident_grace = 0;
     
     cancel_search_state();
     
@@ -2571,6 +2573,18 @@ void main(void)
             if (post_cancel_quiet) {
                 if (post_cancel_quiet <= elapsed) post_cancel_quiet = 0;
                 else post_cancel_quiet -= elapsed;
+            }
+            if (autojoin_ident_grace) {
+                if (autojoin_ident_grace <= elapsed) {
+                    autojoin_ident_grace = 0;
+                    if ((autojoin_defer_flags & AUTOJOIN_IDENT_WAIT) &&
+                        !(autojoin_defer_flags & AUTOJOIN_IDENT_SENT)) {
+                        autojoin_defer_flags &= (uint8_t)~AUTOJOIN_IDENT_WAIT;
+                        session_autojoin_try();
+                    }
+                } else {
+                    autojoin_ident_grace -= elapsed;
+                }
             }
             // Notification slide-in animation (3 chars/frame, right to left)
             // Skip during overlays: overlay footer is static, don't overwrite it

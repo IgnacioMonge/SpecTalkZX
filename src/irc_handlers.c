@@ -39,6 +39,7 @@ static uint8_t names_friend_pos;
 
 // Forward decl (used by selective numeric handlers)
 static void h_numeric_default(void);
+static void session_autoidentify_done(void);
 // INTERNAL HELPERS
 // =============================================================================
 
@@ -137,6 +138,7 @@ static void h_nick(void)
         st_copy_n(irc_nick, new_nick, sizeof(irc_nick));
         draw_status_bar();
         notify2("You are now ", irc_nick, ATTR_MSG_SYS);
+        if (autojoin_defer_flags & AUTOJOIN_IDENT_SENT) session_autoidentify_done();
         return;
     }
 
@@ -192,6 +194,7 @@ static void session_autojoin_replay(void)
         notify2("Autojoining ", autojoin_channels, ATTR_MSG_JOIN);
         irc_send_cmd1("JOIN", autojoin_channels);
         autojoin_defer_flags = 0;
+        autojoin_ident_grace = 0;
     }
 }
 
@@ -206,6 +209,7 @@ static void session_autoidentify_done(void)
 {
     if (autojoin_defer_flags & AUTOJOIN_IDENT_WAIT) {
         autojoin_defer_flags &= (uint8_t)~(AUTOJOIN_IDENT_WAIT | AUTOJOIN_IDENT_SENT);
+        autojoin_ident_grace = 0;
         session_autojoin_try();
     }
 }
@@ -294,6 +298,7 @@ static void h_privmsg_notice(void)
             if (!nickserv_nick[0]) st_copy_n(nickserv_nick, pkt_usr, IRC_NICK_SIZE);
             send_identify(nickserv_pass);
             autojoin_defer_flags |= (AUTOJOIN_IDENT_WAIT | AUTOJOIN_IDENT_SENT);
+            autojoin_ident_grace = 0;
             notify("Auto-identifying...", ATTR_MSG_SYS);
             return;
         }
@@ -1091,6 +1096,7 @@ static void h_numeric_1(void)
     cursor_visible = 1;
     if (autojoin && nickserv_pass[0]) {
         autojoin_defer_flags |= AUTOJOIN_IDENT_WAIT;
+        autojoin_ident_grace = 0;
     }
     draw_status_bar();
     notify2("Connected to ", irc_server, ATTR_MSG_SYS);
@@ -1108,7 +1114,7 @@ static void h_motd_done(void)
     autojoin_defer_flags |= AUTOJOIN_MOTD_DONE;
     if ((autojoin_defer_flags & AUTOJOIN_IDENT_WAIT) &&
         !(autojoin_defer_flags & AUTOJOIN_IDENT_SENT)) {
-        autojoin_defer_flags &= (uint8_t)~AUTOJOIN_IDENT_WAIT;
+        autojoin_ident_grace = AUTOJOIN_IDENT_GRACE_FRAMES;
     }
     session_autojoin_try();
     irc_check_friends_online();

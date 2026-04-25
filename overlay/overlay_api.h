@@ -88,11 +88,6 @@ extern volatile uint8_t g_ps64_col;
 extern const char K_DAT[];
 extern const char S_APPDESC[];
 extern const char S_AUTOAWAY[];
-extern const char SB_ON[];
-extern const char SB_OFF[];
-extern const char SB_NOTSET[];
-extern const char SB_SMART[];
-extern const char SB_MIN[];
 
 /* === Config variables (read-only from overlay) === */
 extern char     irc_nick[];

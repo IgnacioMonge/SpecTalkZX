@@ -537,14 +537,12 @@ dbc_render_bot:
     ld b, 3
     call dbc_left_core
     ld c, 0x0F
-    call dbc_mask_2sc
-    ret
+    jp dbc_mask_2sc
 dbc_rb_right:
     ld b, 3
     call dbc_right_core
     ld c, 0xF0
-    call dbc_mask_2sc
-    ret
+    jp dbc_mask_2sc
 
 ; =============================================================================
 ; IKKLE-4 FONT DATA (nibble-packed, 128 bytes ? uppercase only)
@@ -587,11 +585,8 @@ nc_clear_inner:
     djnz nc_clear_loop
     ld hl, NOTIF_ATTR
     ld a, (_theme_attrs + TA_MAIN_BG)
-    ld (hl), a
-    ld de, NOTIF_ATTR + 1
-    ld bc, 31
-    ldir
-    ret
+    ld bc, 32
+    jp _fast_fill_attr
 
 ; void notif_draw(uint8_t start_col, const char *str, uint8_t attr)
 ; Stack: [IX+4]=start_col, [IX+5,6]=str, [IX+7]=attr

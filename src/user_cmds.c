@@ -375,7 +375,10 @@ do_connect:
                     switch (code) {
                         case 1: // RPL_WELCOME
                             set_attr_priv(); main_print("Connected!");
-                            if (autojoin && nickserv_pass[0]) autojoin_defer_flags |= AUTOJOIN_IDENT_WAIT;
+                            if (autojoin && nickserv_pass[0]) {
+                                autojoin_defer_flags |= AUTOJOIN_IDENT_WAIT;
+                                autojoin_ident_grace = 0;
+                            }
                             connection_state = STATE_IRC_READY; loop_done = 1; rx_pos = 0; continue;
                         case 433: // Nick in use - try alternate
                             // OPT-P2-B: use shared helper
