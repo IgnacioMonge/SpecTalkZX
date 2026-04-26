@@ -4,17 +4,15 @@
 
 ; Compute screen row base: HL = screen address for char row A (0-23), scanline 0
 ; Formula: H = 0x40 | (y & 0x18), L = (y & 7) * 32
-; Input: A = row (0-23). Output: HL. Clobbers: B.
+; Input: A = row (0-23). Output: HL. Clobbers: AF.
 _compute_screen_base:
-    ld b, a             ; save y
+    ld h, a             ; save y
     and 0x07            ; y & 7
-    add a, a            ; *2
-    add a, a            ; *4
-    add a, a            ; *8
-    add a, a            ; *16
-    add a, a            ; *32
+    rrca                ; *32
+    rrca
+    rrca
     ld l, a             ; L = (y&7) * 32
-    ld a, b             ; restore y
+    ld a, h             ; restore y
     and 0x18            ; y & 0x18 (third select)
     or 0x40             ; | 0x40 (screen base high byte)
     ld h, a
@@ -406,8 +404,8 @@ p64_set_attr:
 
     ld a, (_g_ps64_col)
     srl a
-    ld c, a
-    add hl, bc
+    add a, l
+    ld l, a
 
     ; Escribir atributo solo si cambia (evita store redundante)
     ld a, (_g_ps64_attr)

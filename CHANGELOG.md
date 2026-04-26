@@ -1,25 +1,34 @@
 # SpecTalkZX — Changelog
 
-## [Unreleased] — 2026-04-24 (HEAD `dccb3fb`)
+## [v1.3.8] — Unreleased
 
-**Local build verificado con `make` el 2026-04-24.** Estado actual sobre `v1.3.7.1`.
+**Último build local verificado con `make` el 2026-04-26.** Todo lo posterior a `v1.3.7` forma parte de la futura `v1.3.8`; `v1.3.7` sigue siendo la última versión estable.
 Snapshots progresivos en `Development/dev-1.3.7.N/`.
 
 ### TAP size progression
-| Estado | TAP | Delta vs v1.3.7.1 |
+| Estado | TAP | Delta vs v1.3.7 |
 |---|---|---|
-| v1.3.7.1 (committed) | 35,719 | — |
-| + NiCK + cfg_apply + audit fixes | 35,861 | +142 |
-| + shrink round (dedup+data+copt+arch+OVL2) | 35,534 | −185 |
-| + ikkle footer PART/BPE fix (optimized) | 35,817 | +98 |
-| + `/quit` disconnect confirmation guard | 35,844 | +125 |
-| + overlay exit RX reset hardening | 35,844 | +125 |
-| + `ABOUT` keepalive fix | 35,861 | +142 |
-| + `/mode` wrapper | 36,025 | +306 |
-| + post-`/mode` shrink round | 36,006 | +287 |
-| + Search UX + split/shrink ASM + PM reply/notice + UART shrinks | 36,178 | +459 |
-| + 30_rendering audit (R01/R02) + shrink (M01-M05 + S01) | 36,136 | +417 |
-| + Printer Buffer scratch reloc + overlay exit fragment-discard fix | 36,144 | +425 |
+| v1.3.7 stable | 36,072 | — |
+| internal shrink checkpoint, formerly `v1.3.7.1` | 35,719 | −353 |
+| + NiCK + cfg_apply + audit fixes | 35,861 | −211 |
+| + shrink round (dedup+data+copt+arch+OVL2) | 35,534 | −538 |
+| + ikkle footer PART/BPE fix (optimized) | 35,817 | −255 |
+| + `/quit` disconnect confirmation guard | 35,844 | −228 |
+| + overlay exit RX reset hardening | 35,844 | −228 |
+| + `ABOUT` keepalive fix | 35,861 | −211 |
+| + `/mode` wrapper | 36,025 | −47 |
+| + post-`/mode` shrink round | 36,006 | −66 |
+| + Search UX + split/shrink ASM + PM reply/notice + UART shrinks | 36,178 | +106 |
+| + 30_rendering audit (R01/R02) + shrink (M01-M05 + S01) | 36,136 | +64 |
+| + Printer Buffer scratch reloc + overlay exit fragment-discard fix | 36,144 | +72 |
+| current local 1.3.8 worktree after ASM audit/shrink passes | 35,768 | −304 |
+
+### Current local build state
+
+- Resident trimmed: **35,688B**
+- TAP: **35,768B**
+- BSS slack before `ring_buffer`: **446B**
+- Overlays: **2019 / 2037 / 1853 / 2041B**
 
 ### Functional fixes
 
@@ -181,6 +190,15 @@ Total: **−327B** vs baseline post-audit (35,861 → 35,534)
 - Shrink seguro adicional en `20_rx_ring_uart.asm`, `40_text_numeric_screen.asm`, `50_main_output.asm` y `70_input_lookup.asm`: fuera preservaciones redundantes de `IX/IY`, tails fusionados en `_read_key()`, simplificación del overflow probe en `_try_read_line_nodrain()`, compresión de `64 - main_col` y `jr` local en `_cls_fast()`.
 - Estado actual medido: **36,178B TAP**, `__data_compiler_tail = $EAC2`, `__BSS_END_tail = $F4A9`, **87B** de slack antes del overlay slot.
 
+### Late 1.3.8 ASM audit/shrink rounds (2026-04-25..2026-04-26)
+
+- Se corrigió la conversión UTF-8 Latin-1 después de que los shrinks desplazaran `u8a_tbl_c0` cerca de un cruce de página: `Ñ/ñ` vuelven a mapear al glifo interno `127`, y las vocales acentuadas se normalizan de forma estable a ASCII.
+- Se corrigieron dos bugs reales en `40_text_numeric_screen.asm`: el test de dígitos IRC ya devuelve carry set para `0..9`, y `_fast_fill_attr()` devuelve `HL` apuntando al byte posterior al bloque rellenado.
+- Se aplicaron shrinks seguros en `30_rendering.asm`, `80_ui_runtime.asm`, `20_rx_ring_uart.asm`, `60_protocol_storage.asm`, `10_core_helpers.asm`, `70_input_lookup.asm`, `overlay_loader.asm` y `divmmc_uart.asm`, manteniendo los contratos de pila, `IX/IY`, `EXX`, ring buffer y layout VRAM.
+- El loader de overlays ya no recarga `_esx_count` en skips, compacta la limpieza RX post-carga y usa `pop bc` para retirar parámetros callee-clean.
+- La UART divMMC/ZX-Uno evita recargas de puerto redundantes alternando `B=$FC/$FD` y limpia `_is_recv` sin preservar el byte recibido en `E`.
+- Build local actual: **35,768B TAP**, **446B** libres antes de `ring_buffer`, overlays **2019/2037/1853/2041B**.
+
 ### Pending opportunities (rendimientos decrecientes)
 
 - `jp` → `jr` en `main_print_wrapped_ram` (~1–3B)
@@ -190,9 +208,9 @@ Total: **−327B** vs baseline post-audit (35,861 → 35,534)
 
 ---
 
-## [v1.3.7.1] — 2026-04-08 (committed `98321e1`)
+### Internal shrink checkpoint — 2026-04-08 (committed `98321e1`, formerly labelled `v1.3.7.1`)
 
-TAP: 35,719B (−353B vs v1.3.7). Shrink-only release, cero cambios funcionales.
+TAP: 35,719B (−353B vs v1.3.7). Shrink-only checkpoint, cero cambios funcionales. Se considera parte del desarrollo de `v1.3.8`, no una versión estable separada.
 
 - `overlay_exit_full` ASM helper — 4 overlay exit sequences colapsadas (~46B)
 - `switch_or_notify` C helper — 4 blocks deduplicados (~220B)

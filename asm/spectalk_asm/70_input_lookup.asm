@@ -130,8 +130,11 @@ u8a_c3:
     and 0x3F
     push hl             ; FIX-C2: guardar puntero de lectura del string
     ld hl, u8a_tbl_c0
-    add a, l            ; table low byte + 0x3F stays in page
+    add a, l            ; table may cross a page after nearby shrink/layout shifts
     ld l, a
+    jr nc, u8a_c3_no_carry
+    inc h
+u8a_c3_no_carry:
     ld a, (hl)
     pop hl              ; FIX-C2: restaurar puntero de lectura
     jr u8a_store            ; OPT: jp?jr (5 bytes)
@@ -335,11 +338,11 @@ _read_key:
     ld (_last_k), a
     ld (_repeat_timer), a
     ; if (debounce_zero) debounce_zero--
-    ld a, (_debounce_zero)
+    ld hl, _debounce_zero
+    ld a, (hl)
     or a
     jr z, rk_ret_zero
-    dec a
-    ld (_debounce_zero), a
+    dec (hl)
 rk_ret_zero:
     ld l, 0
     ret
@@ -350,11 +353,11 @@ rk_got_key:
     ; if (k == '0' && debounce_zero > 0) ? suppress
     cp '0'
     jr nz, rk_check_new
-    ld a, (_debounce_zero)
+    ld hl, _debounce_zero
+    ld a, (hl)
     or a
     jr z, rk_check_new
-    dec a
-    ld (_debounce_zero), a
+    dec (hl)
     jr rk_ret_zero
 
 rk_check_new:
@@ -430,11 +433,11 @@ rk_repeat:
 
 rk_rep_timer:
     ; if (repeat_timer > 0) { repeat_timer--; return 0; }
-    ld a, (_repeat_timer)
+    ld hl, _repeat_timer
+    ld a, (hl)
     or a
     jr z, rk_rep_fire
-    dec a
-    ld (_repeat_timer), a
+    dec (hl)
     jr rk_ret_zero
 
 rk_rep_fire:
@@ -510,9 +513,9 @@ np_no_dup:
     ld bc, NAV_HIST_SZ - 1
     ldir
     pop bc
-    ld hl, _nav_hist_ptr
-    dec (hl)                    ; ptr--
-    ld b, (hl)                  ; B = new ptr
+    ld a, c
+    ld (_nav_history + NAV_HIST_SZ - 1), a
+    ret
 
 np_append:
     ; history[ptr] = idx; ptr++

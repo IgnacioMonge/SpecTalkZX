@@ -91,9 +91,9 @@ _st_copy_n:
     
 stcn_loop:
     ld a, (hl)
+    ld (de), a      ; Copy NUL too; then we can return immediately
     or a
-    jr z, stcn_term ; Source ended
-    ld (de), a
+    ret z           ; Source ended, terminator already written
     inc hl
     inc de
     djnz stcn_loop
@@ -226,17 +226,16 @@ _esx_detect:
     defb 0x89             ; M_GETSETDRV
     ; If we get here, esxDOS is present (RST 8 was trapped by divMMC)
     pop hl                ; remove our handler from stack
-    pop hl                ; restore original ERR_SP
-    ld (23613), hl
-    pop iy
-    ld l, 1               ; return 1 (detected)
-    ret
+    ld a, 1               ; return 1 (detected)
+    jr esx_det_end
 esx_det_fail:
     ; ROM ERROR_1 jumped here via ERR_SP ? no esxDOS
+    xor a                 ; return 0 (not detected)
+esx_det_end:
     pop hl                ; restore original ERR_SP (was pushed before handler)
     ld (23613), hl
     pop iy
-    ld l, 0               ; return 0 (not detected)
+    ld l, a
     ret
 
 PUBLIC _esx_fopen

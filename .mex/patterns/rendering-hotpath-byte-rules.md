@@ -8,6 +8,7 @@ When touching `asm/spectalk_asm/30_rendering.asm`, prefer local byte wins that a
 - In `sdcc_iy` builds, do not wrap `___sdcc_enter_ix` with `push iy` / `pop iy` unless the routine or one of its callees really touches `IY`; dropping the save means the argument offsets shrink by 2.
 - When `phys_x` and `scanline` already form a packed 16-bit offset, load them as a pair and use a single `add hl,de` / `add hl,bc` instead of open-coding low-byte add plus carry repair.
 - When a screen/attr row base is already aligned to 32 bytes and the offset is proven `0..31` (`phys_x`, `col/2`, `start_byte`), do not materialize a 16-bit register pair just to add it; `add a,l / ld l,a` is shorter and safe because the low-byte add cannot carry into `H`.
+- For ZX bitmap row bases, `(y & 7) * 32` can be `and 7` plus three `rrca` instead of five `add a,a`; only use this after the mask has cleared all high bits, and save the original row in a register that is not otherwise live.
 - If a glyph routine already returns a source pointer in `HL`, consume that pointer directly; do not hardcode `glyph_buffer` again unless the caller really needs the fixed buffer address.
 - In `_print_line64_fast()`, when the left glyph has just been unpacked, save its returned `HL` pointer above the stacked screen address and only copy it to `plf_left_buf` if the right glyph is also real and will overwrite `glyph_buffer`. For right-blank/NUL/control/high-byte padding, pop that saved pointer straight into `IX` and use `blank_glyph` as the right source.
 - `_redraw_input_asm()` may render the fixed prompt byte directly because it always targets row 22 byte 0: bitmap base `0x50C0`, attr base `0x5AC0`, prompt glyph in the left nibble, blank right nibble, scanline 0 blank and seven glyph rows below. This shape is HW-OK; keep it out of generic 64-column render paths.
@@ -20,8 +21,10 @@ When touching `asm/spectalk_asm/30_rendering.asm`, prefer local byte wins that a
 - If all call sites already clamp a string to the target width, do not re-check the column limit inside the per-character loop; stop on NUL and keep the loop backedge short.
 - If a live screen pointer is still valid in `HL`, keep it there; do not round-trip it through `BC`/stack or save/restore it across a helper that already preserves `HL`.
 - If a loop reaches the next stage only via `djnz`, treat `B=0` as an established postcondition and do not immediately zero it again before `add hl,bc` / `ldir`.
+- If a low-byte offset is also needed later as a count, do not replace `ld c,a / add hl,bc` blindly. `_print_line64_fast()`'s final attr fill keeps `C=start_byte` live for `31 - start_byte`, so `add a,l / ld l,a` there is not a net win without a separate count-preserving shape.
 - If a notification/footer row is explicitly cleared before drawing and text advances left-to-right, an even column is the first nibble written in its byte; write it directly instead of read-modify-write preserving an empty partner nibble.
 - A local manual fill of exactly 32 bytes can be tail-called or called through `_fast_fill_attr` when `A=value`, `HL=start`, `BC=32`, and the caller does not need to preserve `A` for loop state. This is valid for `_notif_clear` attributes, `_main_hline` pixel/attr rows, and `_scroll_main_zone` row-19 attrs.
+- `_fast_fill_attr` must return `HL` pointing just past the filled range. Its body writes the first byte manually and then uses `LDIR` for `count-1`, so `DE` is the true past-end pointer after `LDIR`; keep the final `ex de,hl` if callers reuse `HL` for a contiguous next row.
 - Do not rewrite `cli_internal`'s attribute fill through `_fast_fill_attr` unless `A=line` is restored before return. `clear_zone()` depends on `A` surviving `cli_internal` so it can `inc a` for the next row; loading `A=C` for the fill breaks that loop.
 - `call helper / ret` may become `jp helper` only when the helper's `ret` should return to the original caller and no cleanup remains. This is valid for `dbc_render_bot -> dbc_mask_2sc` and `_main_clear_indent6 -> p64_get_scr_base`.
 
@@ -40,3 +43,4 @@ When touching `asm/spectalk_asm/30_rendering.asm`, prefer local byte wins that a
 - `asm/spectalk_asm/30_rendering.asm` `_notif_draw()`
 - `asm/spectalk_asm/30_rendering.asm` `_print_line64_fast()`
 - `asm/spectalk_asm/30_rendering.asm` `p64_set_attr()`
+- `asm/spectalk_asm/40_text_numeric_screen.asm` `_fast_fill_attr()`

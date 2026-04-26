@@ -607,15 +607,13 @@ ea_fail:
 ; void fast_u8_to_str(char *buf, uint8_t val) __z88dk_callee
 ; Writes 2 ASCII digits (tens, units) to buf. No null terminator.
 u8_div10:
-    ld a, '0'
+    ld b, '0'
 u8_div10_loop:
-    ld b, a             ; B = tens char
     ld a, c
     sub 10
     ret c               ; C remains remainder
     ld c, a
-    ld a, b
-    inc a
+    inc b
     jr u8_div10_loop
 
 _fast_u8_to_str:

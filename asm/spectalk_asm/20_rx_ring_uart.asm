@@ -160,9 +160,6 @@ trln_loop:
     ld (_rx_pos), hl
     jr trln_loop
 
-trln_overflow_pop:
-    pop hl              ; Limpiar stack
-
 trln_overflow_state:
     ; Marcar flag de overflow (ahora es uint8_t)
     ld a, 1
@@ -179,13 +176,13 @@ trln_newline:
     ld (hl), 0          
     
     ; Check if line had overflow (ahora es uint8_t)
-    ld a, (_rx_overflow)
+    ld hl, _rx_overflow
+    ld a, (hl)
     or a
     jr z, trln_check_valid
     
     ; If overflow, DISCARD line completa y resetear
-    xor a
-    ld (_rx_overflow), a
+    ld (hl), 0
     call _rx_pos_reset
     jr trln_loop        ; Look for next line
 
@@ -198,7 +195,6 @@ trln_check_valid:
     
     ; ?xito: Reset rx_pos y retornar 1
     ; Guardar longitud de la l?nea (rx_pos) para evitar strlen() en C
-    ld hl, (_rx_pos)
     ld (_rx_last_len), hl
 
     call _rx_pos_reset

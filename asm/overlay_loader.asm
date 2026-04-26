@@ -51,9 +51,6 @@ _overlay_exec:
 ovl_skip:
     push af
     call _esx_fread     ; read 2048B (skip — overwrites ring_buffer, will be overwritten again)
-    ; Reset count for next read (esx_fread may modify esx_count)
-    ld hl, 2048
-    ld (_esx_count), hl
     pop af
     dec a
     jr nz, ovl_skip
@@ -104,35 +101,28 @@ ovl_read_ok:
 
     ; The overlay has overwritten ring_buffer. Drop any pre-load UART bytes
     ; that were in the ring, and mark overflow if that discarded a fragment.
-    ld a, (_rx_overflow)
-    ld b, a
     ld hl, (_rb_head)
     ld de, (_rb_tail)
+    ld (_rb_tail), hl
     or a
     sbc hl, de
-    jr z, ovl_no_ring_discard
-    ld b, 1
-ovl_no_ring_discard:
-    ld hl, (_rb_head)
-    ld (_rb_tail), hl
-    ld hl, (_rx_pos)
-    ld a, h
-    or l
-    or b
-    jr z, ovl_rx_clean
+    ld a, (_rx_overflow)
+    jr z, ovl_check_rx_pos
     ld a, 1
-    jr ovl_set_rx_overflow
-ovl_rx_clean:
-    xor a
-ovl_set_rx_overflow:
+ovl_check_rx_pos:
+    ld hl, (_rx_pos)
+    or h
+    or l
+    jr z, ovl_write_rx_overflow
+    ld a, 1
+ovl_write_rx_overflow:
     ld (_rx_overflow), a
 
     ; Callee cleanup: restore IX, remove params, jump to overlay
     pop hl              ; HL = entry address
     pop ix              ; restore IX
     pop de              ; DE = ret addr (caller's return)
-    inc sp
-    inc sp              ; remove 2 bytes of params (callee cleanup)
+    pop bc              ; remove 2 bytes of params (callee cleanup)
     push de             ; push caller's return address back
     jp (hl)             ; jump to overlay — its ret goes back to caller
 
@@ -143,8 +133,7 @@ ovl_bad_entry:
 ovl_fail:
     pop ix
     pop de              ; ret addr
-    inc sp
-    inc sp
+    pop bc              ; remove 2 bytes of params (callee cleanup)
     push de
     call _overlay_exit_full
     ld hl, ovl_err_msg
@@ -178,8 +167,7 @@ _overlay_call:
     ; CF=0 guaranteed (jr c not taken, ld de preserves flags)
     sbc     hl, de
     jr      nc, ovl_call_bad
-    pop     de
-    ex      de, hl
+    pop     hl
     jp      (hl)             ; jump — overlay's ret returns to caller
 
 ovl_call_bad:

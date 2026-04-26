@@ -58,12 +58,9 @@ uartRead_do_read:
     
     in a, (c)
 
-    ; Clear flags & Return data
-    ; Preserve the byte in E while resetting the latched RX-ready flag.
-    ld e, a         ; Guardar dato en E
-    xor a
-    ld (_is_recv), a
-    ld a, e         ; Restaurar dato a A
+    ; Clear latch without touching A; return the received byte.
+    ld hl, _is_recv
+    ld (hl), 0
     scf             ; CF=1 (Data)
     ret
 
@@ -84,7 +81,7 @@ _ay_uart_init:
     
     in a, (c)
 
-    ld bc, ZXUNO_ADDR
+    dec b
     ld a, UART_DATA_REG
     out (c), a
     
@@ -133,7 +130,6 @@ _ay_uart_send:
     ld (_is_recv), a
 
 uartSend_checkSent:
-    ld bc, ZXUNO_REG
     ; NOTE-M13: loop sin timeout. A 115200 baud tarda ~7 iteraciones (~300 T-states).
     ; Un hang permanente aquí solo ocurriría por fallo físico del hardware UART.
 uartSend_wait_tx:

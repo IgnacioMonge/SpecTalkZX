@@ -404,7 +404,6 @@ strip_is_digit:
     cp '0'
     jr c, sid_false         ; < '0' -> no es d?gito
     cp '9' + 1
-    ccf                     ; > '9' -> carry clear, else carry set
     ret
 sid_false:
     or a                    ; clear carry
@@ -442,13 +441,13 @@ _reapply_screen_attributes:
     out (0xFE), a
 
     ; 2. Banner row 0 (0x5800 - 32 bytes) BRIGHT 1
-    ; P2: HL reuse ? after LDIR, HL points to next byte (0x5820)
+    ; P2: HL reuse: helper returns next byte (0x5820)
     ld a, (_theme_attrs + TA_BANNER)
     or 0x40
     ld hl, 0x5800
     ld bc, 32
     call _fast_fill_attr
-    ; 3. Banner row 1 ? HL already at 0x5820 after LDIR
+    ; 3. Banner row 1: HL already at 0x5820 after helper
     ld a, (_theme_attrs + TA_BANNER)
     and 0xBF
     ld bc, 32
@@ -484,7 +483,7 @@ _reapply_screen_attributes:
 ; Rutina auxiliar: _fast_fill_attr
 ; Rellena BC bytes en (HL) con el valor A.
 ; P3: Simplified ? all callers pass BC >= 32, so BC==0 checks are dead code.
-; After LDIR: HL = start + BC (points past last byte written).
+; Returns: HL = byte after the filled range.
 ; -----------------------------------------------------------------------------
 _fast_fill_attr:
     ld (hl), a              ; Write first byte
@@ -493,6 +492,7 @@ _fast_fill_attr:
     inc de                  ; DE = HL+1
     dec bc                  ; BC = count-1
     ldir
+    ex de, hl               ; HL = byte after the filled range
     ret
 
 
@@ -585,9 +585,8 @@ drain_set_limit:
 drain_loop_start:
     ; 2. ?Hay datos disponibles?
     call _ay_uart_ready     ; Retorna L=1 (S?) o 0 (No)
-    ld a, l
-    or a
-    jr z, drain_exit        ; Si L=0, no hay m?s datos -> Salir
+    dec l
+    jr nz, drain_exit       ; L was 0: no hay m?s datos -> Salir
 
     ; 3. Leer byte
     call _ay_uart_read      ; Retorna byte en L
