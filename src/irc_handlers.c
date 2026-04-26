@@ -40,6 +40,7 @@ static uint8_t names_friend_pos;
 // Forward decl (used by selective numeric handlers)
 static void h_numeric_default(void);
 static void session_autoidentify_done(void);
+extern uint8_t names_render_grid(char *p) __z88dk_fastcall;
 // INTERNAL HELPERS
 // =============================================================================
 
@@ -867,8 +868,7 @@ static void h_numeric_353(void)
 
     // Render /names
     if (show_names_list) {
-        set_attr_nick();
-        main_print_wrapped_ram(pkt_txt);
+        if (names_render_grid(pkt_txt)) return;
 
         if (pagination_inc()) return;
         pagination_timeout = 0;
@@ -906,10 +906,11 @@ static void h_numeric_366(void)
     const char *msg_chan = irc_param(1);
     const char *target = names_target_channel[0] ? names_target_channel : irc_channel;
 
-    if (target[0] && st_stricmp(msg_chan, target) == 0) {
-        names_pending = 0; names_timeout_frames = 0;
-        names_target_channel[0] = '\0';
-    }
+    if (!target[0]) return;
+    if (st_stricmp(msg_chan, target) != 0) return;
+
+    names_pending = 0; names_timeout_frames = 0;
+    names_target_channel[0] = '\0';
     
     // Commit user count to status bar:
     // - JOIN automático (names_was_manual=0): siempre actualizar
@@ -940,6 +941,8 @@ static void h_numeric_366(void)
         cursor_visible = 1;
         redraw_input_full();
     }
+
+    if (names_was_manual) flush_all_rx_buffers();
     
     show_names_list = 0;
     names_was_manual = 0;  // Reset flag
@@ -1460,6 +1463,14 @@ void parse_irc_message(char *line) __z88dk_fastcall
         }
         
         last_cmd_id = cmd_id;  // OPT L7: guardar para handlers
+
+        // Manual /names owns the main area. Keep the normal pagination/cancel
+        // path, but do not let interleaved channel traffic render into it.
+        if (show_names_list &&
+            cmd_id != 353 && cmd_id != 366 &&
+            cmd_id != 0x5049 && cmd_id != 0x504F) {
+            return;
+        }
 
         {
             const CmdEntry *n = CMD_TABLE;

@@ -2658,6 +2658,10 @@ void main(void)
                 }
                 if (names_pending) {
                     if (++names_timeout_frames >= NAMES_TIMEOUT_FRAMES) {
+                        if (names_was_manual) {
+                            search_data_lost = 1;
+                            flush_all_rx_buffers();
+                        }
                         names_pending = 0;
                         names_timeout_frames = 0;
                         names_target_channel[0] = '\0';

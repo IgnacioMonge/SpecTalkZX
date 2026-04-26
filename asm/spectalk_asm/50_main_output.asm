@@ -399,6 +399,107 @@ mpwr_finalize:
 
 mpwr_abort:
     ret
+
+; -----------------------------------------------------------------------------
+; uint8_t names_render_grid(char *p) __z88dk_fastcall
+; Render manual /names as 4 fixed 16-column cells per row using temp_input.
+; Keeps prefixes (@/+) and truncates long nicks with '>'.
+; Returns L=1 if pagination BREAK cancelled, else L=0.
+; -----------------------------------------------------------------------------
+PUBLIC _names_render_grid
+_names_render_grid:
+    ; cmd_names()/pagination_pause() always leave the manual list at column 0.
+    ld de, _temp_input
+    ld c, 0                         ; cells used in current row
+
+nrg_skip_spaces:
+    ld a, (hl)
+    or a
+    jr z, nrg_end
+    cp ' '
+    jr nz, nrg_token
+    inc hl
+    jr nrg_skip_spaces
+
+nrg_token:
+    ld b, 15                        ; max visible chars per 16-col cell
+nrg_copy:
+    ld a, (hl)
+    cp 33
+    jr c, nrg_fill_tail
+    ld (de), a
+    inc de
+    inc hl
+    djnz nrg_copy
+
+    ; Token continues past 15 chars: mark truncation and consume the rest.
+    ld a, (hl)
+    cp 33
+    jr c, nrg_fill_tail
+    dec de
+    ld a, '>'
+    ld (de), a
+    inc de
+nrg_consume_long:
+    ld a, (hl)
+    cp 33
+    jr c, nrg_fill_tail
+    inc hl
+    jr nrg_consume_long
+
+nrg_fill_tail:
+    inc b                           ; remaining chars plus cell separator
+    ld a, ' '
+nrg_fill_loop:
+    ld (de), a
+    inc de
+    djnz nrg_fill_loop
+
+    inc c
+    bit 2, c
+    jr z, nrg_skip_spaces
+
+    call nrg_flush
+    jr z, nrg_cancel
+    ld de, _temp_input
+    ld c, 0
+    jr nrg_skip_spaces
+
+nrg_end:
+    ld a, c
+    or a
+    jr z, nrg_ok
+    ld b, 15                        ; pad one empty cell via nrg_fill_tail
+
+    jr nrg_fill_tail
+nrg_ok:
+    ld l, c                          ; C is zero on all successful exits
+    ret
+nrg_cancel:
+    ld l, 1
+    ret
+
+nrg_flush:
+    push hl
+
+    ld a, (_theme_attrs + 11)        ; ATTR_MSG_NICK
+    ld b, a
+    ld c, 0x5D                       ; high(_temp_input)
+    push bc                         ; [str_hi][attr]
+    ld a, (_main_line)
+    ld c, a
+    ld b, 0x36                       ; low(_temp_input)
+    push bc                         ; [y][str_lo]
+    call _print_line64_fast
+    pop bc
+    pop bc
+
+    call _main_newline
+    ld a, (_main_col)
+    cp 64                           ; Z means pagination BREAK cancelled
+
+    pop hl
+    ret
     
 ; -----------------------------------------------------------------------------
 ; void main_puts(const char *s) __z88dk_fastcall

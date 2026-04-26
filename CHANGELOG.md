@@ -21,13 +21,13 @@ Snapshots progresivos en `Development/dev-1.3.7.N/`.
 | + Search UX + split/shrink ASM + PM reply/notice + UART shrinks | 36,178 | +106 |
 | + 30_rendering audit (R01/R02) + shrink (M01-M05 + S01) | 36,136 | +64 |
 | + Printer Buffer scratch reloc + overlay exit fragment-discard fix | 36,144 | +72 |
-| current local 1.3.8 worktree after ASM/C audit passes | 35,736 | −336 |
+| current local 1.3.8 worktree after ASM/C audit passes | 35,928 | −144 |
 
 ### Current local build state
 
-- Resident trimmed: **35,656B**
-- TAP: **35,736B**
-- BSS slack before `ring_buffer`: **478B**
+- Resident trimmed: **35,848B**
+- TAP: **35,928B**
+- BSS slack before `ring_buffer`: **286B**
 - Overlays: **2019 / 2037 / 1982 / 2041B**
 
 ### Functional fixes
@@ -199,7 +199,10 @@ Total: **−327B** vs baseline post-audit (35,861 → 35,534)
 - La UART divMMC/ZX-Uno evita recargas de puerto redundantes alternando `B=$FC/$FD` y limpia `_is_recv` sin preservar el byte recibido en `E`.
 - El CRT zero-fill protege también el caso `BSS size == 1`, evitando un `LDIR` con `BC=0`; `_esx_fread()` carga el buffer directamente en `IX`.
 - La auditoría C posterior endurece `wait_for_prompt_char()` para terminar `rx_line` también en la salida de éxito y reduce el parser `/0-9` con una comprobación `uint8_t` de rango.
-- Build local actual: **35,736B TAP**, **478B** libres antes de `ring_buffer`, overlays **2019/2037/1982/2041B**.
+- `/names` manual filtra en el dispatcher todo lo que no sea `353/366` o `PING/PONG`, manteniendo la paginación, BREAK para cancelar y el resumen incompleto si hubo descarte por presión de buffer.
+- La lista manual de nombres ahora se pinta en una cuadrícula ASM de 4 columnas, con celdas fijas de 16 caracteres y truncado visible (`>`), en vez de renderizar el payload IRC crudo con word-wrap.
+- El cierre de `/names` purga backlog RX antiguo y solo acepta `366` del canal objetivo, evitando que tráfico de canal acumulado durante `MORE` se pinte debajo de una lista incompleta.
+- Build local actual: **35,928B TAP**, **286B** libres antes de `ring_buffer`, overlays **2019/2037/1982/2041B**.
 
 ### Pending opportunities (rendimientos decrecientes)
 
