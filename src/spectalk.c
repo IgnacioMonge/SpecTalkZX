@@ -1731,7 +1731,7 @@ uint8_t wait_for_prompt_char(uint8_t prompt_ch, uint16_t max_frames) __z88dk_cal
         uart_drain_to_buffer();
 
         while ((c = rb_pop()) != -1) {
-            if ((uint8_t)c == prompt_ch) return 1;
+            if ((uint8_t)c == prompt_ch) { rx_line[wp] = '\0'; return 1; }
             if (wp < 254) rx_line[wp++] = (uint8_t)c;
         }
 

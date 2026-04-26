@@ -1522,7 +1522,7 @@ void parse_user_input(char *line) __z88dk_fastcall
 
     {
         uint8_t c0 = cmd_str[0];
-    if (c0 >= '0' && c0 <= '9' && cmd_str[1] == 0) {
+    if ((uint8_t)(c0 - '0') <= 9 && cmd_str[1] == 0) {
         uint8_t idx = c0 - '0';
 
         if (idx < MAX_CHANNELS && (channels[idx].flags & CH_FLAG_ACTIVE)) {

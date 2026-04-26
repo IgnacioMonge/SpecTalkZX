@@ -299,9 +299,7 @@ _esx_fread:
     push iy
     push ix
     ld a, (_esx_handle)
-    ld hl, (_esx_buf)
-    push hl
-    pop ix              ; esxDOS F_READ needs buffer destination in IX
+    ld ix, (_esx_buf)   ; esxDOS F_READ needs buffer destination in IX
     ld bc, (_esx_count)
     rst 8
     defb 0x9D           ; F_READ

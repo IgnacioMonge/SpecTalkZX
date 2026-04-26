@@ -13,7 +13,7 @@ For each new version: update the 3 files in release/, run make.
 import sys
 from pathlib import Path
 
-def convert_logo(png_path, max_w=80, max_h=88, threshold=40):
+def convert_logo(png_path, max_w=96, max_h=88, threshold=40):
     """Convert PNG to monochrome ZX bitmap. Returns (bytes, width_bytes, height)."""
     from PIL import Image
     img = Image.open(png_path).convert('L')

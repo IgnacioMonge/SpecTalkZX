@@ -36,10 +36,13 @@ EXTERN _current_channel_idx
     jr z, bss_zero_skip ; W10: skip if BSS size = 0
     ex de, hl           ; HL = start address (1 byte vs 2)
     ld (hl), 0
+    dec bc              ; BC = size - 1
+    ld a, b
+    or c
+    jr z, bss_zero_skip ; skip LDIR if BSS size = 1
     ld d, h
     ld e, l
     inc de              ; DE = start + 1
-    dec bc              ; BC = size - 1
     ldir
 bss_zero_skip:
     ; OPT-SHRINK: zero_fill_256 subroutine saves 5B for 2 identical fills

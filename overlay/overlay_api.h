@@ -143,7 +143,7 @@ extern const char K_NOTIF[];
 #define TATTR_MSG_TOPIC 13
 
 /* ===== Version (single source of truth: spectalk.h) ===== */
-#define VERSION "1.3.7"
+#define VERSION "1.3.8"
 
 /* ===== Layout constants ===== */
 #define LINES_PER_PAGE  12

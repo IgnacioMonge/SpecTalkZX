@@ -21,14 +21,14 @@ Snapshots progresivos en `Development/dev-1.3.7.N/`.
 | + Search UX + split/shrink ASM + PM reply/notice + UART shrinks | 36,178 | +106 |
 | + 30_rendering audit (R01/R02) + shrink (M01-M05 + S01) | 36,136 | +64 |
 | + Printer Buffer scratch reloc + overlay exit fragment-discard fix | 36,144 | +72 |
-| current local 1.3.8 worktree after ASM audit/shrink passes | 35,768 | −304 |
+| current local 1.3.8 worktree after ASM/C audit passes | 35,736 | −336 |
 
 ### Current local build state
 
-- Resident trimmed: **35,688B**
-- TAP: **35,768B**
-- BSS slack before `ring_buffer`: **446B**
-- Overlays: **2019 / 2037 / 1853 / 2041B**
+- Resident trimmed: **35,656B**
+- TAP: **35,736B**
+- BSS slack before `ring_buffer`: **478B**
+- Overlays: **2019 / 2037 / 1982 / 2041B**
 
 ### Functional fixes
 
@@ -197,7 +197,9 @@ Total: **−327B** vs baseline post-audit (35,861 → 35,534)
 - Se aplicaron shrinks seguros en `30_rendering.asm`, `80_ui_runtime.asm`, `20_rx_ring_uart.asm`, `60_protocol_storage.asm`, `10_core_helpers.asm`, `70_input_lookup.asm`, `overlay_loader.asm` y `divmmc_uart.asm`, manteniendo los contratos de pila, `IX/IY`, `EXX`, ring buffer y layout VRAM.
 - El loader de overlays ya no recarga `_esx_count` en skips, compacta la limpieza RX post-carga y usa `pop bc` para retirar parámetros callee-clean.
 - La UART divMMC/ZX-Uno evita recargas de puerto redundantes alternando `B=$FC/$FD` y limpia `_is_recv` sin preservar el byte recibido en `E`.
-- Build local actual: **35,768B TAP**, **446B** libres antes de `ring_buffer`, overlays **2019/2037/1853/2041B**.
+- El CRT zero-fill protege también el caso `BSS size == 1`, evitando un `LDIR` con `BC=0`; `_esx_fread()` carga el buffer directamente en `IX`.
+- La auditoría C posterior endurece `wait_for_prompt_char()` para terminar `rx_line` también en la salida de éxito y reduce el parser `/0-9` con una comprobación `uint8_t` de rango.
+- Build local actual: **35,736B TAP**, **478B** libres antes de `ring_buffer`, overlays **2019/2037/1982/2041B**.
 
 ### Pending opportunities (rendimientos decrecientes)
 

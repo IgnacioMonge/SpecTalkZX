@@ -1,11 +1,11 @@
 IRC session bookmarks
-Nick coloring (per-nick hash)
-Smart notifications (configurable)
-Word navigation (SS+arrows)
-Config save detection
-Overlay system (C compiled)
-Prompt @/> (query/channel)
-Ikkle-4 mini font
-Better esxDOS file management
-Code optimizations (-2KB)
-What's New screen
+Saved channels autojoin
+Safer NickServ identify gate
+/mode, /reply and /notice
+Safer /quit and /connect
+ABOUT keepalive fixed
+Spanish UTF-8 fixed
+Config save bounds checks
+Faster render and UART paths
+ASM audit shrink pass
+And much much more!
