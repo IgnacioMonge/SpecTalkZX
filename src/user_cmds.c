@@ -28,7 +28,7 @@ extern const char S_OFF[];
 extern const char S_DEFAULT_PORT[];
 extern uint8_t autoconnect;
 
-// Config key strings (dedup: used in both sys_config display and cmd_save)
+// Config key strings exported to overlays through overlay_defs.
 static const char K_NICK[]     = "nick=";
 static const char K_SERVER[]   = "server=";
 static const char K_PORT[]     = "port=";
@@ -42,17 +42,58 @@ static const char K_NCOLOR[]   = "nickcolor=";
 static const char K_TRAFFIC[]  = "traffic=";
 static const char K_TS[]       = "timestamps=";
 static const char K_TOPIC[]    = "TOPIC";
-static const char K_JOIN_CMD[] = "JOIN";
 static const char K_MODE_SP[]  = "MODE ";
 static const char K_CFG_PRI[]  = "/SYS/CONFIG/SPECTALK.CFG";
 static const char K_CFG_ALT[]  = "/SYS/SPECTALK.CFG";
 static const char K_TZ[]       = "tz=";
 static const char K_NOTIF[]    = "notif=";
 
-static void cut_at_space(char *p) __z88dk_fastcall
+static void cut_at_space(char *p) __z88dk_fastcall ST_NAKED
 {
-    char *sp = strchr(p, ' ');
-    if (sp) *sp = 0;
+    (void)p;
+    __asm
+cut_at_space_loop:
+    ld a,(hl)
+    or a
+    ret z
+    cp 32
+    jr z,cut_at_space_found
+    inc hl
+    jr cut_at_space_loop
+cut_at_space_found:
+    ld (hl),0
+    ret
+    __endasm;
+}
+
+static char *split_at_space(char *p) __z88dk_fastcall ST_NAKED
+{
+    (void)p;
+    __asm
+split_at_space_scan:
+    ld a,(hl)
+    or a
+    jr z,split_at_space_none
+    cp 32
+    jr z,split_at_space_found
+    inc hl
+    jr split_at_space_scan
+split_at_space_found:
+    ld (hl),0
+    inc hl
+    ld a,(hl)
+    or a
+    jr z,split_at_space_none
+split_at_space_skip:
+    ld a,(hl)
+    cp 32
+    ret nz
+    inc hl
+    jr split_at_space_skip
+split_at_space_none:
+    ld hl,0
+    ret
+    __endasm;
 }
 
 static uint8_t confirm_disconnect(void)
@@ -564,7 +605,7 @@ static void cmd_join(const char *args) __z88dk_fastcall
 
     if (find_empty_channel_slot() == -1) { ui_err(S_MAXWIN); main_print("Use /close or /part first."); return; }
 
-    irc_send_cmd1(K_JOIN_CMD, lookup);
+    irc_send_cmd1(S_JOIN_CMD, lookup);
     notify2("Joining ", lookup, ATTR_MSG_JOIN);
 }
 
@@ -581,12 +622,7 @@ static void cmd_part(const char *args) __z88dk_fastcall
     if (input && *input) {
         if (*input == '#' || *input == '&') {
             chan_name = input;
-            char *sp = strchr(input, ' ');
-            if (sp) {
-                *sp = '\0';
-                reason = sp + 1;
-                reason = skip_spaces(reason);
-            }
+            reason = split_at_space(input);
             idx = find_channel(chan_name);
         } else {
             reason = input;
@@ -627,13 +663,8 @@ static void cmd_msg(const char *args) __z88dk_fastcall
 
     char *target = p;
 
-    // OPT: strchr() en vez de bucle manual
-    char *space = strchr(p, ' ');
-    if (!space || !space[1]) { ui_usage(S_USAGE_MSG); return; }
-
-    *space = '\0';
-    char *msg = space + 1;
-    msg = skip_spaces(msg);
+    char *msg = split_at_space(p);
+    if (!msg) { ui_usage(S_USAGE_MSG); return; }
 
     if (target[0] != '#') {
         int8_t idx = add_query(target);
@@ -656,18 +687,14 @@ static void cmd_notice(const char *args) __z88dk_fastcall
 {
     char *p = (char *)args;
     char *target;
-    char *space;
     char *msg;
 
     if (!check_status(LVL_IRC)) return;
-    if (!ensure_args(p, "notice nick message")) return;
+    if (!ensure_args(p, S_USAGE_NOTICE)) return;
 
     target = p;
-    space = strchr(p, ' ');
-    if (!space || !space[1]) { ui_usage("notice nick message"); return; }
-
-    *space = '\0';
-    msg = skip_spaces(space + 1);
+    msg = split_at_space(p);
+    if (!msg) { ui_usage(S_USAGE_NOTICE); return; }
 
     autoaway_counter = 0;
     if (autoaway_active) {
@@ -1054,13 +1081,8 @@ static void cmd_kick(const char *args) __z88dk_fastcall
 
     nick = (char *)args;
 
-    reason = strchr(nick, ' ');
-    if (reason) {
-        *reason = '\0';
-        reason++;
-        reason = skip_spaces(reason);
-        if (!*reason) reason = NULL;   // evita tratar "" como razón
-    }
+    reason = split_at_space(nick);
+    if (reason && !*reason) reason = NULL;   // evita tratar "" como razón
 
     uart_send_string("KICK ");
     uart_send_string(irc_channel);
@@ -1131,7 +1153,7 @@ static void sys_init(const char *args) __z88dk_fastcall
     main_puts("Re-initializing ESP... ");
     
     flush_all_rx_buffers(); 
-    uart_send_line("AT");  // OPT M7
+    uart_send_line(S_AT_CMD);  // OPT M7
     
     if (wait_for_response(S_OK, 25)) {
         uart_send_line(S_AT_CIPCLOSE);
@@ -1346,7 +1368,7 @@ static void cmd_close_wrapper(const char *a) __z88dk_fastcall {
         return;
     }
     if (f & CH_FLAG_QUERY) {
-        notify2("Closed ", irc_channel, ATTR_MSG_SYS);
+        notify2(S_CLOSED_SP, irc_channel, ATTR_MSG_SYS);
         remove_channel(current_channel_idx);
     } else {
         cmd_part("");
@@ -1445,14 +1467,24 @@ static const PackedCmd USER_COMMANDS[] = {
 
 #define USER_COMMANDS_COUNT ((uint8_t)(sizeof(USER_COMMANDS) / sizeof(USER_COMMANDS[0])))
 
-static const char *pool_nth(uint8_t idx) __z88dk_fastcall
+static const char *pool_nth(uint8_t idx) __z88dk_fastcall ST_NAKED
 {
-    const char *p = cmd_pool;
-
-    while (idx--) {
-        while (*p++) {}
-    }
-    return p;
+    (void)idx;
+    __asm
+    ld a,l
+    ld hl,_cmd_pool
+    or a
+    ret z
+    ld c,a
+    xor a
+pool_nth_scan:
+    cp (hl)
+    inc hl
+    jr nz,pool_nth_scan
+    dec c
+    jr nz,pool_nth_scan
+    ret
+    __endasm;
 }
 
 const char K_DAT[] = "SPECTALK.DAT";

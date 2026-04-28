@@ -105,6 +105,8 @@ const char S_JOINED_SP[] = " joined ";            // D10: dedup (2 uses)
 const char S_AWAY_CMD[] = "AWAY";                 // D10: dedup (2 uses)
 const char S_NICK_CMD[] = "NICK";                 // D10: dedup (2 uses)
 const char S_SMART[] = "smart";                   // D10: dedup (2 uses)
+const char S_AT_CMD[] = "AT";
+const char S_JOIN_CMD[] = "JOIN";
 // S_NO_ESXDOS removed — esxDOS is now required (fatal halt at startup)
 const char S_PART_CMD[] = "PART";                    // D19: dedup (2 uses, UART - no BPE)
 const char S_TCP[] = "TCP";                          // D19: dedup (2 uses, UART - no BPE)
@@ -114,6 +116,12 @@ const char S_SWITCHED[] = "Switched to ";         // S1: dedup (4 uses)
 const char S_ALREADY[] = "Already in ";           // S2: dedup (4 uses)
 const char S_YOU_LEFT[] = "You have left ";       // S3: dedup (3 uses)
 const char S_MODE_SP_SCR[] = "Mode ";             // screen-side (2 uses in irc_handlers)
+const char S_IN_SP[] = " in ";
+const char S_QUIT_SUFFIX[] = " quit";
+const char S_SP_LBRACKET[] = " [";
+const char S_CHANNEL_WORD[] = "channel";
+const char S_CLOSED_SP[] = "Closed ";
+const char S_USAGE_NOTICE[] = "notice nick message";
 
 // =============================================================================
 // THEME SYSTEM - Global attributes set by apply_theme()
@@ -741,7 +749,7 @@ static void switcher_part(uint8_t idx) __z88dk_fastcall
     uint8_t f = channels[idx].flags;
     if (f & CH_FLAG_ACTIVE) {
         if (f & CH_FLAG_QUERY) {
-            notify2("Closed ", channels[idx].name, ATTR_MSG_SYS);
+            notify2(S_CLOSED_SP, channels[idx].name, ATTR_MSG_SYS);
         } else {
             irc_send_cmd1(S_PART_CMD, channels[idx].name);
             notif_cancel_current();
@@ -1788,7 +1796,7 @@ uint8_t esp_init(void)
     esp_hard_cmd(S_AT_CIPMUX0);
     
     // 3. Test final AT - OPT M7
-    uart_send_line("AT");
+    uart_send_line(S_AT_CMD);
     
     rx_pos = 0;
     

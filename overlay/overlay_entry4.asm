@@ -6,6 +6,8 @@ EXTERN _overlay_slot
 PUBLIC _cfg_put
 PUBLIC _cfg_kv
 PUBLIC _cfg_put_autojoin
+PUBLIC _cfg_put_friends
+PUBLIC _cfg_put_ignores
     dw 2                      ; entry_count = 2
     dw _status_render_ovl     ; entry 0 → status
     dw _save_config_ovl       ; entry 1 → config save
@@ -85,6 +87,9 @@ ovl4_ckv_crlf:
 EXTERN _channels
 EXTERN _search_pattern
 EXTERN _autojoin_channels
+EXTERN _friend_nicks
+EXTERN _ignore_list
+EXTERN _ignore_count
 _cfg_put_autojoin:
     ld (ovl4_cpa_dest), hl
     xor a
@@ -187,6 +192,84 @@ ovl4_cpa_put_loop:
 ovl4_cpa_put_done:
     ret
 
+; char *cfg_put_friends(char *p) __z88dk_fastcall
+_cfg_put_friends:
+    ld (ovl4_cpa_dest), hl
+    xor a
+    ld (ovl4_cpa_any), a
+    ld hl, _friend_nicks
+    ld b, 5
+ovl4_cpf_loop:
+    ld a, (hl)
+    or a
+    jr z, ovl4_cpf_next
+    push bc
+    push hl
+    ld de, ovl4_ck_friends
+    call ovl4_csv_prefix
+    pop hl
+    push hl
+    ld d, h
+    ld e, l
+    call ovl4_cpa_put_de
+    pop hl
+    pop bc
+ovl4_cpf_next:
+    ld de, 18
+    add hl, de
+    djnz ovl4_cpf_loop
+    jr ovl4_csv_finish
+
+; char *cfg_put_ignores(char *p) __z88dk_fastcall
+_cfg_put_ignores:
+    ld (ovl4_cpa_dest), hl
+    xor a
+    ld (ovl4_cpa_any), a
+    ld a, (_ignore_count)
+    or a
+    jr z, ovl4_cpa_ret_dest
+    ld b, a
+    ld hl, _ignore_list
+ovl4_cpi_loop:
+    ld a, (hl)
+    or a
+    jr z, ovl4_cpi_next
+    push bc
+    push hl
+    ld de, ovl4_ck_ignores
+    call ovl4_csv_prefix
+    pop hl
+    push hl
+    ld d, h
+    ld e, l
+    call ovl4_cpa_put_de
+    pop hl
+    pop bc
+ovl4_cpi_next:
+    ld de, 16
+    add hl, de
+    djnz ovl4_cpi_loop
+    ; fall through
+
+ovl4_csv_finish:
+    ld a, (ovl4_cpa_any)
+    or a
+    jp nz, ovl4_cpa_crlf
+    jp ovl4_cpa_ret_dest
+
+ovl4_csv_prefix:
+    ld a, (ovl4_cpa_any)
+    or a
+    jr nz, ovl4_csv_comma
+    inc a
+    ld (ovl4_cpa_any), a
+    jp ovl4_cpa_put_de
+ovl4_csv_comma:
+    ld a, ','
+    jp ovl4_cpa_put_a
+
 ovl4_cpa_dest: defw 0
 ovl4_cpa_any:  defb 0
 ovl4_ck_chans: defb "channels=", 0
+ovl4_ck_friends: defb "friends=", 0
+ovl4_ck_ignores: defb "ignores=", 0

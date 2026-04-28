@@ -12,6 +12,7 @@ The `!changelog` / What's New overlay is generated from release assets rather th
 - Update `include/spectalk.h` and `overlay/overlay_api.h` `VERSION` alongside `release/version.txt`.
 - Keep `release/changes.txt` to the visible list budget; the last entry is rendered without a bullet and in the highlight/magenta attribute, so reserve it for `And much much more!`.
 - `tools/gen_whatsnew.py` currently allows a 96px-wide monochrome logo. With `WN_LOGO_WB=12`, `overlay/spectalk_ovl3.c` places the text at column 26 via `(WN_LOGO_WB + 1) * 2`.
+- The logo ships as `wn_logo_packed`: each pixel row stores a 16-bit byte mask followed by only non-zero bytes. The renderer must write zero bytes for clear columns so redraws over dirty screens stay correct.
 - After changing any release asset, run `python tools/gen_whatsnew.py` or `make`, then run full `make` to verify SPCTLK3 still fits under 2048B.
 
 ## Applied In

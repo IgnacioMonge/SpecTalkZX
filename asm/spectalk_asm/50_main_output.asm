@@ -27,10 +27,9 @@ _main_print:
     ret nz
 
     ld a, (_main_col)
-    or a
-    jr nz, mp_slow
+    ld c, a
     ld a, (_wrap_indent)
-    or a
+    or c
     jr nz, mp_slow
 
     push hl                     ; save original string
@@ -41,8 +40,8 @@ mp_scan:
     ld a, (de)
     or a
     jr z, mp_fast
-    cp 128
-    jr nc, mp_bpe_slow
+    add a, a
+    jr c, mp_bpe_slow
     inc de
     djnz mp_scan
     ld a, (de)                  ; exactly 64 chars also uses fast path
@@ -52,6 +51,7 @@ mp_scan:
 
 mp_slow:
     call _main_puts
+mp_wrap_reset:
     xor a
     ld (_wrap_indent), a
     jp _main_newline
@@ -96,14 +96,12 @@ _main_print_time_prefix:
 
     ; mode 2: on-change ? check if HH:MM matches last printed
     ld a, (_time_hour)
-    ld b, a
-    ld a, (_last_ts_hour)
-    cp b
+    ld hl, _last_ts_hour
+    cp (hl)
     jr nz, mptp_changed     ; hour differs
     ld a, (_time_minute)
-    ld b, a
-    ld a, (_last_ts_minute)
-    cp b
+    ld hl, _last_ts_minute
+    cp (hl)
     jr nz, mptp_changed     ; minute differs
 
     ; Same time ? clear the fixed 6-char indent directly instead of
@@ -164,28 +162,24 @@ mptp_ret:
 ; --- local: print 2-digit decimal from A (00..99), leading zero ---
 ; clobbers AF, BC
 mptp_put2:
-    ld b, 0
+    ld b, '0'
 mptp_div10:
-    cp 10
-    jr c, mptp_div_done
     sub 10
+    jr c, mptp_div_done
     inc b
     jr mptp_div10
 mptp_div_done:
-    ld c, a            ; ones
+    add a, 10 + '0'
+    ld c, a            ; ones as ASCII
 
     ; tens
-    ld a, b
-    add a, '0'
-    ld l, a
+    ld l, b
     push bc
     call _main_putc
     pop bc
 
     ; ones
-    ld a, c
-    add a, '0'
-    ld l, a
+    ld l, c
     jr _main_putc           ; tail call (in range)
 
 ; -----------------------------------------------------------------------------
@@ -393,9 +387,7 @@ mpwr_print_done:
 
 mpwr_finalize:
     ; Igual que main_print: reset indent antes del newline final
-    xor a
-    ld (_wrap_indent), a
-    jp _main_newline
+    jp mp_wrap_reset
 
 mpwr_abort:
     ret

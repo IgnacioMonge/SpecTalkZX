@@ -10,30 +10,29 @@
 ; -----------------------------------------------------------------------------
 PUBLIC _st_strlen
 _st_strlen:
-    ; CPIR block scan: 21 T-states/byte vs 36 manual (+41% faster)
-    ld d, h
-    ld e, l               ; DE = start
+    ; CPIR bounded scan: C becomes the inverse of the scanned count.
     ld bc, 0x0100         ; max 256 bytes scanned (finds strings 0-255)
     xor a                 ; A = 0 (search for NUL)
     cpir                  ; scan until match or BC=0
-    ; HL = byte after NUL, DE = start
-    or a
-    sbc hl, de            ; HL = length + 1
-    dec hl                ; HL = length
+    ld a, c
+    cpl                   ; length, capped at 255 if no NUL in first 256
+    ld l, a
+    ld h, b               ; B is always 0 after bounded CPIR
     ret
 
 ; -----------------------------------------------------------------------------
 ; int st_stricmp(const char *a, const char *b)
 ; Comparaci?n case-insensitive
-; Stack: [IX+4,5]=a, [IX+6,7]=b
+; cdecl stack is restored after extracting a/b.
 ; Retorna: 0 si iguales, <0 si a<b, >0 si a>b
 ; -----------------------------------------------------------------------------
 _st_stricmp:
-    call ___sdcc_enter_ix
-
-    call _ld_hl_ix6
-    ex de, hl               ; DE = b
-    call _ld_hl_ix4         ; HL = a
+    pop bc                  ; return
+    pop hl                  ; a
+    pop de                  ; b
+    push de
+    push hl
+    push bc                 ; restore cdecl stack
 
 stricmp_loop:
     ld a, (hl)
@@ -68,7 +67,6 @@ stricmp_diff:
 stricmp_equal:
     ld hl, 0
 stricmp_done:
-    pop ix
     ret
 
 ; -----------------------------------------------------------------------------
@@ -90,14 +88,15 @@ irc_tolower:
 ; const char* st_stristr(const char *hay, const char *needle)
 ; B?squeda case-insensitive de substring
 ; Retorna: puntero a primera ocurrencia, o NULL
-; Stack: [IX+4,5]=hay, [IX+6,7]=needle
+; cdecl stack is restored after extracting hay/needle.
 ; -----------------------------------------------------------------------------
 _st_stristr:
-    call ___sdcc_enter_ix
-
-    call _ld_hl_ix6
-    ex de, hl               ; DE = needle
-    call _ld_hl_ix4         ; HL = hay
+    pop bc                  ; return
+    pop hl                  ; hay
+    pop de                  ; needle
+    push de
+    push hl
+    push bc                 ; restore cdecl stack
     
     ; Validar needle
     ld a, d
@@ -149,17 +148,14 @@ sstr_next_pos:
 sstr_found:
     pop de                  ; Limpiar stack
     pop hl                  ; HL = posici?n del match
-    pop ix
     ret
 
 sstr_ret_hay:
     ; HL ya tiene hay
-    pop ix
     ret
 
 sstr_fail:
     ld hl, 0
-    pop ix
     ret
 
 ; =============================================================================
@@ -174,8 +170,9 @@ _u16_to_dec:
     push de
     push bc
     
-    push ix
-    ld ixl, 0               ; IXL = flag "ya imprimimos algo"
+    ex af, af'
+    xor a                   ; AF' = flag "ya imprimimos algo"
+    ex af, af'
     
     ld bc, -10000
     call u16_digit
@@ -195,8 +192,9 @@ _u16_to_dec3:
     push de
     push bc
 
-    push ix
-    ld ixl, 0               ; IXL = flag "ya imprimimos algo"
+    ex af, af'
+    xor a                   ; AF' = flag "ya imprimimos algo"
+    ex af, af'
 
 u16_common_1000:
     ld bc, -1000
@@ -216,7 +214,6 @@ u16_common_1000:
     ld (de), a              ; NULL
 
     ex de, hl               ; devolver puntero al final (HL)
-    pop ix
     ret
 
 ; Subrutina: extrae un d?gito restando BC repetidamente
@@ -237,14 +234,19 @@ u16_sub_loop:
     jr nz, u16_do_print
     
     ; Es cero - ?ya imprimimos algo?
-    ld a, ixl
+    ex af, af'
     or a
-    ret z                   ; Suprimir cero inicial
-    ld a, '0'
+    jr z, u16_skip          ; Suprimir cero inicial
+    ex af, af'
 u16_do_print:
     ld (de), a
     inc de
-    inc ixl                 ; Cualquier valor no cero sirve como flag
+    ex af, af'
+    inc a                   ; Cualquier valor no cero sirve como flag
+    ex af, af'
+    ret
+u16_skip:
+    ex af, af'
     ret
 
 ; -----------------------------------------------------------------------------
@@ -259,9 +261,8 @@ _str_to_u16:
 stu16_loop:
     ld a, (hl)
     sub '0'
-    jr c, stu16_done        ; < '0'
     cp 10
-    jr nc, stu16_done       ; > '9'
+    jr nc, stu16_done       ; non-digit (including < '0' after underflow)
     
     ; DE = DE * 10 + A
     push hl
@@ -307,7 +308,7 @@ _skip_to:
 skpto_loop:
     ld a, (hl)
     or a
-    jr z, skpto_end         ; Fin de string
+    ret z                   ; Fin de string
     cp e
     jr z, skpto_found
     inc hl
@@ -316,8 +317,6 @@ skpto_loop:
 skpto_found:
     ld (hl), 0              ; Terminar string aqu?
     inc hl                  ; Return next position
-    
-skpto_end:
     ret
 
 ; =============================================================================
@@ -327,12 +326,13 @@ skpto_end:
 ; -----------------------------------------------------------------------------
 ; void strip_irc_codes(char *s)
 ; Elimina c?digos de control IRC in-situ (^B, ^C, ^O, ^R, ^_)
-; Stack: [IX+6,7]=s
+; cdecl stack is restored after extracting s.
 ; -----------------------------------------------------------------------------
 _strip_irc_codes:
-    call ___sdcc_enter_ix
-
-    call _ld_hl_ix4         ; HL = lectura
+    pop bc                  ; return
+    pop hl                  ; s
+    push hl
+    push bc                 ; restore cdecl stack
     ld d, h
     ld e, l                 ; DE = escritura
 
@@ -395,18 +395,13 @@ strip_check_bg:
 strip_done:
     xor a
     ld (de), a              ; NULL terminator
-    pop ix
     ret
 
 ; Subrutina: ?es A un d?gito?
 ; Retorna: Carry set si es d?gito
 strip_is_digit:
-    cp '0'
-    jr c, sid_false         ; < '0' -> no es d?gito
-    cp '9' + 1
-    ret
-sid_false:
-    or a                    ; clear carry
+    sub '0'
+    cp 10
     ret
 
 ; =============================================================================
@@ -448,26 +443,22 @@ _reapply_screen_attributes:
     ld bc, 32
     call _fast_fill_attr
     ; 3. Banner row 1: HL already at 0x5820 after helper
-    ld a, (_theme_attrs + TA_BANNER)
-    and 0xBF
+    xor 0x40
     ld bc, 32
     call _fast_fill_attr
 
     ; 4. Rows 2-20: sep_top + chat + sep_bot ? contiguous, same attr
     ; P1: 0x5840..0x5AA0 = 608 bytes, all MAIN_BG
-    ld hl, 0x5840
     ld bc, 608
     ld a, (_theme_attrs + TA_MAIN_BG)
     call _fast_fill_attr
 
     ; 5. Barra Estado (0x5AA0)
-    ld hl, 0x5AA0
     ld bc, 32
     ld a, (_theme_attrs + TA_STATUS)
     call _fast_fill_attr
 
     ; 6. Input (0x5AC0)
-    ld hl, 0x5AC0
     ld bc, 64
     ld a, (_theme_attrs + TA_INPUT_BG)
     call _fast_fill_attr
@@ -515,13 +506,12 @@ _cls_fast:
     ld (cls_restore_sp + 1), sp
     ld sp, 0x5800
     ld hl, 0
-    ld de, 0
     ld c, 6
 cls_outer:
     ld b, 0
 cls_inner:
     push hl
-    push de
+    push hl
     djnz cls_inner
     dec c
     jr nz, cls_outer
@@ -565,12 +555,10 @@ _main_hline:
 ; void uart_drain_to_buffer(void)
 ; Lee bytes del UART y los mete en el Ring Buffer lo m?s r?pido posible.
 ; CR?TICO: Minimiza la latencia entre bytes para evitar p?rdida de datos en AY.
-; OPTIMIZED: No usa EXX, contador en IYL
+; OPTIMIZED: loop counter in B, protected across call chain with PUSH/POP BC.
 ; =============================================================================
 
 _uart_drain_to_buffer:
-    push iy                 ; Preservar IY (est?ndar z88dk)
-
     ld a, (_uart_drain_limit)
     or a
     jr nz, drain_set_limit
@@ -579,14 +567,16 @@ _uart_drain_to_buffer:
     dec a
 
 drain_set_limit:
-    ; Caso con l?mite (ej: 32 bytes) - usar IYL como contador
-    ld iyl, a
+    ; Caso con l?mite (ej: 32 bytes)
+    ld b, a
 
 drain_loop_start:
+    push bc                 ; preserve loop counter across calls
+
     ; 2. ?Hay datos disponibles?
     call _ay_uart_ready     ; Retorna L=1 (S?) o 0 (No)
     dec l
-    jr nz, drain_exit       ; L was 0: no hay m?s datos -> Salir
+    jr nz, drain_exit_pop   ; L was 0: no hay m?s datos -> Salir
 
     ; 3. Leer byte
     call _ay_uart_read      ; Retorna byte en L
@@ -595,14 +585,15 @@ drain_loop_start:
     call _rb_push           ; Retorna L=1 (?xito) o 0 (Fallo/Lleno)
     ld a, l
     or a
-    jr z, drain_exit        ; Si buffer lleno, PARAR para no romper framing
+    jr z, drain_exit_pop    ; Si buffer lleno, PARAR para no romper framing
 
     ; Decrementar contador
-    dec iyl
-    jr nz, drain_loop_start
+    pop bc
+    djnz drain_loop_start
+    ret
 
-drain_exit:
-    pop iy
+drain_exit_pop:
+    pop bc
     ret
 
 ; =============================================================================
@@ -841,18 +832,20 @@ mci6_scan:
 ; void tokenize_params(char *par, uint8_t max_params)
 ; Trocea un string IRC separando por espacios y rellenando el array global irc_params
 ; Modifica el string 'par' in-situ (reemplaza espacios por NULLs)
-; Stack: [IX+6,7]=par, [IX+8]=max_params
+; cdecl stack is restored after extracting par/max_params.
 ; =============================================================================
 _tokenize_params:
+    pop de                  ; return
+    pop hl                  ; par
+    pop bc                  ; C = max_params
+    push bc
+    push hl
+    push de                 ; restore cdecl stack
     push iy
-    call ___sdcc_enter_ix
 
     ; Inicializar contador a 0
     xor a
     ld (_irc_param_count), a
-
-    ; HL = par (string a trocear)
-    call _ld_hl_ix6
 
     ; Comprobar string nulo
     ld a, h
@@ -863,7 +856,7 @@ _tokenize_params:
     jr z, tp_exit               ; OPT: jp?jr
 
     ; B = max_params (0 => 10 por defecto, resto clamp a 1..10)
-    ld a, (ix+8)
+    ld a, c
     dec a
     cp 10
     jr c, tp_max_ok
@@ -939,7 +932,6 @@ tp_skip_spaces:
     jr tp_skip_spaces
 
 tp_exit:
-    pop ix
     pop iy
     ret
 
@@ -950,14 +942,11 @@ tp_exit:
 ; Stack: [IX+4,5]=dst, [IX+6,7]=src, [IX+8,9]=limit
 ; =============================================================================
 _sb_append:
-    call ___sdcc_enter_ix
-    
-    ; Cargar argumentos
-    call _ld_hl_ix6
-    ex de, hl               ; DE = src
-    call _ld_hl_ix4         ; HL = dst
-    ld c, (ix+8)
-    ld b, (ix+9)            ; BC = limit
+    pop af                  ; return
+    pop hl                  ; dst
+    pop de                  ; src
+    pop bc                  ; limit
+    push af                 ; callee-cleaned stack now has only return
     
 sba_loop:
     ; 1. Chequear l?mite: if (dst >= limit) exit
@@ -981,13 +970,6 @@ sba_loop:
     
 sba_done:
     ; HL = return value (new dst pointer)
-    ; Callee cleanup: 6 bytes of params (dst+src+limit)
-    pop ix              ; restore IX
-    pop de              ; DE = return address
-    pop af              ; skip dst (2B)
-    pop af              ; skip src (2B)
-    pop af              ; skip limit (2B)
-    push de             ; push return address back
     ret
 
 ; =============================================================================

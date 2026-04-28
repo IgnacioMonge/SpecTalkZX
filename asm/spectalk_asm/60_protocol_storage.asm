@@ -15,8 +15,6 @@ _text_shift_right:
     pop de          ; Count (Bytes a mover)
     push bc         ; Restore Ret
 
-    push iy         ; sdcc_iy ABI: preserve frame pointer
-    
     ld b, d
     ld c, e         ; BC = Count
     ld a, b
@@ -32,7 +30,6 @@ _text_shift_right:
     
     lddr
 tsr_done:
-    pop iy
     ret
 
 ; void text_shift_left(char *addr, uint16_t count) __z88dk_callee
@@ -46,8 +43,6 @@ _text_shift_left:
     pop hl          ; Count
     push bc         ; Restore Ret
 
-    push iy         ; sdcc_iy ABI: preserve frame pointer
-    
     ld b, h
     ld c, l         ; BC = Count
     ld a, b
@@ -60,7 +55,6 @@ _text_shift_left:
     
     ldir
 tsl_done:
-    pop iy
     ret
 
 ; =============================================================================

@@ -61,6 +61,47 @@ static void nb_init(const char *s) __z88dk_fastcall
     nb(s);
 }
 
+static void isolate_nick(char *prefix) __z88dk_fastcall ST_NAKED
+{
+    (void)prefix;
+    __asm
+isolate_nick_loop:
+    ld a,(hl)
+    or a
+    ret z
+    cp '!'
+    jr z,isolate_nick_found
+    inc hl
+    jr isolate_nick_loop
+isolate_nick_found:
+    ld (hl),0
+    ret
+    __endasm;
+}
+
+static char *split_next_param(char *p) __z88dk_fastcall ST_NAKED
+{
+    (void)p;
+    __asm
+split_next_param_scan:
+    ld a,(hl)
+    or a
+    ret z
+    cp 32
+    jr z,split_next_param_found
+    inc hl
+    jr split_next_param_scan
+split_next_param_found:
+    ld (hl),0
+split_next_param_skip:
+    inc hl
+    ld a,(hl)
+    cp 32
+    jr z,split_next_param_skip
+    ret
+    __endasm;
+}
+
 // Notify with prefix+value: replaces nb_init+nb+NB_END+notify at each call site
 static void notify2(const char *a, const char *b, uint8_t attr) __z88dk_callee
 {
@@ -193,7 +234,7 @@ static void session_autojoin_replay(void)
     char c = autojoin_channels[0];
     if (autojoin && (c == '#' || c == '&')) {
         notify2("Autojoining ", autojoin_channels, ATTR_MSG_JOIN);
-        irc_send_cmd1("JOIN", autojoin_channels);
+        irc_send_cmd1(S_JOIN_CMD, autojoin_channels);
         autojoin_defer_flags = 0;
         autojoin_ident_grace = 0;
     }
@@ -496,7 +537,7 @@ static void h_privmsg_notice(void)
             notif_is_pm = 1;
             if (notif_enabled) {
                 // Ikkle: compact notification in footer
-                nb_init(pkt_usr); nb(": "); nb(pkt_txt);
+                nb_init(pkt_usr); nb(S_COLON_SP); nb(pkt_txt);
                 nb(" [ENTER]"); NB_END();
                 notify(temp_input, ATTR_MSG_PRIV);
             } else {
@@ -559,7 +600,7 @@ static void h_join(void)
 
             if (is_tracked_friend(pkt_usr)) {
                 mention_beep();
-                nb_init("Friend: "); nb(pkt_usr); nb(" in "); nb(chan); NB_END();
+                nb_init("Friend: "); nb(pkt_usr); nb(S_IN_SP); nb(chan); NB_END();
                 notify(temp_input, ATTR_MSG_NICK);
             }
 
@@ -623,10 +664,10 @@ static void h_quit(void)
 {
     // audit L09: notify friend quit
     if (is_tracked_friend(pkt_usr))
-        notify2(pkt_usr, " quit", ATTR_MSG_NICK);
+        notify2(pkt_usr, S_QUIT_SUFFIX, ATTR_MSG_NICK);
 
     if (show_traffic && current_channel_idx > 0) {
-        print_departure(" quit");
+        print_departure(S_QUIT_SUFFIX);
     }
 
     {
@@ -673,7 +714,7 @@ static void h_kick(void)
     if (st_stricmp(target, irc_nick) == 0) {
         nb_init("Kicked from "); nb(channel);
         nb(" by "); nb(pkt_usr);
-        if (*pkt_txt) { nb(": "); nb(pkt_txt); } NB_END();
+        if (*pkt_txt) { nb(S_COLON_SP); nb(pkt_txt); } NB_END();
         notify(temp_input, ATTR_ERROR);
         // remove_channel() YA llama a draw_status_bar()
         // NOTE-L4: idx > 0 (not >= 0) is correct: channel 0 is Server, can't be kicked from it
@@ -703,7 +744,7 @@ static void h_kill(void)
 
     if (target && st_stricmp(target, irc_nick) == 0) {
         nb_init("Killed by "); nb(pkt_usr);
-        if (*pkt_txt) { nb(": "); nb(pkt_txt); } NB_END();
+        if (*pkt_txt) { nb(S_COLON_SP); nb(pkt_txt); } NB_END();
         notify(temp_input, ATTR_ERROR);
         handle_connection_drop();
     } else {
@@ -951,7 +992,7 @@ static void h_numeric_366(void)
     // Batch friend notification (accumulated during 353 chunks)
     if (names_friend_pos > 0) {
         mention_beep();
-        notify3(names_friend_buf, " in ", msg_chan, ATTR_MSG_NICK);
+        notify3(names_friend_buf, S_IN_SP, msg_chan, ATTR_MSG_NICK);
         names_friend_pos = 0;
     }
 
@@ -1078,7 +1119,7 @@ static void h_numeric_322_352(void)
         if (main_col & 1) main_putc(' ');
 
         set_attr_chan();
-        main_puts2(" [", user);
+        main_puts2(S_SP_LBRACKET, user);
         main_putc('@');
         main_puts2(host, "]");
 
@@ -1167,7 +1208,7 @@ static void h_numeric_5(void)
 static void h_cannotsend(void)
 {
     const char *chan = irc_param(1);
-    notify2("Cannot send to ", (chan && *chan) ? chan : "channel", ATTR_ERROR);
+    notify2("Cannot send to ", (chan && *chan) ? chan : S_CHANNEL_WORD, ATTR_ERROR);
 }
 
 static void h_join_error(void)
@@ -1177,7 +1218,7 @@ static void h_join_error(void)
     set_attr_err();
     main_puts("Cannot join ");
     if (bad_chan && *bad_chan) main_print(bad_chan);
-    else main_print("channel");
+    else main_print(S_CHANNEL_WORD);
     main_puts(S_COLON_SP);
     if (*pkt_txt) main_print(pkt_txt);
     else main_print("Access denied");
@@ -1206,7 +1247,7 @@ static void h_numeric_default(void)
         set_attr_nick();
         if (nick && *nick) main_puts(nick); else main_putc('?');
         set_attr_chan();
-        main_puts(" [");
+        main_puts(S_SP_LBRACKET);
         if (user && *user) main_puts(user); else main_putc('?');
         main_putc('@');
         if (host && *host) main_puts(host); else main_putc('?');
@@ -1406,28 +1447,23 @@ void parse_irc_message(char *line) __z88dk_fastcall
     if (!line || !*line) return;
 
     if (line[0] == '@') {
-        line = strchr(line, ' ');
-        if (!line) return;
-        line++;
-        line = skip_spaces(line);
+        line = split_next_param(line);
         if (!*line) return;
     }
 
     char *cmd_start;
     if (line[0] == ':') {
         pkt_usr = line + 1;
-        cmd_start = skip_to(pkt_usr, ' ');
+        cmd_start = split_next_param(pkt_usr);
         if (*cmd_start == 0) return;
-        char *bang = strchr(pkt_usr, '!');
-        if (bang) *bang = '\0';
+        isolate_nick(pkt_usr);
     } else {
         cmd_start = line;
     }
     pkt_cmd = cmd_start;
 
-    pkt_par = skip_to(cmd_start, ' ');
+    pkt_par = split_next_param(cmd_start);
     pkt_txt = pkt_par;
-    pkt_txt = skip_spaces(pkt_txt);
 
     // Trailing logic
     char *p = pkt_txt;

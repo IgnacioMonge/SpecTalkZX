@@ -27,25 +27,29 @@ extern void print_big_str(uint8_t y, uint8_t col, const char *s, uint8_t attr)
 
 #define MAIN_START 3
 
-/* Blit monochrome logo to screen at (start_row, start_col_bytes).
- * Writes directly to ZX VRAM. 1=ink(white), 0=paper(black). */
+/* Blit packed monochrome logo to screen at (start_row, start_col_bytes).
+ * Writes explicit zero bytes so redraw over dirty screens matches raw logo. */
 static void blit_logo(uint8_t start_row, uint8_t start_phys_col)
 {
-    const uint8_t *src = wn_logo;
+    const uint8_t *src = wn_logo_packed;
     uint8_t row, scanline;
 
     for (row = start_row; row < start_row + (WN_LOGO_H >> 3) + 1 && row < 20; row++) {
         for (scanline = 0; scanline < 8; scanline++) {
             uint8_t y_pixel = (row - start_row) * 8 + scanline;
             if (y_pixel >= WN_LOGO_H) return;
+            uint16_t mask = src[0] | ((uint16_t)src[1] << 8);
 
             uint8_t *dst = (uint8_t *)(
                 (uint16_t)(0x4000 | ((row & 0x18) << 8) | (scanline << 8)
                 | ((row & 7) << 5)) + start_phys_col);
 
             uint8_t b;
-            for (b = 0; b < WN_LOGO_WB; b++)
-                dst[b] = *src++;
+            src += 2;
+            for (b = 0; b < WN_LOGO_WB; b++) {
+                dst[b] = (mask & 1) ? *src++ : 0;
+                mask >>= 1;
+            }
         }
     }
 

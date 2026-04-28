@@ -124,6 +124,8 @@ void status_render_ovl(void)
 
 extern char *cfg_put(char *p, const char *s) __z88dk_callee;
 extern char *cfg_kv(char *p, const char *key, const char *val) __z88dk_callee;
+extern char *cfg_put_friends(char *p) __z88dk_fastcall;
+extern char *cfg_put_ignores(char *p) __z88dk_fastcall;
 extern void esx_fcreate(const char *path) __z88dk_fastcall;
 extern void esx_fwrite(void);
 extern void main_puts(const char *s) __z88dk_fastcall;
@@ -137,31 +139,6 @@ static const char CK_AJOIN[] = "autojoin=";
 #define CFG_END       ((char *)overlay_slot + OVERLAY_SLOT_SIZE)
 #define CFG_TOO_LARGE (CFG_END + 1)
 extern char *cfg_put_autojoin(char *p) __z88dk_fastcall;
-
-static char *cfg_put_csv(char *p, const char *key,
-                         const char *list, uint8_t elem_size, uint8_t count) __z88dk_callee
-{
-    uint8_t i, any = 0;
-    const char *s = list;
-    for (i = 0; i < count; i++, s += elem_size) {
-        if (!*s) continue;
-        if (!any) {
-            p = cfg_put(p, key);
-            if (p >= CFG_END) return CFG_TOO_LARGE;
-            *p++ = '=';
-            any = 1;
-        } else {
-            if (p >= CFG_END) return CFG_TOO_LARGE;
-            *p++ = ',';
-        }
-        p = cfg_put(p, s);
-    }
-    if (any) {
-        if (p > (CFG_END - 2)) return CFG_TOO_LARGE;
-        *p++ = '\r'; *p++ = '\n';
-    }
-    return p;
-}
 
 void save_config_ovl(void)
 {
@@ -207,9 +184,8 @@ void save_config_ovl(void)
 
     p = cfg_put_autojoin(p);
 
-    /* CSV writes punctuation in C; cfg_put() bounds the string spans. */
-    p = cfg_put_csv(p, "friends", (const char *)friend_nicks, IRC_NICK_SIZE, MAX_FRIENDS);
-    p = cfg_put_csv(p, "ignores", (const char *)ignore_list, 16, ignore_count);
+    p = cfg_put_friends(p);
+    p = cfg_put_ignores(p);
 
     set_attr_sys();
     main_puts("Saving config... ");

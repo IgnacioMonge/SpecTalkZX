@@ -479,6 +479,8 @@ extern const char S_JOINED_SP[];    // D10: " joined "
 extern const char S_AWAY_CMD[];     // D10: "AWAY"
 extern const char S_NICK_CMD[];     // D10: "NICK"
 extern const char S_SMART[];        // D10: "smart"
+extern const char S_AT_CMD[];
+extern const char S_JOIN_CMD[];
 extern const char S_PART_CMD[];     // D19: "PART"
 extern const char S_TCP[];          // D19: "TCP"
 extern const char S_AUTOAWAY[];     // D11: "Auto-away"
@@ -486,6 +488,12 @@ extern const char S_SWITCHED[];     // S1: "Switched to "
 extern const char S_ALREADY[];      // S2: "Already in "
 extern const char S_YOU_LEFT[];
 extern const char S_MODE_SP_SCR[];     // S3: "You have left "
+extern const char S_IN_SP[];
+extern const char S_QUIT_SUFFIX[];
+extern const char S_SP_LBRACKET[];
+extern const char S_CHANNEL_WORD[];
+extern const char S_CLOSED_SP[];
+extern const char S_USAGE_NOTICE[];
 
 // =============================================================================
 // UI MACROS
