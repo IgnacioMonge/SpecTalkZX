@@ -130,7 +130,7 @@ static uint8_t wait_for_connection_result(uint16_t max_frames) __z88dk_fastcall
 
     while (frames < max_frames) {
         frame_wait();
-        if (in_inkey() == 7) { ui_err(S_CANCELLED); return 0; }
+        if (in_inkey() == KEY_BREAK) { ui_err(S_CANCELLED); return 0; }
 
         uart_drain_to_buffer();
 
@@ -290,12 +290,12 @@ do_connect:
             if (sntp_try) {
                 // Delay ~1s between retries so ESP can sync NTP in background
                 for (sntp_wait = 50; sntp_wait; sntp_wait--) frame_wait();
-                if (in_inkey() == 7) break;
+                if (in_inkey() == KEY_BREAK) break;
             }
             uart_send_line(S_AT_SNTPTIME);
             for (sntp_wait = 0; sntp_wait < 100; sntp_wait++) {
                 frame_wait(); uart_drain_to_buffer();
-                if (in_inkey() == 7) { sntp_try = 99; break; }  // BREAK cancel all
+                if (in_inkey() == KEY_BREAK) { sntp_try = 99; break; }  // BREAK cancel all
                 if (try_read_line_nodrain()) {
                     if (rx_last_len >= 2) {
                         if (rx_line[0] == '+' && rx_line[1] == 'C') {
@@ -351,7 +351,7 @@ do_connect:
         
         while (!loop_done) {
             frame_wait(); uart_drain_to_buffer();
-            if (in_inkey() == 7) {
+            if (in_inkey() == KEY_BREAK) {
                 abort_msg = "Aborted.";
                 abort_disc = 1;
                 goto join_fail;

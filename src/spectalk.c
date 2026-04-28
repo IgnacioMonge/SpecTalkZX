@@ -996,7 +996,7 @@ uint8_t pagination_pause(void)
         draw_status_bar_real();
     }
 
-    if (key == 3) {  // BREAK = cancelar
+    if (key == KEY_BREAK) {  // BREAK = cancelar
         notif_clear();
         // "Cancelled (incomplete)" si hubo buffer overflow antes del cancel.
         print_line64_fast(MAIN_END,
@@ -1691,7 +1691,7 @@ uint8_t wait_for_response(const char *expected, uint16_t max_frames) __z88dk_cal
     while (frames < max_frames) {
         frame_wait();
         
-        if (in_inkey() == 3) return 0;  // BREAK = cancel
+        if (in_inkey() == KEY_BREAK) return 0;  // BREAK = cancel
 
         uart_drain_to_buffer();
 
@@ -1726,7 +1726,7 @@ uint8_t wait_for_prompt_char(uint8_t prompt_ch, uint16_t max_frames) __z88dk_cal
     while (frames < max_frames) {
         frame_wait();
 
-        if (in_inkey() == 3) { rx_line[0] = '\0'; return 0; }
+        if (in_inkey() == KEY_BREAK) { rx_line[0] = '\0'; return 0; }
 
         uart_drain_to_buffer();
 
@@ -2844,7 +2844,7 @@ void main(void)
                     cursor_visible = 0;
                     overlay_exec(1, 1);
                     c = 0;
-                } else if (c == 3 || (c && overlay_mode != OVERLAY_HELP)) {
+                } else if (c == KEY_BREAK || (c && overlay_mode != OVERLAY_HELP)) {
                     // BREAK always exits; any key exits single-page overlays
                     if (overlay_mode == OVERLAY_ABOUT) {
                         flush_frames = 15; /* consume about backlog silently before re-enabling input */
@@ -2936,8 +2936,8 @@ void main(void)
             }
 
             // ENTER/BREAK with empty input during PM notification
-            if ((c == 13 || c == 3) && line_len == 0 && notif_is_pm && notif_timeout && last_pm_nick[0]) {
-                if (c == 13) {
+            if ((c == KEY_ENTER || c == KEY_BREAK) && line_len == 0 && notif_is_pm && notif_timeout && last_pm_nick[0]) {
+                if (c == KEY_ENTER) {
                     int8_t qi = add_query(last_pm_nick);
                     if (qi >= 0) { switch_to_channel((uint8_t)qi); status_bar_dirty = 1; }
                     else ui_err("Max windows. /close first");

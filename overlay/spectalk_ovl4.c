@@ -195,15 +195,15 @@ void save_config_ovl(void)
         p = cfg_kv(p, K_AUTOAWAY, tmp);
     }
 
-    p = cfg_put(p, K_TZ);
     if (sntp_tz < 0) {
-        *p++ = '-';
-        fast_u8_to_str(tmp, (uint8_t)(-sntp_tz));
+        tmp[0] = '-';
+        fast_u8_to_str(tmp + 1, (uint8_t)(-sntp_tz));
+        tmp[3] = 0;
     } else {
         fast_u8_to_str(tmp, (uint8_t)sntp_tz);
+        tmp[2] = 0;
     }
-    tmp[2] = 0;
-    p = cfg_put(p, tmp); *p++ = '\r'; *p++ = '\n';
+    p = cfg_kv(p, K_TZ, tmp);
 
     p = cfg_put_autojoin(p);
 

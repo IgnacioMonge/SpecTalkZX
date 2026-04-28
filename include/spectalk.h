@@ -60,6 +60,7 @@
 #define KEY_RIGHT     9
 #define KEY_BACKSPACE 12
 #define KEY_ENTER     13
+#define KEY_BREAK     3
 
 // =============================================================================
 // CONNECTION STATES
