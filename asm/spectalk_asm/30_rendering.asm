@@ -44,8 +44,11 @@ SECTION bss_user
 ;   (font_lut_lo + nibble_index) < 0x100
 ; so that `add a, e / ld l, a` never needs a carry into the hoisted H'.
 ; Nibble range is 0..9 (only 10 LUT entries), so low byte ≤ 0xF6 is SAFE.
-; Explicit defs keeps the low byte at $F0 (target $F1F0) with ~6B margin
-; against future BSS growth before this block.
+; Current placement: _font_lut = $F126 (low byte $26) — verified via .map.
+; Margin to $F6 limit ≈ 208 bytes of BSS growth before this block; the
+; explicit `defs 3` is a layout-stable pad, not an alignment guarantee.
+; If a build pushes _font_lut low byte > $F6, audit/regenerate this pad
+; or move the block to a lower BSS address.
 defs 3
 _font_lut:
 font_lut:

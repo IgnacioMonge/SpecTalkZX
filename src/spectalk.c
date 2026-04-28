@@ -299,7 +299,7 @@ void overlay_keepalive(void)
                 while (*p && *p != ' ') p++;
                 if (*p) p++;
             }
-            if (p[0]=='P' && p[2]=='N' && p[3]=='G') {
+            if (p[0]=='P' && p[1] && p[2]=='N' && p[3]=='G') {
                 if (p[1] == 'I') {
                     p += 4;
                     while (*p == ' ') p++;

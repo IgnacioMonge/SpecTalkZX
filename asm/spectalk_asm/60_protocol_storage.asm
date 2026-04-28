@@ -141,17 +141,23 @@ isc_space: defb ' ', 0
 ; void irc_send_cmd_internal(const char *cmd, const char *p1, const char *p2)
 ; Sends: CMD [p1] [ :p2]\r\n
 ; Stack: [ret] [cmd] [p1] [p2]
+;
+; ABI WARNING: clobbers IX (used as scratch for p2). Safe in resident build
+; (--fomit-frame-pointer → IX free), but overlay C code uses IX as SDCC
+; frame pointer. Call ONLY through _irc_send_cmd1 / _irc_send_cmd2 wrappers
+; in 80_ui_runtime.asm — they save/restore IX. Do NOT call from overlay code.
+; IY is preserved (sdcc_iy clib reserves it).
 PUBLIC _irc_send_cmd_internal
 _irc_send_cmd_internal:
     ; Check connection state first
     ld a, (_connection_state)
     cp 2                    ; STATE_TCP_CONNECTED
     ret c                   ; Return if not connected
-    
+
     pop bc                  ; ret
     pop hl                  ; cmd
     pop de                  ; p1
-    pop ix                  ; p2 (do NOT clobber IY: sdcc_iy frame pointer)
+    pop ix                  ; p2 (clobbers IX — see ABI warning above)
     push ix
     push de
     push hl
