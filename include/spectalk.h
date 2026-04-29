@@ -206,8 +206,6 @@ extern void clear_line(uint8_t y, uint8_t attr);
 extern void clear_zone(uint8_t start, uint8_t lines, uint8_t attr);
 // Compute screen row base: H = 0x40|(y&0x18), L = (y&7)<<5
 #define SCREEN_ROW_ADDR(y) ((uint16_t)(((0x40 | ((y) & 0x18)) << 8) | (((y) & 7) << 5)))
-extern uint8_t* screen_line_addr(uint8_t y, uint8_t phys_x, uint8_t scanline);
-extern uint8_t* attr_addr(uint8_t y, uint8_t phys_x);
 extern int st_stricmp(const char *a, const char *b);
 extern const char* st_stristr(const char *hay, const char *needle);
 extern uint8_t st_strlen(const char *s) __z88dk_fastcall;

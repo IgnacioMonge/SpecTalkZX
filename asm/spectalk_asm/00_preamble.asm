@@ -131,8 +131,6 @@ PUBLIC _draw_cursor_underline
 PUBLIC _clear_line
 PUBLIC _clear_zone
 PUBLIC _compute_screen_base
-PUBLIC _screen_line_addr
-PUBLIC _attr_addr
 PUBLIC _st_stricmp
 PUBLIC _st_stristr
 PUBLIC _u16_to_dec

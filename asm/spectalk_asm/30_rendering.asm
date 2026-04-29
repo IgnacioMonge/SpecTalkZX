@@ -183,43 +183,6 @@ ENDIF
 ; =============================================================================
 
 ; -----------------------------------------------------------------------------
-; uint8_t* screen_line_addr(uint8_t y, uint8_t phys_x, uint8_t scanline)
-; Stack: [IX+4]=y, [IX+5]=phys_x, [IX+6]=scanline (sdcc_iy byte-packed)
-; -----------------------------------------------------------------------------
-_screen_line_addr:
-    call ___sdcc_enter_ix
-    
-    ld a, (ix+4)
-    call _compute_screen_base
-
-    ld e, (ix+5)            ; phys_x
-    ld d, (ix+6)            ; scanline (high byte offset)
-    add hl, de
-
-    pop ix
-    ret
-
-; -----------------------------------------------------------------------------
-; uint8_t* attr_addr(uint8_t y, uint8_t phys_x)
-; Stack: [IX+4]=y, [IX+5]=phys_x (SDCC byte-packs two uint8_t)
-; -----------------------------------------------------------------------------
-_attr_addr:
-    call ___sdcc_enter_ix
-
-    ; Compute attr base: HL = 0x5800 + y*32
-    ld a, (ix+4)        ; y
-    call _compute_attr_base
-
-    ; A?adir phys_x
-    ; attr rows are aligned to 32 bytes, so phys_x 0..31 never carries into H
-    ld a, (ix+5)        ; phys_x
-    add a, l
-    ld l, a
-
-    pop ix
-    ret
-
-; -----------------------------------------------------------------------------
 ; Rutina interna para clear_line/clear_zone
 ; input: A = line Y, C = atributo
 ; Preserva: IX, IY (ya preservados por caller)
