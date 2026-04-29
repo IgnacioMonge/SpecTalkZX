@@ -1637,10 +1637,12 @@ static void input_right(void)
 
 
 // Word navigation — ASM in spectalk_asm.asm
-extern uint8_t key_ss_arrow(void);  // 0=none, 1=SS+LEFT, 2=SS+RIGHT, 3=SS+BKSP
+extern uint8_t key_ss_arrow(void);  // 0=none, 1=SS+LEFT, 2=SS+RIGHT, 3=SS+BKSP, 4=SS+UP, 5=SS+DOWN
 extern void input_word_left(void);
 extern void input_word_right(void);
 extern void input_delete_word(void);
+extern void input_line_start(void);
+extern void input_line_end(void);
 
 // Hide cursor during command execution (visual feedback)
 static void set_input_busy(uint8_t busy) __z88dk_fastcall
@@ -2979,7 +2981,10 @@ void main(void)
                         if (!pagination_active && search_mode == SEARCH_NONE && !autoconnect_delay) {
                             if (ssa == 1) input_word_left();
                             else if (ssa == 2) input_word_right();
-                            else input_delete_word();
+                            else if (ssa == 3) input_delete_word();
+                            else if (ssa == 4) input_line_start();
+                            else input_line_end();
+                            key_click();
                         }
                         ss_repeat = ss_held ? 4 : 12;  // fast repeat / initial delay
                     } else {

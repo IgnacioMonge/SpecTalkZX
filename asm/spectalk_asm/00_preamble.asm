@@ -173,6 +173,8 @@ PUBLIC _has_other_mention
 PUBLIC _input_word_left
 PUBLIC _input_word_right
 PUBLIC _input_delete_word
+PUBLIC _input_line_start
+PUBLIC _input_line_end
 
 ; =============================================================================
 ; EXTERNAL VARIABLES AND FUNCTIONS (defined in C or other .asm)

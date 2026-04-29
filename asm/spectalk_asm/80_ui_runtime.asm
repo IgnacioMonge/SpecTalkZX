@@ -270,7 +270,7 @@ ik_keytable:
     defb  32,0xFF,'.',',','*'      ; row 7
 
 ; =============================================================================
-; WORD NAVIGATION ? SS+LEFT/RIGHT/BACKSPACE
+; WORD NAVIGATION ? SS+LEFT/RIGHT/UP/DOWN/BACKSPACE
 ; =============================================================================
 
 EXTERN _cursor_pos
@@ -282,7 +282,8 @@ EXTERN _text_shift_left
 
 ; uint8_t key_ss_arrow(void)
 ; Reads raw keyboard ports for SS + CS + key combos.
-; Returns: 0=none, 1=SS+LEFT, 2=SS+RIGHT, 3=SS+BACKSPACE
+; Returns: 0=none, 1=SS+LEFT, 2=SS+RIGHT, 3=SS+BACKSPACE,
+;          4=SS+UP, 5=SS+DOWN
 PUBLIC _key_ss_arrow
 _key_ss_arrow:
     ; Check Symbol Shift (0x7FFE bit 1)
@@ -311,8 +312,16 @@ _key_ss_arrow:
     ; Check key 0 = BACKSPACE (0xEFFE bit 0)
     ; A still has 0xEFFE result from above
     inc l               ; SS+BACKSPACE ? 3
-    rrca
-    ret nc
+    bit 0, a
+    ret z
+    ; Check key 7 = UP (0xEFFE bit 3)
+    inc l               ; SS+UP ? 4
+    bit 3, a
+    ret z
+    ; Check key 6 = DOWN (0xEFFE bit 4)
+    inc l               ; SS+DOWN ? 5
+    bit 4, a
+    ret z
     ld l, 0
     ret
 
@@ -384,6 +393,17 @@ _input_word_left:
 _input_word_right:
     ld a, (_cursor_pos)
     call wb_right
+    jr wm_apply
+
+; void input_line_start(void)
+_input_line_start:
+    xor a
+    jr wm_apply
+
+; void input_line_end(void)
+_input_line_end:
+    ld a, (_line_len)
+    jr wm_apply
 
 ; Common tail: A = new_pos, apply cursor move
 wm_apply:
