@@ -70,29 +70,28 @@ Because the byte cost is high and the slack becomes tiny, this shape is rejected
 Do not retry the same `LDIR` -> unrolled `LDI` block-3 conversion unless the
 resident byte budget changes substantially.
 
-## Stack Blit Experiment
+## Stack Blit Path
 
-`SCROLL_STACK_EXPERIMENT=1` enables an experimental stack+SMC replacement for the
-same 224-byte block-3 bitmap copy. The broken `C`-counter version is rejected
-because `POP BC` destroys the loop counter; the integrated variant uses `IXL`,
-preserves `IX` inside the helper, and leaves interrupts disabled on exit. Do not
-add `EI` here: normal IM1 is gated through `_frame_wait()`, which temporarily
-sets `IY=0x5C3A` before enabling the ROM ISR.
+The stack+SMC replacement for the 224-byte block-3 bitmap copy is now the
+default scroll path. The broken `C`-counter version is rejected because `POP BC`
+destroys the loop counter; the integrated variant uses `IXL`, preserves `IX`
+inside the helper, and leaves interrupts disabled on exit. Do not add `EI` here:
+normal IM1 is gated through `_frame_wait()`, which temporarily sets `IY=0x5C3A`
+before enabling the ROM ISR.
 
-Measured build impact after the 2026-04-29 shrink passes:
+Measured promotion result after the 2026-04-29 shrink passes:
 
-- Normal release: `35616B` trimmed / `35696B` TAP / `518B` slack.
-- `SCROLL_STACK_EXPERIMENT=1`: `35692B` trimmed / `35772B` TAP / `442B` slack.
-- `SCROLL_STACK_EXPERIMENT=1 SCROLL_PROFILE=1`: `35710B` trimmed / `35790B`
-  TAP / `424B` slack before the no-`EI` fix; remeasure before relying on this
-  combined number.
-- Current combined `SCROLL_STACK_EXPERIMENT=1 RAW6_FONT_EXPERIMENT=1` after the
-  low-byte destination SMC update: `35684B` trimmed / `35764B` TAP / `175B`
-  slack. The destination update measured `-2B` versus the previous combined
-  experiment and saves roughly `23T * 14 chunks * 8 scanlines = 2576T` per
-  full scroll.
+- Previous conditional normal build: `35640B` trimmed / `35720B` TAP / `494B`
+  slack.
+- Promoted normal build with raw6 renderer and stack scroll:
+  `35684B` trimmed / `35764B` TAP / `175B` slack.
+- Delta versus previous normal: `+44B` TAP/resident and `-319B` slack.
+- Delta versus the accepted experimental artifact: `0B`; only build-time
+  conditionals and fallback code were removed.
+- The low-byte destination SMC update saves roughly
+  `23T * 14 chunks * 8 scanlines = 2576T` per full scroll versus the first
+  stack-blit build.
 
-The scroll-only experiment should now fit the `+80B` cutoff by about six bytes
-after the low-byte update; remeasure scroll-only before quoting a release
-number. It is not release-approved until hardware profiling shows a visible
-improvement and no UART or pagination loss during flood scroll.
+Keep `SCROLL_PROFILE=1` available for border timing. Re-measure the promoted
+path with that flag if future scroll work changes block layout, interrupt
+state, or UART draining.

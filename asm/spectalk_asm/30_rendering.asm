@@ -32,15 +32,12 @@ _compute_attr_base:
 ; =============================================================================
 ; Solo 10 valores ?nicos en toda la fuente original:
 ; 0x00, 0x22, 0x44, 0x55, 0x66, 0x88, 0xAA, 0xCC, 0xEE, 0xFF
-; Line 6 of each glyph is ALWAYS 0x00 (regenerated in runtime).
-; Renderers consume 7 glyph bytes after their explicit blank top scanline.
-; Each glyph: 3 compressed bytes (6 nibbles = l?neas 0-5)
-
-; Data loaded from SPECTALK.DAT at startup (font + themes)
-; Normal layout: [10 LUT][288 glyphs][75 theme_raw] = 373 bytes contiguous
-; RAW6_FONT_EXPERIMENT layout: [576 raw glyph rows][75 theme_raw] = 651 bytes.
+; Raw 6-row font data is generated from the packed source into SPECTALK.DAT.
+; Renderers draw one explicit blank top scanline, 6 glyph scanlines, then one
+; explicit blank bottom scanline.
+; Data loaded from SPECTALK.DAT at startup:
+; [576 raw glyph rows][75 theme_raw] = 651 bytes contiguous.
 SECTION bss_user
-IFDEF RAW6_FONT_EXPERIMENT
 PUBLIC _font_lut
 _font_lut:
 font_lut:
@@ -53,51 +50,20 @@ PUBLIC _bpe_dict
 _bpe_dict:
 bpe_dict:
     defs 318
-ELSE
-; ALIGN 16 does not reliably pad BSS across module boundaries in z80asm
-; (empirically left font_lut at $F1ED). unpack_glyph relies on
-;   (font_lut_lo + nibble_index) < 0x100
-; so that `add a, e / ld l, a` never needs a carry into the hoisted H'.
-; Nibble range is 0..9 (only 10 LUT entries), so low byte ≤ 0xF6 is SAFE.
-; Current placement: _font_lut = $F126 (low byte $26) — verified via .map.
-; Margin to $F6 limit ≈ 208 bytes of BSS growth before this block; the
-; explicit `defs 3` is a layout-stable pad, not an alignment guarantee.
-; If a build pushes _font_lut low byte > $F6, audit/regenerate this pad
-; or move the block to a lower BSS address.
-defs 3
-_font_lut:
-font_lut:
-    defs 10
-font64_packed:
-    defs 288
-PUBLIC _theme_raw
-_theme_raw:
-    defs 75
-; BPE dictionary: contiguous with font_lut+font64_packed+theme_raw for single SPECTALK.DAT read
-; Layout in DAT: [10 LUT][288 glyphs][75 themes][318 bpe_dict][help text]
-PUBLIC _bpe_dict
-_bpe_dict:
-bpe_dict:
-    defs 318              ; 106 entries x 3 bytes (b1, b2, 0x00)
-ENDIF
 
 SECTION code_user
 
 ; =============================================================================
 ; GLYPH DECOMPRESSOR
 ; Input: A = char (ASCII 32-127)
-; Output: HL = pointer to glyph rows.
-;   Normal: glyph_buffer with 7 rows (6 source rows + bottom zero).
-;   RAW6_FONT_EXPERIMENT: font64_raw6 with 6 source rows.
+; Output: HL = pointer to the 6 raw source rows.
 ; Preserves: IY (required by z88dk)
-; Destroys: AF, BC, DE. Uses alternate HL'/E' via EXX (ISR safe: called between frames, not during ISR)
-; Timing: ~136 t-states/iteration (EXX LUT access, no push/pop)
+; Destroys: AF, DE, HL.
 ; =============================================================================
 blank_glyph:
     defb 0, 0, 0, 0, 0, 0, 0
 
 unpack_glyph:
-IFDEF RAW6_FONT_EXPERIMENT
     ; Calculate offset: (char - 32) * 6. The raw table stores exactly the
     ; six non-padding glyph rows, already expanded to the old LUT byte values.
     sub 32
@@ -111,72 +77,6 @@ IFDEF RAW6_FONT_EXPERIMENT
     ld de, font64_raw6
     add hl, de
     ret
-ELSE
-    ; Calculate offset: (char - 32) * 3
-    sub 32
-    ld l, a
-    ld h, 0
-    ld c, l
-    ld b, h
-    add hl, hl          ; *2
-    add hl, bc          ; *3
-    ld bc, font64_packed
-    add hl, bc          ; HL = pointer to compressed glyph (3 bytes)
-
-    ; Use DE as pointer to compressed source (faster than IX)
-    ex de, hl            ; DE = compressed source, HL freed
-    ld hl, glyph_buffer  ; HL = destination
-
-    ; Setup alternate registers for LUT access.
-    ; font_lut is ALIGN 16 and nibble index is 0..15, so low-byte add never carries.
-    exx
-    ld de, font_lut      ; D' = lut hi, E' = lut lo
-    ld h, d              ; H' stays as lut hi for all nibble lookups
-    exx
-
-    ; Unpack 3 bytes -> 6 lines (0-5)
-    ld b, 3
-unpack_loop:
-    ld a, (de)           ; 7 T - Read compressed byte
-
-    ; High nibble -> line N
-    rrca
-    rrca
-    rrca
-    rrca                 ; A = high nibble in low position
-    and 0x0F
-
-    exx                  ; switch to alt set (D'=lut_hi, E'=lut_lo)
-    add a, e             ; A = font_lut_lo + nibble
-    ld l, a
-    ld a, (hl)           ; LUT lookup
-    exx                  ; back to main set
-    ld (hl), a           ; store to glyph_buffer
-    inc l                ; glyph_buffer is fixed at $5BC0 and cannot cross page
-
-    ; Low nibble -> line N+1
-    ld a, (de)
-    and 0x0F
-
-    exx
-    add a, e
-    ld l, a
-    ld a, (hl)
-    exx
-    ld (hl), a
-    inc l
-
-    inc de               ; 6 T  - Next compressed byte
-    djnz unpack_loop     ; 13/8 T
-
-    ; Line 6 always 0x00. The destination screen scanline 0 is blanked
-    ; explicitly by the renderers, so glyph_buffer[7] is never consumed.
-    xor a
-    ld (hl), a
-
-    ld hl, glyph_buffer
-    ret
-ENDIF
 
 ; =============================================================================
 ; GRAPHICS SYSTEM - FUNCTIONS
@@ -335,11 +235,7 @@ p64_not_space:
     ld (hl), a
     inc h
 
-IFDEF RAW6_FONT_EXPERIMENT
     ld b, 6
-ELSE
-    ld b, 7
-ENDIF
 p64_left_loop:
     ld a, (de)
     and 0xF0                ; Tomar nibble izquierdo de fuente
@@ -351,11 +247,9 @@ p64_left_loop:
     inc de
     inc h
     djnz p64_left_loop
-IFDEF RAW6_FONT_EXPERIMENT
     ld a, (hl)
     and 0x0F                ; Bottom padding: clear left nibble only
     ld (hl), a
-ENDIF
     jr p64_set_attr
 
 p64_right:
@@ -365,11 +259,7 @@ p64_right:
     ld (hl), a
     inc h
 
-IFDEF RAW6_FONT_EXPERIMENT
     ld b, 6
-ELSE
-    ld b, 7
-ENDIF
 p64_right_loop:
     ld a, (de)
     and 0x0F                ; Tomar nibble derecho de fuente
@@ -381,11 +271,9 @@ p64_right_loop:
     inc de
     inc h
     djnz p64_right_loop
-IFDEF RAW6_FONT_EXPERIMENT
     ld a, (hl)
     and 0xF0                ; Bottom padding: clear right nibble only
     ld (hl), a
-ENDIF
 
 p64_set_attr:
     ; cache_atr_base queda v?lida tras p64_get_scr_base
@@ -881,8 +769,7 @@ plf_left_normal:
     push hl                ; save left glyph pointer above saved screen addr
 
     ; --- Leer char derecho antes de copiar el izquierdo ---
-    ; If the right side is blank, glyph_buffer will not be overwritten by a
-    ; second unpack, so the write loop can use it directly as the left source.
+    ; If the right side is blank, the write loop can use the left source directly.
     ld hl, (plf_str_ptr)
     ld a, (hl)
     or a
@@ -895,19 +782,14 @@ plf_left_normal:
 plf_right_blank_left_direct:
     ld (plf_str_ptr), hl
     ld de, blank_glyph
-    pop ix                 ; IX = left glyph_buffer; screen addr remains stacked
+    pop ix                 ; IX = left glyph; screen addr remains stacked
     jr plf_write_pair
 plf_right_ok:
     ld (plf_str_ptr), hl
-    ; Copy the left glyph only when the right glyph must also be unpacked.
-    ; unpack_glyph returns glyph_buffer, and LDIR preserves A = right char.
-    pop hl                 ; HL = left glyph_buffer; screen addr remains stacked
+    ; Copy the left glyph only when the right glyph must also be resolved.
+    pop hl                 ; HL = left glyph; screen addr remains stacked
     ld de, plf_left_buf
-IFDEF RAW6_FONT_EXPERIMENT
     ld bc, 6
-ELSE
-    ld bc, 7
-ENDIF
     ldir
     call unpack_glyph      ; A still has char; HL/DE don't matter (destroyed)
     ex de, hl              ; DE = pointer to right glyph
@@ -916,18 +798,14 @@ ENDIF
 plf_write_pair:
     ; --- Combinar y escribir 8 scanlines ---
     ; Keep vertical alignment identical to _print_str64_char():
-    ; blank top scanline, then render glyph rows 0..6 into scanlines 1..7.
+    ; blank top scanline, 6 glyph rows, then blank bottom scanline.
     pop hl                 ; HL = screen addr
 
     xor a
     ld (hl), a             ; scanline 0 stays blank like per-char rendering
     inc h
 
-IFDEF RAW6_FONT_EXPERIMENT
     ld b, 6
-ELSE
-    ld b, 7
-ENDIF
 plf_write_loop:
     ld a, (ix+0)           ; Glyph byte izquierdo completo
     and 0xF0               ; Mask diferida (antes pre-masked en save loop)
@@ -940,11 +818,9 @@ plf_write_loop:
     inc de
     inc h                  ; Siguiente scanline
     djnz plf_write_loop
-IFDEF RAW6_FONT_EXPERIMENT
     xor a
     ld (hl), a             ; scanline 7 bottom padding
     inc h                  ; Keep pair-advance contract: HL is base + 8 scanlines
-ENDIF
 
     ld de, (plf_str_ptr)   ; DE = string pointer para siguiente iteraci?n
 plf_pair_advance:
@@ -1047,11 +923,7 @@ ria_prompt_ready:
     xor a
     ld (hl), a
     inc h
-IFDEF RAW6_FONT_EXPERIMENT
     ld b, 6
-ELSE
-    ld b, 7
-ENDIF
 ria_prompt_loop:
     ld a, (de)
     and 0xF0
@@ -1059,10 +931,8 @@ ria_prompt_loop:
     inc de
     inc h
     djnz ria_prompt_loop
-IFDEF RAW6_FONT_EXPERIMENT
     xor a
     ld (hl), a
-ENDIF
 
     ld hl, 0x5AC0              ; INPUT_ROW_1 attr base
     ld a, (_theme_attrs + 8)   ; ATTR_PROMPT

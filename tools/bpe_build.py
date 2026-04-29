@@ -29,11 +29,9 @@ HDR_FILES = ["spectalk.h"]
 
 # Internal display-only codepoint: UTF-8 ñ/Ñ maps to byte 127.
 # The 64-col renderer accepts 32..127, while BPE tokens start at 128.
-FONT_DATA_OFFSET = 10
 SPANISH_N_CODE = 127
 SPANISH_N_PACKED = bytes((0x47, 0x66, 0x66))
-RAW6_FONT_EXPERIMENT = os.environ.get("RAW6_FONT_EXPERIMENT") == "1"
-DAT_BASE_SIZE = 651 if RAW6_FONT_EXPERIMENT else 373
+DAT_BASE_SIZE = 651
 
 # Constants audited as safe for BPE (screen-only)
 SAFE_CONSTANTS = [
@@ -338,25 +336,20 @@ def main():
     with open(dat_orig, "rb") as f:
         orig = f.read()
 
-    if RAW6_FONT_EXPERIMENT:
-        lut = orig[:10]
-        packed = bytearray(orig[10:298])
-        # Patch glyph slot 127 (DEL, not typeable by input) as display-only ñ.
-        # Packed nibbles 4,7,6,6,6,6 -> tilde row + compact 'n' body.
-        n_tilde_off = (SPANISH_N_CODE - 32) * 3
-        packed[n_tilde_off : n_tilde_off + 3] = SPANISH_N_PACKED
+    lut = orig[:10]
+    packed = bytearray(orig[10:298])
+    # Patch glyph slot 127 (DEL, not typeable by input) as display-only ñ.
+    # Packed nibbles 4,7,6,6,6,6 -> tilde row + compact 'n' body.
+    n_tilde_off = (SPANISH_N_CODE - 32) * 3
+    packed[n_tilde_off : n_tilde_off + 3] = SPANISH_N_PACKED
 
-        header = bytearray()
-        for ch in range(96):
-            off = ch * 3
-            for b in packed[off : off + 3]:
-                header.append(lut[(b >> 4) & 0x0F])
-                header.append(lut[b & 0x0F])
-        header.extend(orig[298:373])  # themes
-    else:
-        header = bytearray(orig[:373])  # font + glyphs + themes
-        n_tilde_off = FONT_DATA_OFFSET + (SPANISH_N_CODE - 32) * 3
-        header[n_tilde_off : n_tilde_off + 3] = SPANISH_N_PACKED
+    header = bytearray()
+    for ch in range(96):
+        off = ch * 3
+        for b in packed[off : off + 3]:
+            header.append(lut[(b >> 4) & 0x0F])
+            header.append(lut[b & 0x0F])
+    header.extend(orig[298:373])  # themes
     with open(HELP_TEXT_PATH, "rb") as f:
         help_text = f.read()  # tracked help text source
 

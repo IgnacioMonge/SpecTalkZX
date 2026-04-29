@@ -582,12 +582,7 @@ smz_scanline_loop:
     ld d, a
     ld l, 0x20
     ld e, 0x00
-IFDEF SCROLL_STACK_EXPERIMENT
     call _scroll_stack_blit_224
-ELSE
-    ld bc, 224
-    ldir
-ENDIF
 
     ; BLOQUE 4: Fila 16 -> 15 (Src: 0x5000, Dest: 0x48E0, Len: 32)
     ld a, 0x50
@@ -663,14 +658,12 @@ smz_cross_block:
     ldir
     ret
 
-IFDEF SCROLL_STACK_EXPERIMENT
 PUBLIC _scroll_stack_blit_224
-; Experimental 224-byte forward copy using SP as the transfer pointer.
+; 224-byte forward copy using SP as the transfer pointer.
 ; Input: HL = source, DE = destination. Destroys all main/alternate regs.
 ; Destination low byte must not cross page before the final unused update.
 ; Leaves interrupts disabled: mainline IM1 is only enabled inside frame_wait()
 ; with IY set to ROM system variables.
-; Active only in SCROLL_STACK_EXPERIMENT builds.
 _scroll_stack_blit_224:
     di
     push ix
@@ -729,7 +722,6 @@ ssb_save_sp:
     ld sp, 0x0000
     pop ix
     ret
-ENDIF
 
 ; =============================================================================
 ; void main_newline(void)
