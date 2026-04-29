@@ -106,7 +106,7 @@ static uint8_t confirm_disconnect(void)
         uint8_t k = in_inkey();
         frame_wait();
         uart_drain_to_buffer();
-        while (try_read_line_nodrain()) rx_pos = 0;
+        while (try_read_line_nodrain());
         if (k == 'y' || k == 'Y') return 1;
         if (k == 'n' || k == 'N' || !tmout) {
             ui_err(S_CANCELLED);
