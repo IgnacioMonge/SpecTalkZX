@@ -10,26 +10,20 @@
 ; Mejor usamos __z88dk_callee est?ndar: Stack: [RetAddr] [Addr] [Count]
 PUBLIC _text_shift_right
 _text_shift_right:
-    pop bc          ; Ret address
+    pop de          ; Ret address
     pop hl          ; Addr (Inicio del hueco)
-    pop de          ; Count (Bytes a mover)
-    push bc         ; Restore Ret
+    pop bc          ; Count (Bytes a mover)
+    push de         ; Restore Ret
 
-    ld b, d
-    ld c, e         ; BC = Count
     ld a, b
     or c
-    jr z, tsr_done
+    ret z
     
     add hl, bc      ; HL = Base + Count
-    dec hl          ; HL = ?ltimo byte origen
-    
     ld d, h
     ld e, l
-    inc de          ; DE = Destino (HL + 1)
-    
+    dec hl          ; HL = ?ltimo byte origen
     lddr
-tsr_done:
     ret
 
 ; void text_shift_left(char *addr, uint16_t count) __z88dk_callee
@@ -38,23 +32,20 @@ tsr_done:
 ; Copia desde addr+1 hacia addr.
 PUBLIC _text_shift_left
 _text_shift_left:
-    pop bc          ; Ret
+    pop hl          ; Ret
     pop de          ; Addr (Destino)
-    pop hl          ; Count
-    push bc         ; Restore Ret
+    pop bc          ; Count
+    push hl         ; Restore Ret
 
-    ld b, h
-    ld c, l         ; BC = Count
     ld a, b
     or c
-    jr z, tsl_done
+    ret z
     
     ld h, d
     ld l, e         ; HL = Destino
     inc hl          ; HL = Origen (Destino + 1)
     
     ldir
-tsl_done:
     ret
 
 ; =============================================================================
@@ -112,11 +103,9 @@ _main_puts2:
     pop de          ; b
     push bc
 
-    push iy         ; sdcc_iy ABI: preserve frame pointer
     push de
     call _main_puts
     pop hl
-    pop iy
     jp _main_puts   ; tail call
 
 ; OPT: main_puts3 eliminated (no longer called from C)
@@ -303,13 +292,7 @@ _esx_fread:
     ld bc, (_esx_count)
     rst 8
     defb 0x9D           ; F_READ
-    jr nc, esxfr_ok
-    ld bc, 0
-esxfr_ok:
-    ld (_esx_result), bc
-    pop ix
-    pop iy
-    ret
+    jr esx_io_epilogue
 
 ; -----------------------------------------------------------------------------
 ; void esx_fclose(void)
@@ -339,16 +322,16 @@ _esx_fwrite:
     push iy
     push ix
     ld a, (_esx_handle)
-    ld hl, (_esx_buf)
-    push hl
-    pop ix              ; IX = source buffer
+    ld ix, (_esx_buf)   ; IX = source buffer
     ld bc, (_esx_count)
     rst 8
     defb 0x9E           ; F_WRITE
-    jr nc, efw_ok
-    ld bc, 0            ; Error: 0 bytes written
-efw_ok:
-    ld (_esx_result), bc ; Save bytes actually written
+
+esx_io_epilogue:
+    jr nc, esx_io_ok
+    ld bc, 0            ; Error: 0 bytes read/written
+esx_io_ok:
+    ld (_esx_result), bc ; Save bytes actually read/written
     pop ix
     pop iy
     ret

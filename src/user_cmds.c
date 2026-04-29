@@ -100,7 +100,8 @@ static uint8_t confirm_disconnect(void)
 {
     uint8_t tmout = 250;  // ~5s timeout
 
-    ui_err("Disconnect (y/n)?");
+    set_attr_err();
+    main_print("Disconnect (y/n)?");
     while (tmout--) {
         uint8_t k = in_inkey();
         frame_wait();
@@ -253,7 +254,8 @@ static void cmd_connect(const char *args) __z88dk_fastcall
     }
 
     if (connection_state >= STATE_TCP_CONNECTED) {
-        ui_err("Already connected.");
+        set_attr_err();
+        main_puts("Already connected. ");
         if (!confirm_disconnect()) return;
         set_attr_sys();
         main_print("Disconnecting...");

@@ -308,10 +308,13 @@ static void h_mode(void)
                       *mask ? mask : target,
                       ATTR_MSG_SYS); }
         } else {
-            set_attr_sys();
-            main_puts2(pkt_usr, " sets mode ");
-            main_puts2(mode_text, " on ");
-            main_print(target);
+            nb_init(pkt_usr);
+            nb(" sets mode ");
+            nb(mode_text);
+            nb(" on ");
+            nb(target);
+            NB_END();
+            notify(temp_input, ATTR_MSG_SYS);
         }
         return;
     }
@@ -890,6 +893,10 @@ static void h_numeric_353(void)
     names_timeout_frames = 0;
     names_pending = 1;
 
+    // After Cancelled/incomplete, manual /names still owns the stream until
+    // 366, but pagination_active is off. Keep consuming 353 without output.
+    if (show_names_list && !pagination_active) return;
+
     // Accumulate user count in temp variable (only committed on 366)
     {
         char *p = pkt_txt;
@@ -913,6 +920,10 @@ static void h_numeric_353(void)
 
         if (pagination_inc()) return;
         pagination_timeout = 0;
+        if (search_data_lost) {
+            names_print_summary(1);
+            return;
+        }
     }
 
     // Accumulate friends found in NAMES for batch notification on 366
@@ -969,32 +980,26 @@ static void h_numeric_366(void)
     
     // Finalizar paginación de /names
     if (show_names_list && pagination_active) {
-        // Disable pagination BEFORE summary to avoid spurious "Any key: more"
-        pagination_active = 0;
-        set_attr_sys();
-        if (pagination_count > 0) {
-            char buf[8];
-            u16_to_dec(buf, names_count_acc);
-            main_puts2("(", buf);
-            main_print(search_data_lost ? " listed, incomplete)" : " listed)");
-        }
-        pagination_count = 0;
-        cursor_visible = 1;
-        redraw_input_full();
+        names_print_summary(search_data_lost);
     }
 
-    if (names_was_manual) flush_all_rx_buffers();
+    if (names_was_manual) {
+        flush_all_rx_buffers();
+    }
     
     show_names_list = 0;
     names_was_manual = 0;  // Reset flag
-    search_data_lost = 0;  // Reset aquí después de usarlo
 
     // Batch friend notification (accumulated during 353 chunks)
     if (names_friend_pos > 0) {
-        mention_beep();
-        notify3(names_friend_buf, S_IN_SP, msg_chan, ATTR_MSG_NICK);
+        if (!search_data_lost) {
+            mention_beep();
+            notify3(names_friend_buf, S_IN_SP, msg_chan, ATTR_MSG_NICK);
+        }
         names_friend_pos = 0;
     }
+
+    search_data_lost = 0;  // Reset aquí después de usarlo
 
     draw_status_bar();
 }

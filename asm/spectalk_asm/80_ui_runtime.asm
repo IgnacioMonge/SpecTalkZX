@@ -74,12 +74,10 @@ snc_loop:
 snc_done:
     ld a, d
 snc_mod6:
-    cp 6
-    jr c, snc_ink
     sub 6
-    jr snc_mod6
+    jr nc, snc_mod6
+    add a, 7                    ; restore underflowed remainder and add ink +1
 snc_ink:
-    inc a
     ld d, a
     ld a, (_theme_attrs + 11)
     ld e, a
@@ -222,14 +220,14 @@ ik_gotkey:
     bit 1, a
     jr z, ik_nokey         ; both shifts = ignore (no CTRL codes needed)
     ld e, 40
-    add hl, de             ; -> CAPS section
-    jr ik_lookup
+    jr ik_add_hl           ; -> CAPS section
 
 ik_nocaps:
     bit 1, a
     jr nz, ik_lookup       ; no shift
     ld e, 80
-    add hl, de             ; -> SYM section
+ik_add_hl:
+    add hl, de             ; -> shifted table section
 
 ik_lookup:
     ld l, (hl)
@@ -301,24 +299,21 @@ _key_ss_arrow:
     ; Check key 5 = LEFT (0xF7FE bit 4)
     ld a, 0xF7
     in a, (0xFE)
-    bit 4, a
-    jr nz, ksa_not_left
     ld l, 1             ; SS+LEFT ? 1
-    ret
-ksa_not_left:
+    bit 4, a
+    ret z
     ; Check key 8 = RIGHT (0xEFFE bit 2)
+    inc l               ; SS+RIGHT ? 2
     ld a, 0xEF
     in a, (0xFE)
     bit 2, a
-    jr nz, ksa_not_right
-    ld l, 2             ; SS+RIGHT ? 2
-    ret
-ksa_not_right:
+    ret z
     ; Check key 0 = BACKSPACE (0xEFFE bit 0)
     ; A still has 0xEFFE result from above
+    inc l               ; SS+BACKSPACE ? 3
     rrca
-    ret c               ; 0 not pressed ? 0
-    ld l, 3             ; SS+BACKSPACE ? 3
+    ret nc
+    ld l, 0
     ret
 
 ; wb_left_clean: A = pos ? A = new pos (word boundary left, pointer walking)
@@ -341,16 +336,14 @@ wbl_sp:
     ret
     ; Phase 2: skip non-spaces backward
 wbl_wd:
-    dec c
-    jr nz, wbl_wd2
-    xor a               ; FIX: return 0 when reaching start of line
-    ret
-wbl_wd2:
-    dec hl
-    ld a, (hl)
-    cp ' '
-    jr nz, wbl_wd
+    ld a, ' '
+    cpdr
+    jr nz, wbl_ret0
+    inc c               ; CPDR leaves C at space index; return one past it
     ld a, c
+    ret
+wbl_ret0:
+    xor a               ; no previous space: start of line
     ret
 
 ; wb_right: A = pos ? A = new pos (word boundary right, pointer walking)
@@ -359,23 +352,19 @@ wb_right:
     ld b, 0
     ld hl, _line_buffer
     add hl, bc
-    ld a, (_line_len)
-    ld b, a
 wbr_wd:
-    ld a, c
-    cp b
-    jr nc, wbr_done
     ld a, (hl)
+    or a
+    jr z, wbr_done
     cp ' '
     jr z, wbr_sp
     inc hl
     inc c
     jr wbr_wd
 wbr_sp:
-    ld a, c
-    cp b
-    jr nc, wbr_done
     ld a, (hl)
+    or a
+    jr z, wbr_done
     cp ' '
     jr nz, wbr_done
     inc hl

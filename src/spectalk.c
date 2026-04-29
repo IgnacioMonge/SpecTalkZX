@@ -142,7 +142,7 @@ uint8_t theme_attrs[20];
 uint8_t status_bar_dirty = 1;
 uint8_t counting_new_users;      // Flag: next 353 should reset count
 uint16_t names_count_acc;        // Temp accumulator for NAMES user count
-uint8_t show_names_list;         // Flag: show 353 user list (for /names command)
+uint8_t show_names_list;         // Manual /names owns 353/366 until final 366/timeout
 uint8_t names_was_manual;        // Flag: NAMES fue iniciado por /names (no por JOIN)
 
 // Activity indicator for inactive channels
@@ -289,6 +289,39 @@ void flush_all_rx_buffers(void)
     rx_line[0] = 0;
     rx_pos = 0;
     rx_overflow = 0;
+}
+
+void names_print_summary(uint8_t incomplete) __z88dk_fastcall
+{
+    char buf[8];
+    pagination_active = 0;
+    set_attr_sys();
+    u16_to_dec(buf, names_count_acc);
+    main_puts2("(", buf);
+    main_print(incomplete ? " listed, incomplete)" : " listed)");
+    pagination_count = 0;
+    cursor_visible = 1;
+    redraw_input_full();
+}
+
+void names_finish_incomplete(void)
+{
+    if (names_was_manual) {
+        flush_all_rx_buffers();
+        post_cancel_quiet = 100;
+        if (show_names_list && pagination_active) names_print_summary(1);
+    }
+
+    names_pending = 0;
+    names_timeout_frames = 0;
+    names_target_channel[0] = '\0';
+    counting_new_users = 0;
+    names_count_acc = 0;
+    show_names_list = 0;
+    names_was_manual = 0;
+    search_data_lost = 0;
+    buffer_pressure = 0;
+    status_bar_dirty = 1;
 }
 
 // Lightweight UART scanner during OVERLAY_ABOUT.
@@ -1058,7 +1091,7 @@ void cancel_search_state(void)
     cursor_visible = 1;
     redraw_input_full();
 
-    show_names_list = 0;
+    if (!(names_pending && names_was_manual)) show_names_list = 0;
     buffer_pressure = 0;
     status_bar_dirty = 1;
 }
@@ -1417,7 +1450,7 @@ void draw_status_bar_real(void)
     while (p < limit_end) *p++ = ' ';
     *p = 0;
 
-    print_line64_fast(INFO_LINE, sb_left_part, ATTR_STATUS);
+    print_status_left54_fast(sb_left_part);
     force_status_redraw = 0;
 
     draw_clock();
@@ -2666,22 +2699,7 @@ void main(void)
                 }
                 if (names_pending) {
                     if (++names_timeout_frames >= NAMES_TIMEOUT_FRAMES) {
-                        if (names_was_manual) {
-                            search_data_lost = 1;
-                            flush_all_rx_buffers();
-                        }
-                        names_pending = 0;
-                        names_timeout_frames = 0;
-                        names_target_channel[0] = '\0';
-                        counting_new_users = 0;
-                        names_count_acc = 0;
-                        show_names_list = 0;
-                        names_was_manual = 0;
-                        if (pagination_active) {
-                            pagination_active = 0;
-                            cursor_visible = 1;
-                            redraw_input_full();
-                        }
+                        names_finish_incomplete();
                     }
                 }
             }

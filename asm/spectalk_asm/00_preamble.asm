@@ -124,6 +124,7 @@ PUBLIC _key_shift_held
 PUBLIC _input_cache_invalidate
 PUBLIC _print_str64_char
 PUBLIC _print_line64_fast
+PUBLIC _print_status_left54_fast
 PUBLIC _draw_indicator
 PUBLIC _draw_cursor_underline
 ; draw_indicator_big removed (big mode eliminated)
@@ -266,7 +267,8 @@ defc bpe_rstack      = 0x5BD5  ; 16B BPE return stack (8 niveles x 2B)
 defc bpe_rsp         = 0x5BE5  ; 2B  BPE stack pointer
 ; $5BE7-$5BE8 2B  main_print_wrapped_ram() last-space scratch
 ; $5BE9-$5BF0 8B  C fmt_buf transient decimal/time scratch
-; $5BF1-$5BFF (15B libres para futuro scratch transitorio)
+defc plf_pair_count  = 0x5BF1  ; 1B  optional print_line64_fast pair limit
+; $5BF2-$5BFF (14B libres para futuro scratch transitorio)
 
 ; =============================================================================
 ; VARIABLES BSS (solo las que deben sobrevivir a llamadas esxDOS RST 8)

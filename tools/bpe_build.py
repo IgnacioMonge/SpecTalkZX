@@ -32,6 +32,8 @@ HDR_FILES = ["spectalk.h"]
 FONT_DATA_OFFSET = 10
 SPANISH_N_CODE = 127
 SPANISH_N_PACKED = bytes((0x47, 0x66, 0x66))
+RAW6_FONT_EXPERIMENT = os.environ.get("RAW6_FONT_EXPERIMENT") == "1"
+DAT_BASE_SIZE = 651 if RAW6_FONT_EXPERIMENT else 373
 
 # Constants audited as safe for BPE (screen-only)
 SAFE_CONSTANTS = [
@@ -303,7 +305,9 @@ def main():
     with open(dict_path, "wb") as f:
         f.write(dict_bin)
 
-    dat_dict_offset = 373 + len(dict_bin)  # help text starts after font+themes+dict
+    dat_dict_offset = DAT_BASE_SIZE + len(
+        dict_bin
+    )  # help text starts after font+themes+dict
 
     # Step 4b: Fix offsets in compressed sources if dict size differs from default
     DEFAULT_OFFSET = 691  # 373 + 318 (original dict size assumption)
@@ -334,11 +338,25 @@ def main():
     with open(dat_orig, "rb") as f:
         orig = f.read()
 
-    header = bytearray(orig[:373])  # font + glyphs + themes
-    # Patch glyph slot 127 (DEL, not typeable by input) as display-only ñ.
-    # Packed nibbles 4,7,6,6,6,6 -> tilde row + compact 'n' body.
-    n_tilde_off = FONT_DATA_OFFSET + (SPANISH_N_CODE - 32) * 3
-    header[n_tilde_off : n_tilde_off + 3] = SPANISH_N_PACKED
+    if RAW6_FONT_EXPERIMENT:
+        lut = orig[:10]
+        packed = bytearray(orig[10:298])
+        # Patch glyph slot 127 (DEL, not typeable by input) as display-only ñ.
+        # Packed nibbles 4,7,6,6,6,6 -> tilde row + compact 'n' body.
+        n_tilde_off = (SPANISH_N_CODE - 32) * 3
+        packed[n_tilde_off : n_tilde_off + 3] = SPANISH_N_PACKED
+
+        header = bytearray()
+        for ch in range(96):
+            off = ch * 3
+            for b in packed[off : off + 3]:
+                header.append(lut[(b >> 4) & 0x0F])
+                header.append(lut[b & 0x0F])
+        header.extend(orig[298:373])  # themes
+    else:
+        header = bytearray(orig[:373])  # font + glyphs + themes
+        n_tilde_off = FONT_DATA_OFFSET + (SPANISH_N_CODE - 32) * 3
+        header[n_tilde_off : n_tilde_off + 3] = SPANISH_N_PACKED
     with open(HELP_TEXT_PATH, "rb") as f:
         help_text = f.read()  # tracked help text source
 

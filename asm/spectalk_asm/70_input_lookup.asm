@@ -128,13 +128,11 @@ u8a_c3:
     ; ?ndice en tabla = C & 3F (0-3F corresponde a C0-FF)
     ld a, c
     and 0x3F
+    ld c, a
+    ld b, 0
     push hl             ; FIX-C2: guardar puntero de lectura del string
     ld hl, u8a_tbl_c0
-    add a, l            ; table may cross a page after nearby shrink/layout shifts
-    ld l, a
-    jr nc, u8a_c3_no_carry
-    inc h
-u8a_c3_no_carry:
+    add hl, bc          ; table may cross a page after nearby shrink/layout shifts
     ld a, (hl)
     pop hl              ; FIX-C2: restaurar puntero de lectura
     jr u8a_store            ; OPT: jp?jr (5 bytes)
@@ -194,9 +192,8 @@ spr_scan:
     ld a, (hl)
     or a
     jr z, spr_notfound
-    cp '0'
-    jr c, spr_next
-    cp '3'              ; '2'+1
+    sub '0'
+    cp 3                ; accept only first digit 0..2
     jr nc, spr_next
 
     ; Check line[i+2] == ':'
@@ -242,13 +239,11 @@ spr_found:
     ; Parse hour
     call spr_parse2
     ld (_time_hour), a
-    inc hl              ; HL past second digit
     inc hl              ; HL past ':'
 
     ; Parse minute
     call spr_parse2
     ld (_time_minute), a
-    inc hl              ; HL past second digit
     inc hl              ; HL past ':'
 
     ; Parse second
@@ -291,7 +286,7 @@ spr_invalid:
 
 ; --- subroutine: parse 2-digit decimal at (HL) ---
 ; Input:  HL = pointer to first digit
-; Output: A = parsed value (0..99), HL = pointer to second digit
+; Output: A = parsed value (0..99), HL = pointer past second digit
 ; Clobbers: C
 spr_parse2:
     ld a, (hl)
@@ -306,6 +301,7 @@ spr_parse2:
     ld a, (hl)
     sub '0'
     add a, c
+    inc hl
     ret
 
 ; =============================================================================
@@ -367,17 +363,12 @@ rk_check_new:
     jr z, rk_repeat
 
     ; --- Case fold check: ignore Shift release (e.g. 'S' ? 's') ---
-    ; lk_fold = last_k | 32, k_fold = k | 32
-    ; if k_fold == lk_fold && lk_fold in 'a'..'z' ? suppress
-    ld c, a             ; C = last_k
-    or 32               ; A = last_k | 32
-    ld d, a             ; D = lk_fold
-    ld a, b
-    or 32               ; A = k | 32
-    cp d
+    ; If last_k and k differ only by bit 5, then validate folded letter.
+    xor b
+    cp 32
     jr nz, rk_new_emit
-    ; Both fold to same letter ? check if letter
-    ld a, d
+    ld a, b
+    or 32
     cp 'a'
     jr c, rk_new_emit
     cp 'z'+1
@@ -730,10 +721,8 @@ fq_not_n:
     jr z, fq_ret_0
 
 fq_check_server:
-    ; if (irc_server[0] && st_stricmp(nick, irc_server) == 0) return 0
-    ld a, (_irc_server)
-    or a
-    jr z, fq_loop_init
+    ; if (st_stricmp(nick, irc_server) == 0) return 0
+    ; Empty irc_server cannot match because nick was checked non-empty above.
     ld hl, _irc_server
     call fq_check_service
     jr z, fq_ret_0

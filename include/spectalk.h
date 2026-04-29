@@ -183,6 +183,7 @@ extern uint8_t key_shift_held(void);
 extern void input_cache_invalidate(void);
 extern void print_str64_char(uint8_t ch) __z88dk_fastcall;
 extern void print_line64_fast(uint8_t y, const char *s, uint8_t attr);
+extern void print_status_left54_fast(const char *s) __z88dk_fastcall;
 extern void notif_draw(uint8_t start_col, const char *str, uint8_t attr);
 extern void notif_clear(void);
 void notif_center(const char *str, uint8_t attr);
@@ -348,6 +349,8 @@ extern uint8_t counting_new_users;
 extern uint16_t names_count_acc;
 extern uint8_t show_names_list;
 extern uint8_t names_was_manual;
+void names_print_summary(uint8_t incomplete) __z88dk_fastcall;
+void names_finish_incomplete(void);
 
 
 // Keep-alive system

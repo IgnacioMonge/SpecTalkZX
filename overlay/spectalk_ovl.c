@@ -187,7 +187,7 @@ void help_render_ovl(void)
     }
     } /* end of total_pages scope */
 
-    notif_center(s_hnot, theme_attrs[TATTR_MSG_SYS]);
+    if (help_page == 0) notif_center(s_hnot, theme_attrs[TATTR_MSG_SYS]);
     rb_head = 0;
     rb_tail = 0;
     rx_pos  = 0;

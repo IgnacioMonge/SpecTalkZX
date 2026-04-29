@@ -47,6 +47,8 @@ mp_scan:
     ld a, (de)                  ; exactly 64 chars also uses fast path
     or a
     jr z, mp_fast
+
+mp_bpe_slow:
     pop hl
 
 mp_slow:
@@ -55,10 +57,6 @@ mp_wrap_reset:
     xor a
     ld (_wrap_indent), a
     jp _main_newline
-
-mp_bpe_slow:
-    pop hl
-    jr mp_slow
 
 mp_fast:
     pop de                      ; DE = original string
@@ -89,8 +87,11 @@ _main_print_time_prefix:
 
     ld a, (_show_timestamps)
     or a
-    jr z, mptp_off          ; mode 0: off
+    jr nz, mptp_check
+    ld (_wrap_indent), a    ; mode 0: off, A is already 0
+    ret
 
+mptp_check:
     cp 2
     jr nz, mptp_do          ; mode 1: always print
 
@@ -150,13 +151,6 @@ mptp_do:
     ; wrap_indent = 6
     ld a, 6
     ld (_wrap_indent), a
-    ret
-
-mptp_off:
-    xor a
-    ld (_wrap_indent), a
-
-mptp_ret:
     ret
 
 ; --- local: print 2-digit decimal from A (00..99), leading zero ---
@@ -263,7 +257,7 @@ mpwr_loop:
     ; Salir para no pisar "Cancelled".
     ld a, (_main_col)
     cp 64
-    jr z, mpwr_abort
+    ret z
 
 mpwr_have_col:
     ; avail = 64 - main_col  -> B
@@ -381,16 +375,13 @@ mpwr_print_done:
     ; Si la paginaci?n fue cancelada durante el pause, salir
     ld a, (_main_col)
     cp 64
-    jr z, mpwr_abort             ; OPT: jp?jr (13 bytes)
+    ret z
 
     jp mpwr_loop                 ; <-- era jr mpwr_loop
 
 mpwr_finalize:
     ; Igual que main_print: reset indent antes del newline final
     jp mp_wrap_reset
-
-mpwr_abort:
-    ret
 
 ; -----------------------------------------------------------------------------
 ; uint8_t names_render_grid(char *p) __z88dk_fastcall

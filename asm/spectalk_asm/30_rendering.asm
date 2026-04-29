@@ -28,7 +28,7 @@ _compute_attr_base:
     ret
 
 ; =============================================================================
-; FUENTE COMPRIMIDA - NIBBLE PACKED (Ahorra ~390 bytes vs font64 original)
+; FUENTE 64-COL
 ; =============================================================================
 ; Solo 10 valores ?nicos en toda la fuente original:
 ; 0x00, 0x22, 0x44, 0x55, 0x66, 0x88, 0xAA, 0xCC, 0xEE, 0xFF
@@ -37,8 +37,23 @@ _compute_attr_base:
 ; Each glyph: 3 compressed bytes (6 nibbles = l?neas 0-5)
 
 ; Data loaded from SPECTALK.DAT at startup (font + themes)
-; Layout: [10 LUT][288 glyphs][75 theme_raw] = 373 bytes contiguous
+; Normal layout: [10 LUT][288 glyphs][75 theme_raw] = 373 bytes contiguous
+; RAW6_FONT_EXPERIMENT layout: [576 raw glyph rows][75 theme_raw] = 651 bytes.
 SECTION bss_user
+IFDEF RAW6_FONT_EXPERIMENT
+PUBLIC _font_lut
+_font_lut:
+font_lut:
+font64_raw6:
+    defs 576              ; 96 chars * 6 rows, LUT-expanded bytes
+PUBLIC _theme_raw
+_theme_raw:
+    defs 75
+PUBLIC _bpe_dict
+_bpe_dict:
+bpe_dict:
+    defs 318
+ELSE
 ; ALIGN 16 does not reliably pad BSS across module boundaries in z80asm
 ; (empirically left font_lut at $F1ED). unpack_glyph relies on
 ;   (font_lut_lo + nibble_index) < 0x100
@@ -64,13 +79,16 @@ PUBLIC _bpe_dict
 _bpe_dict:
 bpe_dict:
     defs 318              ; 106 entries x 3 bytes (b1, b2, 0x00)
+ENDIF
 
 SECTION code_user
 
 ; =============================================================================
 ; GLYPH DECOMPRESSOR
 ; Input: A = char (ASCII 32-127)
-; Output: HL = pointer to 7-byte glyph data (glyph_buffer)
+; Output: HL = pointer to glyph rows.
+;   Normal: glyph_buffer with 7 rows (6 source rows + bottom zero).
+;   RAW6_FONT_EXPERIMENT: font64_raw6 with 6 source rows.
 ; Preserves: IY (required by z88dk)
 ; Destroys: AF, BC, DE. Uses alternate HL'/E' via EXX (ISR safe: called between frames, not during ISR)
 ; Timing: ~136 t-states/iteration (EXX LUT access, no push/pop)
@@ -79,6 +97,21 @@ blank_glyph:
     defb 0, 0, 0, 0, 0, 0, 0
 
 unpack_glyph:
+IFDEF RAW6_FONT_EXPERIMENT
+    ; Calculate offset: (char - 32) * 6. The raw table stores exactly the
+    ; six non-padding glyph rows, already expanded to the old LUT byte values.
+    sub 32
+    ld l, a
+    ld h, 0
+    add hl, hl          ; *2
+    ld d, h
+    ld e, l             ; DE = *2
+    add hl, hl          ; *4
+    add hl, de          ; *6
+    ld de, font64_raw6
+    add hl, de
+    ret
+ELSE
     ; Calculate offset: (char - 32) * 3
     sub 32
     ld l, a
@@ -105,7 +138,6 @@ unpack_glyph:
     ld b, 3
 unpack_loop:
     ld a, (de)           ; 7 T - Read compressed byte
-    ld c, a              ; 4 T - Save copy
 
     ; High nibble -> line N
     rrca
@@ -123,7 +155,7 @@ unpack_loop:
     inc l                ; glyph_buffer is fixed at $5BC0 and cannot cross page
 
     ; Low nibble -> line N+1
-    ld a, c
+    ld a, (de)
     and 0x0F
 
     exx
@@ -144,6 +176,7 @@ unpack_loop:
 
     ld hl, glyph_buffer
     ret
+ENDIF
 
 ; =============================================================================
 ; GRAPHICS SYSTEM - FUNCTIONS
@@ -293,10 +326,10 @@ p64_get_scr_base:
 p64_scr_miss:
     ld a, (hl)             ; A = g_ps64_y
     ld (cache_row_y), a
-    push af
+    ld b, a
     call _compute_screen_base
     ld (cache_scr_base), hl
-    pop af
+    ld a, b
     push hl                ; Guardar screen base
     call _compute_attr_base
     ld (cache_atr_base), hl
@@ -311,51 +344,23 @@ p64_scr_miss:
 ; Preserva: IY (no lo usa)
 ; -----------------------------------------------------------------------------
 _print_str64_char:
-    ; Validate character
+    ; Validate character. Space/control/high bytes use direct clear path.
     ld a, l
-    cp 32
-    jr c, p64_use_space
+    cp 33
+    jr c, p64_space_path
     cp 128
-    jr c, p64_calc_font
-p64_use_space:
-    ld a, 32
-
-p64_calc_font:
-    ; A contains validated character (32-127)
-    ; --- Space short-circuit: borrado directo sin unpack_glyph ---
-    cp 32
-    jr nz, p64_not_space
-
-    ; Obtener screen base (cache o lookup)
-    call p64_get_scr_base   ; HL = screen row base
-    call dbc_add_col        ; HL += col/2, B = col (para paridad)
-
-    ; Space clear (8 scanlines): C = nibble preserve mask
-    ; Even col (bit0=0) → AND 0x0F ; odd col (bit0=1) → AND 0xF0
-    bit 0, b
-    ld c, 0xF0
-    jr nz, p64_space_clear
-    ld c, 0x0F
-p64_space_clear:
-    ld b, 8
-p64_space_loop:
-    ld a, (hl)
-    and c
-    ld (hl), a
-    inc h
-    djnz p64_space_loop
-    jr p64_set_attr
+    jr nc, p64_space_path
 
 p64_not_space:
-    ; Descomprimir glifo a glyph_buffer
-    call unpack_glyph       ; Input: A = char, Output: HL = glyph_buffer
+    ; Descomprimir/ubicar glifo.
+    call unpack_glyph       ; Input: A = char, Output: HL = glyph rows
     push hl                 ; Guardar puntero fuente descomprimida
 
     ; Obtener screen base (cache o lookup)
     call p64_get_scr_base   ; HL = screen row base
     call dbc_add_col        ; HL += col/2, B = col (para paridad)
 
-    pop de                  ; DE = puntero fuente (glyph_buffer)
+    pop de                  ; DE = puntero fuente
 
     ; Decidir lado izquierdo o derecho
     bit 0, b
@@ -367,7 +372,11 @@ p64_not_space:
     ld (hl), a
     inc h
 
+IFDEF RAW6_FONT_EXPERIMENT
+    ld b, 6
+ELSE
     ld b, 7
+ENDIF
 p64_left_loop:
     ld a, (de)
     and 0xF0                ; Tomar nibble izquierdo de fuente
@@ -379,6 +388,11 @@ p64_left_loop:
     inc de
     inc h
     djnz p64_left_loop
+IFDEF RAW6_FONT_EXPERIMENT
+    ld a, (hl)
+    and 0x0F                ; Bottom padding: clear left nibble only
+    ld (hl), a
+ENDIF
     jr p64_set_attr
 
 p64_right:
@@ -388,7 +402,11 @@ p64_right:
     ld (hl), a
     inc h
 
+IFDEF RAW6_FONT_EXPERIMENT
+    ld b, 6
+ELSE
     ld b, 7
+ENDIF
 p64_right_loop:
     ld a, (de)
     and 0x0F                ; Tomar nibble derecho de fuente
@@ -400,6 +418,11 @@ p64_right_loop:
     inc de
     inc h
     djnz p64_right_loop
+IFDEF RAW6_FONT_EXPERIMENT
+    ld a, (hl)
+    and 0xF0                ; Bottom padding: clear right nibble only
+    ld (hl), a
+ENDIF
 
 p64_set_attr:
     ; cache_atr_base queda v?lida tras p64_get_scr_base
@@ -416,6 +439,27 @@ p64_set_attr:
     ret z
     ld (hl), a
     ret
+
+p64_space_path:
+    ; Obtener screen base (cache o lookup)
+    call p64_get_scr_base   ; HL = screen row base
+    call dbc_add_col        ; HL += col/2, B = col (para paridad)
+
+    ; Space clear (8 scanlines): C = nibble preserve mask
+    ; Even col (bit0=0) -> AND 0x0F ; odd col (bit0=1) -> AND 0xF0
+    bit 0, b
+    ld c, 0xF0
+    jr nz, p64_space_clear
+    ld c, 0x0F
+p64_space_clear:
+    ld b, 8
+p64_space_loop:
+    ld a, (hl)
+    and c
+    ld (hl), a
+    inc h
+    djnz p64_space_loop
+    jr p64_set_attr
 
 ; -----------------------------------------------------------------------------
 ; -----------------------------------------------------------------------------
@@ -737,10 +781,9 @@ _put_char64_input_cached:
     ; VRAM attr for input rows: row 22=$5AC0, row 23=$5AE0.
     ld a, b
     srl a
+    add a, 0xC0
     ld l, a
     ld h, 0x5A
-    set 7, l
-    set 6, l
     ld a, c
     cp 23
     jr nz, pci_vattr_ready
@@ -809,6 +852,16 @@ _print_line64_fast:
     ld l, a
     ld a, 32
     sub c
+    ld b, a
+    ld a, (plf_pair_count)
+    or a
+    jr z, plf_use_max_count
+    cp b
+    jr c, plf_count_ready
+plf_use_max_count:
+    ld a, b
+plf_count_ready:
+    ld (plf_pair_count), a
     ld iyl, a
 
 plf_pair_loop:
@@ -887,7 +940,11 @@ plf_right_ok:
     ; unpack_glyph returns glyph_buffer, and LDIR preserves A = right char.
     pop hl                 ; HL = left glyph_buffer; screen addr remains stacked
     ld de, plf_left_buf
+IFDEF RAW6_FONT_EXPERIMENT
+    ld bc, 6
+ELSE
     ld bc, 7
+ENDIF
     ldir
     call unpack_glyph      ; A still has char; HL/DE don't matter (destroyed)
     ex de, hl              ; DE = pointer to right glyph
@@ -903,7 +960,11 @@ plf_write_pair:
     ld (hl), a             ; scanline 0 stays blank like per-char rendering
     inc h
 
+IFDEF RAW6_FONT_EXPERIMENT
+    ld b, 6
+ELSE
     ld b, 7
+ENDIF
 plf_write_loop:
     ld a, (ix+0)           ; Glyph byte izquierdo completo
     and 0xF0               ; Mask diferida (antes pre-masked en save loop)
@@ -916,6 +977,11 @@ plf_write_loop:
     inc de
     inc h                  ; Siguiente scanline
     djnz plf_write_loop
+IFDEF RAW6_FONT_EXPERIMENT
+    xor a
+    ld (hl), a             ; scanline 7 bottom padding
+    inc h                  ; Keep pair-advance contract: HL is base + 8 scanlines
+ENDIF
 
     ld de, (plf_str_ptr)   ; DE = string pointer para siguiente iteraci?n
 plf_pair_advance:
@@ -940,15 +1006,16 @@ plf_pair_advance:
     ld d, h
     ld e, l
     inc de
-    ld a, 31
-    sub c                  ; 31 - start_byte = remaining
+    ld a, (plf_pair_count)
+    dec a                  ; remaining after first byte
     jr z, plf_no_ldir      ; start_byte=31 → BC would be 0 → LDIR = 65536 bytes
     ld c, a
     ldir                   ; Fill remaining attrs
 plf_no_ldir:
-    ; Reset start offset
+    ; Reset optional caller state
     xor a
     ld (_plf_start_byte), a
+    ld (plf_pair_count), a
 
     ; (S01) Trailing update de _g_ps64_col/y/attr eliminado. Verificado:
     ; todos los readers (main_puts, main_newline, print_char64, print_big_str,
@@ -959,6 +1026,26 @@ plf_no_ldir:
     pop ix
     ret
 
+; -----------------------------------------------------------------------------
+; void print_status_left54_fast(const char *s) __z88dk_fastcall
+; Render only logical columns 0..53 of the status bar (27 physical cells).
+; Columns 54..63 are owned by draw_clock() and draw_indicator(); keeping this
+; left render bounded avoids right-side flicker when user counts update.
+; -----------------------------------------------------------------------------
+_print_status_left54_fast:
+    ld a, 27
+    ld (plf_pair_count), a
+    ld c, h                     ; C = str_hi
+    ld h, l                     ; H = str_lo
+    ld l, 21                    ; INFO_LINE
+    ld a, (_theme_attrs + TA_STATUS)
+    ld b, a                     ; B = ATTR_STATUS
+    push bc                     ; [str_hi][attr]
+    push hl                     ; [y][str_lo]
+    call _print_line64_fast
+    pop bc
+    pop bc
+    ret
 
 ; -----------------------------------------------------------------------------
 ; void redraw_input_asm(void)
@@ -990,14 +1077,18 @@ _redraw_input_asm:
 ria_prompt_ready:
     ld a, c
     ; Draw byte 0 directly: prompt glyph on the left, blank on the right.
-    ; Vertical layout matches print_str64_char(): blank top scanline, 7 glyph rows.
+    ; Vertical layout matches print_str64_char(): blank top scanline, glyph rows.
     call unpack_glyph
     ex de, hl                  ; DE = glyph source
     ld hl, 0x50C0              ; INPUT_ROW_1 bitmap base
     xor a
     ld (hl), a
     inc h
+IFDEF RAW6_FONT_EXPERIMENT
+    ld b, 6
+ELSE
     ld b, 7
+ENDIF
 ria_prompt_loop:
     ld a, (de)
     and 0xF0
@@ -1005,6 +1096,10 @@ ria_prompt_loop:
     inc de
     inc h
     djnz ria_prompt_loop
+IFDEF RAW6_FONT_EXPERIMENT
+    xor a
+    ld (hl), a
+ENDIF
 
     ld hl, 0x5AC0              ; INPUT_ROW_1 attr base
     ld a, (_theme_attrs + 8)   ; ATTR_PROMPT
@@ -1150,12 +1245,10 @@ _draw_cursor_underline:
     ld e, a                 ; E = phys_x
     ld a, b
     and 1
-    jr nz, dcu_right
     ld d, 0xF0              ; D = cursor mask
     ld b, 0x0F              ; B = inverse mask
-    jr dcu_masks
-dcu_right:
-    ld d, 0x0F
+    jr z, dcu_masks
+    ld d, b
     ld b, 0xF0
 dcu_masks:
     ; Attribute: attr_addr(y, phys_x) = ATTR_INPUT.

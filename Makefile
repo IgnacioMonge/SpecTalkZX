@@ -56,6 +56,24 @@ ifeq ($(SCROLL_PROFILE),1)
 EXTRA_CFLAGS += -Ca-DSCROLL_PROFILE
 BUILD_PROFILE := SCROLL_PROFILE
 endif
+SCROLL_STACK_EXPERIMENT ?= 0
+ifeq ($(SCROLL_STACK_EXPERIMENT),1)
+EXTRA_CFLAGS += -Ca-DSCROLL_STACK_EXPERIMENT
+ifeq ($(BUILD_PROFILE),NORMAL)
+BUILD_PROFILE := SCROLL_STACK_EXPERIMENT
+else
+BUILD_PROFILE := $(BUILD_PROFILE)+SCROLL_STACK_EXPERIMENT
+endif
+endif
+RAW6_FONT_EXPERIMENT ?= 0
+ifeq ($(RAW6_FONT_EXPERIMENT),1)
+EXTRA_CFLAGS += -Ca-DRAW6_FONT_EXPERIMENT
+ifeq ($(BUILD_PROFILE),NORMAL)
+BUILD_PROFILE := RAW6_FONT_EXPERIMENT
+else
+BUILD_PROFILE := $(BUILD_PROFILE)+RAW6_FONT_EXPERIMENT
+endif
+endif
 CFLAGS = -vn -SO3 -startup=31 -compiler=sdcc -clib=sdcc_iy \
          -zorg=$(ZORG) --opt-code-size --fomit-frame-pointer \
          -Cc--Werror \
@@ -216,7 +234,7 @@ $(BPE_STAMP): $(BPE_INPUTS)
 	@cp include/spectalk.h $(BUILD_DIR)/bpe_originals/
 	@cp src/SPECTALK.DAT $(BUILD_DIR)/bpe_originals/
 	@cp overlay/overlay_api.h $(BUILD_DIR)/bpe_originals/
-	@$(PYTHON) tools/bpe_build.py
+	@RAW6_FONT_EXPERIMENT=$(RAW6_FONT_EXPERIMENT) $(PYTHON) tools/bpe_build.py
 	@printf "ok\n" > "$(BPE_STAMP)"
 	$(call OK,BPE complete.)
 	$(call HR)

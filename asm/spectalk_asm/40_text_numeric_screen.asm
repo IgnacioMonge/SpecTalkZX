@@ -62,11 +62,10 @@ stricmp_diff:
     add a, a
     sbc a, a
     ld h, a
-    jr stricmp_done
+    ret
 
 stricmp_equal:
     ld hl, 0
-stricmp_done:
     ret
 
 ; -----------------------------------------------------------------------------
@@ -101,10 +100,10 @@ _st_stristr:
     ; Validar needle
     ld a, d
     or e
-    jr z, sstr_ret_hay      ; needle NULL -> return hay
+    ret z                   ; needle NULL -> return hay
     ld a, (de)
     or a
-    jr z, sstr_ret_hay      ; needle vac?o -> return hay
+    ret z                   ; needle vac?o -> return hay
     
 sstr_outer:
     ld a, (hl)
@@ -148,10 +147,6 @@ sstr_next_pos:
 sstr_found:
     pop de                  ; Limpiar stack
     pop hl                  ; HL = posici?n del match
-    ret
-
-sstr_ret_hay:
-    ; HL ya tiene hay
     ret
 
 sstr_fail:
@@ -367,11 +362,13 @@ strip_color:
     
     ; Saltar hasta 2 d?gitos de foreground
     ld a, (hl)
-    call strip_is_digit
+    sub '0'
+    cp 10
     jr nc, strip_loop
     inc hl
     ld a, (hl)
-    call strip_is_digit
+    sub '0'
+    cp 10
     jr nc, strip_check_bg
     inc hl
 
@@ -383,11 +380,13 @@ strip_check_bg:
     
     ; Saltar hasta 2 d?gitos de background
     ld a, (hl)
-    call strip_is_digit
+    sub '0'
+    cp 10
     jr nc, strip_loop
     inc hl
     ld a, (hl)
-    call strip_is_digit
+    sub '0'
+    cp 10
     jr nc, strip_loop
     inc hl
     jr strip_loop
@@ -395,13 +394,6 @@ strip_check_bg:
 strip_done:
     xor a
     ld (de), a              ; NULL terminator
-    ret
-
-; Subrutina: ?es A un d?gito?
-; Retorna: Carry set si es d?gito
-strip_is_digit:
-    sub '0'
-    cp 10
     ret
 
 ; =============================================================================
@@ -466,9 +458,7 @@ _reapply_screen_attributes:
     ; 8. AVISAR A TODOS LOS SISTEMAS DE REPINTADO
     ld hl, _force_status_redraw   ; Avisa al renderizador interno
     ld (hl), 1
-    call _set_sbd                ; Avisa al bucle Main de C <--- CR?TICO
-
-    ret
+    jp _set_sbd                  ; Avisa al bucle Main de C <--- CR?TICO
 
 ; -----------------------------------------------------------------------------
 ; Rutina auxiliar: _fast_fill_attr
@@ -613,7 +603,7 @@ IFDEF SCROLL_PROFILE
 ENDIF
     push iy
 
-    ld iyl, 0              ; IYL = scanline offset (0..7)
+    ld iyl, 7              ; IYL = scanline offset (7..0)
 
 smz_scanline_loop:
     ; BLOQUE 1: Filas 4-7 -> 3-6 (Src: 0x4080, Dest: 0x4060, Len: 128)
@@ -637,8 +627,12 @@ smz_scanline_loop:
     ld d, a
     ld l, 0x20
     ld e, 0x00
+IFDEF SCROLL_STACK_EXPERIMENT
+    call _scroll_stack_blit_224
+ELSE
     ld bc, 224
     ldir
+ENDIF
 
     ; BLOQUE 4: Fila 16 -> 15 (Src: 0x5000, Dest: 0x48E0, Len: 32)
     ld a, 0x50
@@ -654,11 +648,9 @@ smz_scanline_loop:
     ld bc, 96
     ldir
 
-    ; Siguiente scanline (0..7)
-    inc iyl
-    ld a, iyl
-    cp 8
-    jr nz, smz_scanline_loop
+    ; Siguiente scanline (7..0, termina al pasar a 0xFF)
+    dec iyl
+    jp p, smz_scanline_loop
 
     ; Scroll atributos (16 filas: 4->3 ... 19->18)
 IFDEF SCROLL_PROFILE
@@ -715,6 +707,74 @@ smz_cross_block:
     ld bc, 32
     ldir
     ret
+
+IFDEF SCROLL_STACK_EXPERIMENT
+PUBLIC _scroll_stack_blit_224
+; Experimental 224-byte forward copy using SP as the transfer pointer.
+; Input: HL = source, DE = destination. Destroys all main/alternate regs.
+; Destination low byte must not cross page before the final unused update.
+; Leaves interrupts disabled: mainline IM1 is only enabled inside frame_wait()
+; with IY set to ROM system variables.
+; Active only in SCROLL_STACK_EXPERIMENT builds.
+_scroll_stack_blit_224:
+    di
+    push ix
+    ld (ssb_save_sp + 1), sp
+
+    ld (ssb_src + 1), hl
+
+    push hl
+    ld hl, 16
+    add hl, de
+    ld (ssb_dst + 1), hl
+    ld a, l
+    ld (ssb_dst_low + 1), a
+    pop hl
+
+    ld ixl, 14
+
+ssb_loop:
+ssb_src:
+    ld sp, 0x0000
+    pop bc
+    pop de
+    pop hl
+    pop af
+    exx
+    ex af, af'
+    pop bc
+    pop de
+    pop hl
+    pop af
+    ld (ssb_src + 1), sp
+
+ssb_dst:
+    ld sp, 0x0000
+    push af
+    push hl
+    push de
+    push bc
+    exx
+    ex af, af'
+    push af
+    push hl
+    push de
+    push bc
+
+ssb_dst_low:
+    ld a, 0x00
+    add a, 16
+    ld (ssb_dst + 1), a
+    ld (ssb_dst_low + 1), a
+
+    dec ixl
+    jr nz, ssb_loop
+
+ssb_save_sp:
+    ld sp, 0x0000
+    pop ix
+    ret
+ENDIF
 
 ; =============================================================================
 ; void main_newline(void)
