@@ -211,7 +211,6 @@ extern const char* st_stristr(const char *hay, const char *needle);
 extern uint8_t st_strlen(const char *s) __z88dk_fastcall;
 extern char* u16_to_dec(char *dst, uint16_t v);
 extern uint16_t str_to_u16(const char *s) __z88dk_fastcall;
-extern char* skip_to(char *s, char c);
 extern void st_copy_n(char *dst, const char *src, uint8_t max_len);
 extern void uart_send_string(const char *s) __z88dk_fastcall;
 extern void strip_irc_codes(char *s);

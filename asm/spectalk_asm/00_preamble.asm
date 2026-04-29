@@ -134,9 +134,7 @@ PUBLIC _compute_screen_base
 PUBLIC _st_stricmp
 PUBLIC _st_stristr
 PUBLIC _u16_to_dec
-PUBLIC _u16_to_dec3
 PUBLIC _str_to_u16
-PUBLIC _skip_to
 PUBLIC _uart_send_string
 PUBLIC _strip_irc_codes
 PUBLIC _rb_pop

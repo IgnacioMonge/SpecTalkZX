@@ -173,24 +173,6 @@ _u16_to_dec:
     call u16_digit
     jr u16_common_1000      ; Saltar a c?digo com?n
 
-; =============================================================================
-; char* u16_to_dec3(char *dst, uint16_t v)
-; Versi?n reducida: imprime hasta 4 d?gitos (1000,100,10,1). Ideal para contadores.
-; Retorna puntero al NULL (igual que u16_to_dec).
-; =============================================================================
-
-_u16_to_dec3:
-    pop bc                  ; return
-    pop de                  ; dst
-    pop hl                  ; v
-    push hl
-    push de
-    push bc
-
-    ex af, af'
-    xor a                   ; AF' = flag "ya imprimimos algo"
-    ex af, af'
-
 u16_common_1000:
     ld bc, -1000
     call u16_digit
@@ -286,33 +268,6 @@ stu16_done:
 ; =============================================================================
 ; PARSING IRC
 ; =============================================================================
-
-; -----------------------------------------------------------------------------
-; char* skip_to(char *s, char c)
-; Busca char c en s, reemplaza con NULL, retorna s+1
-; Convenci?n: cdecl
-; -----------------------------------------------------------------------------
-_skip_to:
-    pop bc                  ; Retorno
-    pop hl                  ; s
-    pop de                  ; c (en E)
-    push de
-    push hl
-    push bc
-    
-skpto_loop:
-    ld a, (hl)
-    or a
-    ret z                   ; Fin de string
-    cp e
-    jr z, skpto_found
-    inc hl
-    jr skpto_loop
-    
-skpto_found:
-    ld (hl), 0              ; Terminar string aqu?
-    inc hl                  ; Return next position
-    ret
 
 ; =============================================================================
 ; C?DIGOS IRC

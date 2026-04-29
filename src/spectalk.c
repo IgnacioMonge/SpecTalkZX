@@ -1274,8 +1274,6 @@ static const char* sb_pick_status(uint8_t prefer_server_full) __z88dk_fastcall
     return S_CONNECTED;
 }
 
-extern char *u16_to_dec3(char *dst, uint16_t v);
-
 // sb_format_channel: Escribe nombre de canal con modos y red si caben
 // CONTRATO:
 //   - central_limit es "one-past-end" del área disponible (excluyendo ']')
