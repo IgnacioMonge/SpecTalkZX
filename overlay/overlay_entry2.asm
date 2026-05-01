@@ -1,9 +1,82 @@
 ;; overlay_entry2.asm — Entry table for SPCTLK2.OVL
 SECTION code_user
+
 EXTERN _about_render_ovl
-EXTERN _config_render_ovl
-EXTERN _globe_tick_ovl
+EXTERN _about_close_ovl
+EXTERN _overlay_slot
+EXTERN _esx_handle
+EXTERN _esx_buf
+EXTERN _esx_count
+EXTERN _esx_fread
+EXTERN _esx_result
+EXTERN _earth_apply_frame_delta
+EXTERN _earth_apply_attr_delta
+EXTERN _earth_seek
+EXTERN _earth_draw_frame
+
+DEFC EARTH_PACKET_SIZE  = 481
+DEFC EARTH_FRAME_COUNT  = 24
+DEFC EARTH_DELTA_OFFSET = 2128
+
+PUBLIC _globe_tick_ovl
+PUBLIC _earth_ready
+PUBLIC _frame_idx
+
     dw 3                      ; entry_count = 3
     dw _about_render_ovl      ; entry 0 → about
-    dw _config_render_ovl     ; entry 1 → config
+    dw _about_close_ovl       ; entry 1 → close about DAT handle
     dw _globe_tick_ovl        ; entry 2 → globe animation tick
+
+; ==============================================================================
+; ENTRY 2 — Fast ASM Tick (transplanted from C)
+; ==============================================================================
+_globe_tick_ovl:
+    ld a, (_earth_ready)
+    or a
+    ret z
+
+    ld hl, _overlay_slot
+    ld (_esx_buf), hl
+    ld hl, EARTH_PACKET_SIZE
+    ld (_esx_count), hl
+    call _esx_fread
+
+    ld hl, (_esx_result)
+
+tick_have_packet:
+    ld de, EARTH_PACKET_SIZE
+    or a
+    sbc hl, de
+    jp nz, _about_close_ovl       ; tail-call if read fails
+
+    ; Apply frame delta: earth_apply_frame_delta(overlay_slot + 2)
+    ld hl, _overlay_slot + 2
+    call _earth_apply_frame_delta
+
+    ; Apply attr delta: earth_apply_attr_delta(overlay_slot + len + 3)
+    ld hl, (_overlay_slot)        ; reads little-endian 16-bit len
+    ld de, _overlay_slot + 3
+    add hl, de
+    call _earth_apply_attr_delta
+
+    ; Increment frame and reset stream when wrapped
+    ld hl, _frame_idx
+    inc (hl)
+    ld a, (hl)
+    cp EARTH_FRAME_COUNT
+    jr nz, tick_draw
+
+    ld hl, EARTH_DELTA_OFFSET
+    call _earth_seek
+
+    ld a, l
+    or a
+    jp z, _about_close_ovl        ; tail-call if seek fails
+    xor a
+    ld (_frame_idx), a
+
+tick_draw:
+    jp _earth_draw_frame          ; tail-call draws and returns natively
+
+_earth_ready: db 0
+_frame_idx:   db 0

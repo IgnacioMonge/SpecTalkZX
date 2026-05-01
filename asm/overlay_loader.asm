@@ -1,5 +1,5 @@
 ;; overlay_loader.asm — Load and execute overlays from esxDOS
-;; All overlays packed in SPECTALK.OVL (4 × 2048B blocks).
+;; All overlays packed in SPECTALK.OVL (5 x 2048B blocks).
 ;; OVL code loaded into ring_buffer (2048B) for execution.
 ;; overlay_slot (512B, aliased to rx_line) available as scratch data buffer for overlays.
 
@@ -36,7 +36,7 @@ _overlay_exec:
     call _esx_fopen
     ld a, (_esx_handle)
     or a
-    jp z, ovl_fail
+    jr z, ovl_fail
 
     ; Set buffer to ring_buffer, count = 2048
     ld hl, _ring_buffer
@@ -67,14 +67,14 @@ ovl_read:
     jr nz, ovl_read_ok   ; >= 256B, OK
     ld a, l
     cp 64
-    jp c, ovl_fail        ; < 64B, corrupted/truncated
+    jr c, ovl_fail        ; < 64B, corrupted/truncated
 ovl_read_ok:
 
     ; W7 fix: validate entry_id < entry_count
     ld a, (ix+5)        ; entry_id
     ld hl, _ring_buffer
     cp (hl)             ; compare entry_id vs entry_count (low byte)
-    jp nc, ovl_fail     ; entry_id >= entry_count -> invalid
+    jr nc, ovl_fail     ; entry_id >= entry_count -> invalid
 
     ; Look up entry point: ring_buffer[2 + entry_id*2]
     add a, a            ; *2
@@ -172,6 +172,20 @@ _overlay_call:
 
 ovl_call_bad:
     pop     de
+    ret
+
+; void overlay_call_timed(uint8_t entry_id) __z88dk_fastcall
+; Same ABI as overlay_call, but enables IM1 interrupts while the overlay entry
+; runs. Use only for ABOUT animation ticks: this lets ROM FRAMES advance during
+; long DAT/draw work while keeping the normal mainline DI contract elsewhere.
+PUBLIC _overlay_call_timed
+_overlay_call_timed:
+    push    iy
+    ld      iy, 0x5C3A        ; ROM ISR expects IY = system variables
+    ei
+    call    _overlay_call
+    di
+    pop     iy
     ret
 
 ovl_filename:

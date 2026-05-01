@@ -296,6 +296,8 @@ do_connect:
     main_puts2("Connecting to ", irc_server); main_putc(':'); main_puts2(irc_port, "... ");
     
     force_disconnect();
+    sntp_init();  // self-guarded
+    if (sntp_init_sent) (void)wait_for_response(S_OK, 50);
     if (!use_saved_session) {
         search_pattern[0] = 0;
         autojoin_channels[0] = 0;
@@ -1130,13 +1132,13 @@ uint8_t overlay_header(const char *title) __z88dk_fastcall
     return MAIN_START + 3;
 }
 
-// overlay_config_render — moved to overlay (SPECTALK.OVL entry 2)
+// overlay_config_render — moved to SPCTLK5.OVL entry 0
 static void sys_config(const char *args) __z88dk_fastcall
 {
     (void)args;
     if (snapshot_autojoin_channels()) config_dirty = 1;
     enter_overlay_mode(OVERLAY_CONFIG);
-    overlay_exec(1, 1);
+    overlay_exec(4, 0);
 }
 
 static void sys_whatsnew(const char *args) __z88dk_fastcall
@@ -1293,8 +1295,14 @@ static void cmd_autojoin(const char *args) __z88dk_fastcall
 static void cmd_tz(const char *args) __z88dk_fastcall
 {
     uint16_t had_partial = rx_pos;
-    st_copy_n((char *)overlay_slot, args ? args : "", 8);
-    overlay_exec(0, 4);
+
+    if (args && args[0] == 'r' && args[1] == 't' && args[2] == 'c' && args[3] == 0) {
+        overlay_exec(4, 2);
+    } else {
+        st_copy_n((char *)overlay_slot, args ? args : "", 8);
+        overlay_exec(4, 3);
+    }
+
     if (had_partial) rx_overflow = 1;
 }
 
@@ -1337,14 +1345,12 @@ static void cmd_friend(const char *args) __z88dk_fastcall
 }
 
 // cmd_save — moved to overlay (SPCTLK4.OVL entry 1)
+// RX discard gate lives inside save_config_ovl now (captures old_rx_pos at entry).
 void cmd_save(const char *args) __z88dk_fastcall
 {
-    uint16_t had_partial;
     (void)args;
-    had_partial = rx_pos;
     snapshot_autojoin_channels();
     overlay_exec(3, 1);
-    if (!had_partial) rx_overflow = 0;
 }
 
 // OPT-C14: cmd_clear eliminated — command table points directly to clear_main
@@ -1507,11 +1513,28 @@ static void sys_help(const char *args) __z88dk_fastcall
     help_render_page();
 }
 
+static void about_process_pending_lines(void) ST_NAKED
+{
+    __asm
+about_pending_loop:
+    call _try_read_line_nodrain
+    ld a,l
+    or a
+    ret z
+    ld hl,0
+    ld (_server_silence_frames),hl
+    ld hl,_rx_line
+    call _parse_irc_message
+    jr about_pending_loop
+    __endasm;
+}
+
 // overlay_about_render — moved to overlay (SPECTALK.OVL entry 1)
 static void sys_about(const char *args) __z88dk_fastcall
 {
     (void)args;
     enter_overlay_mode(OVERLAY_ABOUT);
+    about_process_pending_lines();
     overlay_exec(1, 0);
 }
 

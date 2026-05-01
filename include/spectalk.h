@@ -51,6 +51,9 @@
 #define INPUT_LINES       2
 #define INPUT_END         (INPUT_START + INPUT_LINES - 1)
 
+// Timezone sentinel: user explicitly selected hardware RTC mode.
+#define TZ_RTC 127
+
 // =============================================================================
 // KEY CODES
 // =============================================================================
@@ -199,6 +202,7 @@ extern uint8_t notif_enabled;
 void notify(const char *msg, uint8_t attr);
 void overlay_exec(uint8_t ovl_id, uint8_t entry_id) __z88dk_callee;
 void overlay_call(uint8_t entry_id) __z88dk_fastcall;
+void overlay_call_timed(uint8_t entry_id) __z88dk_fastcall;
 void cmd_save(const char *args) __z88dk_fastcall;
 uint8_t overlay_header(const char *title) __z88dk_fastcall;
 extern void draw_indicator(uint8_t y, uint8_t phys_x, uint8_t attr);

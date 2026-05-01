@@ -23,6 +23,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(SCRIPT_DIR)
 BUILD_DIR = os.path.join(ROOT, "build")
 HELP_TEXT_PATH = os.path.join(ROOT, "src", "SPECTALK_HELP.txt")
+EARTH_DIR = os.path.join(ROOT, "release", "about_earth")
 
 SRC_FILES = ["spectalk.c", "irc_handlers.c", "user_cmds.c"]
 HDR_FILES = ["spectalk.h"]
@@ -32,6 +33,14 @@ HDR_FILES = ["spectalk.h"]
 SPANISH_N_CODE = 127
 SPANISH_N_PACKED = bytes((0x47, 0x66, 0x66))
 DAT_BASE_SIZE = 651
+EARTH_FRAME_COUNT = 24
+EARTH_FRAME0_SIZE = 587
+EARTH_ATTR0_SIZE = 44
+EARTH_LOGO_SIZE = 528
+EARTH_PACKET_SIZE_LIMIT = 512
+EARTH_LOGO_W_BYTES = 22
+EARTH_LOGO_H = 24
+EARTH_LOGO_ATTR_H = 3
 
 # Constants audited as safe for BPE (screen-only)
 SAFE_CONSTANTS = [
@@ -121,10 +130,10 @@ def apply_sb_renames(content):
     return content
 
 
-def patch_spectalk_c(content, dat_dict_offset=691):
+def patch_spectalk_c(content, bpe_load_size=691):
     """Apply structural patches for BPE support."""
     # esx_count for SPECTALK.DAT with dict (dynamic based on actual dict size)
-    content = content.replace("esx_count = 373;", f"esx_count = {dat_dict_offset};")
+    content = content.replace("esx_count = 373;", f"esx_count = {bpe_load_size};")
 
     # BPE bypass in main_print fast path
     content = content.replace(
@@ -156,9 +165,9 @@ def patch_spectalk_h(content):
     return content
 
 
-def patch_user_cmds_c(content, dat_dict_offset=691):
+def patch_user_cmds_c(content, bpe_load_size=691):
     """Apply help offset and abort_msg/status patches."""
-    content = content.replace("ring_buffer + 373", f"ring_buffer + {dat_dict_offset}")
+    content = content.replace("ring_buffer + 373", f"ring_buffer + {bpe_load_size}")
 
     # Replace inline literals with SB_ constants
     content = content.replace('abort_msg = "Aborted.";', "abort_msg = SB_ABORTED;")
@@ -247,6 +256,125 @@ def validate_backup(backup_dir):
             sys.exit(1)
 
 
+def split_delta_stream(data, target_size, label):
+    """Split SKIP/COPY delta stream using command semantics, not raw zero bytes."""
+    parts = []
+    off = 0
+    while off < len(data):
+        start = off
+        pos = 0
+        while True:
+            if off >= len(data):
+                raise ValueError(f"{label}: truncated delta at {start}")
+            cmd = data[off]
+            off += 1
+            if cmd == 0:
+                break
+            if cmd < 0x80:
+                pos += cmd
+            else:
+                n = (cmd & 0x7F) + 1
+                off += n
+                pos += n
+            if off > len(data) or pos > target_size:
+                raise ValueError(f"{label}: malformed delta at {start}")
+        parts.append(data[start:off])
+    return parts
+
+
+def load_earth_assets():
+    """Load about Earth assets and build one tick stream with length prefixes."""
+    paths = {
+        "frame0": os.path.join(EARTH_DIR, "earth_frame0.compact.bin"),
+        "frame_deltas": os.path.join(EARTH_DIR, "earth_frame_deltas.bin"),
+        "attr0": os.path.join(EARTH_DIR, "earth_attr0.compact4.bin"),
+        "attr_deltas": os.path.join(EARTH_DIR, "earth_attr_deltas.compact4.bin"),
+        "logo": os.path.join(EARTH_DIR, "earth_logo.bin"),
+    }
+    try:
+        frame0 = open(paths["frame0"], "rb").read()
+        attr0 = open(paths["attr0"], "rb").read()
+        logo = open(paths["logo"], "rb").read()
+        frame_parts = split_delta_stream(
+            open(paths["frame_deltas"], "rb").read(), EARTH_FRAME0_SIZE, "frame"
+        )
+        attr_parts = split_delta_stream(
+            open(paths["attr_deltas"], "rb").read(), EARTH_ATTR0_SIZE, "attr"
+        )
+    except OSError as exc:
+        raise SystemExit(f"  [BPE ABORT] missing Earth asset: {exc}") from exc
+
+    if len(frame0) != EARTH_FRAME0_SIZE:
+        raise SystemExit(f"  [BPE ABORT] frame0 is {len(frame0)} bytes")
+    if len(attr0) != EARTH_ATTR0_SIZE:
+        raise SystemExit(f"  [BPE ABORT] attr0 is {len(attr0)} bytes")
+    if len(logo) != EARTH_LOGO_SIZE:
+        raise SystemExit(f"  [BPE ABORT] logo is {len(logo)} bytes")
+    if len(frame_parts) != EARTH_FRAME_COUNT or len(attr_parts) != EARTH_FRAME_COUNT:
+        raise SystemExit("  [BPE ABORT] Earth delta frame count mismatch")
+
+    packets = []
+    earth_packet_size = 0
+    for frame_delta, attr_delta in zip(frame_parts, attr_parts):
+        if len(attr_delta) > 255:
+            raise SystemExit(f"  [BPE ABORT] attr delta too large: {len(attr_delta)}")
+        packet_size = 2 + len(frame_delta) + 1 + len(attr_delta)
+        if packet_size > EARTH_PACKET_SIZE_LIMIT:
+            raise SystemExit(f"  [BPE ABORT] Earth packet too large: {packet_size}")
+        if packet_size > earth_packet_size:
+            earth_packet_size = packet_size
+        packet = bytearray()
+        packet.extend(len(frame_delta).to_bytes(2, "little"))
+        packet.extend(frame_delta)
+        packet.append(len(attr_delta))
+        packet.extend(attr_delta)
+        packets.append(packet)
+
+    deltas = bytearray()
+    for packet in packets:
+        packet.extend(b"\0" * (earth_packet_size - len(packet)))
+        deltas.extend(packet)
+
+    return frame0, attr0, logo, bytes(deltas), earth_packet_size
+
+
+def patch_overlay_api_offsets(path, bpe_help_offset, earth_offsets):
+    content = read_file(path)
+    replacements = {
+        "BPE_HELP_OFFSET": bpe_help_offset,
+        **earth_offsets,
+        "EARTH_FRAME_COUNT": EARTH_FRAME_COUNT,
+        "EARTH_FRAME0_SIZE": EARTH_FRAME0_SIZE,
+        "EARTH_ATTR0_SIZE": EARTH_ATTR0_SIZE,
+        "EARTH_LOGO_SIZE": EARTH_LOGO_SIZE,
+        "EARTH_LOGO_W_BYTES": EARTH_LOGO_W_BYTES,
+        "EARTH_LOGO_H": EARTH_LOGO_H,
+        "EARTH_LOGO_ATTR_H": EARTH_LOGO_ATTR_H,
+    }
+    for name, value in replacements.items():
+        content = re.sub(rf"#define {name} \d+", f"#define {name} {value}", content)
+    write_file(path, content)
+
+
+def patch_overlay_entry2_consts(path, earth_offsets):
+    """Keep the hand-written about tick ASM in sync with generated DAT layout."""
+    content = read_file(path)
+    replacements = {
+        "EARTH_PACKET_SIZE": earth_offsets["EARTH_PACKET_SIZE"],
+        "EARTH_FRAME_COUNT": EARTH_FRAME_COUNT,
+        "EARTH_DELTA_OFFSET": earth_offsets["EARTH_DELTA_OFFSET"],
+    }
+    for name, value in replacements.items():
+        content, count = re.subn(
+            rf"(DEFC\s+{name}\s*=\s*)\d+",
+            rf"\g<1>{value}",
+            content,
+        )
+        if count != 1:
+            raise SystemExit(f"  [BPE ABORT] could not patch {name} in {path}")
+    write_file(path, content)
+
+
 def main():
     sys.path.insert(0, os.path.join(ROOT, "tools"))
     from bpe_compress import (
@@ -265,8 +393,8 @@ def main():
     os.makedirs(bpe_src, exist_ok=True)
     os.makedirs(bpe_final, exist_ok=True)
 
-    # Step 1: Copy and patch sources (all patches including default offset 691;
-    # offset will be corrected in Step 4b after dict size is known)
+    # Step 1: Copy and patch sources with a placeholder BPE load size;
+    # offset will be corrected in Step 4b after dict size is known.
     for f in SRC_FILES:
         content = read_file(os.path.join(ROOT, "src", f))
         content = apply_sb_renames(content)
@@ -303,33 +431,53 @@ def main():
     with open(dict_path, "wb") as f:
         f.write(dict_bin)
 
-    dat_dict_offset = DAT_BASE_SIZE + len(
+    bpe_load_size = DAT_BASE_SIZE + len(
         dict_bin
-    )  # help text starts after font+themes+dict
+    )  # font + themes + BPE dict loaded at startup
+
+    (
+        earth_frame0,
+        earth_attr0,
+        earth_logo,
+        earth_deltas,
+        earth_packet_size,
+    ) = load_earth_assets()
+    earth_offset = bpe_load_size
+    delta_unaligned = (
+        earth_offset + len(earth_frame0) + len(earth_attr0) + len(earth_logo)
+    )
+    earth_delta_offset = delta_unaligned
+    earth_offsets = {
+        "EARTH_FRAME0_OFFSET": earth_offset,
+        "EARTH_ATTR0_OFFSET": earth_offset + len(earth_frame0),
+        "EARTH_LOGO_OFFSET": earth_offset + len(earth_frame0) + len(earth_attr0),
+        "EARTH_DELTA_OFFSET": earth_delta_offset,
+        "EARTH_DELTA_SIZE": len(earth_deltas),
+        "EARTH_PACKET_SIZE": earth_packet_size,
+    }
+    earth_block = earth_frame0 + earth_attr0 + earth_logo + earth_deltas
+    help_offset = earth_offset + len(earth_block)
 
     # Step 4b: Fix offsets in compressed sources if dict size differs from default
-    DEFAULT_OFFSET = 691  # 373 + 318 (original dict size assumption)
-    if dat_dict_offset != DEFAULT_OFFSET:
+    DEFAULT_OFFSET = 691  # legacy placeholder patched to the real BPE load size
+    if bpe_load_size != DEFAULT_OFFSET:
         for f in ["spectalk.c", "user_cmds.c"]:
             path = os.path.join(bpe_final, f)
             content = read_file(path)
             content = content.replace(
-                f"esx_count = {DEFAULT_OFFSET};", f"esx_count = {dat_dict_offset};"
+                f"esx_count = {DEFAULT_OFFSET};", f"esx_count = {bpe_load_size};"
             )
             content = content.replace(
-                f"ring_buffer + {DEFAULT_OFFSET}", f"ring_buffer + {dat_dict_offset}"
+                f"ring_buffer + {DEFAULT_OFFSET}", f"ring_buffer + {bpe_load_size}"
             )
             write_file(path, content)
 
-    # Step 4c: Patch overlay_api.h with actual help offset
+    # Step 4c: Patch overlay_api.h with actual help/Earth offsets
     ovl_api = os.path.join(ROOT, "overlay", "overlay_api.h")
-    ovl_content = read_file(ovl_api)
-    ovl_content = re.sub(
-        r"#define BPE_HELP_OFFSET \d+",
-        f"#define BPE_HELP_OFFSET {dat_dict_offset}",
-        ovl_content,
+    patch_overlay_api_offsets(ovl_api, help_offset, earth_offsets)
+    patch_overlay_entry2_consts(
+        os.path.join(ROOT, "overlay", "overlay_entry2.asm"), earth_offsets
     )
-    write_file(ovl_api, ovl_content)
 
     # Step 5: Generate SPECTALK.DAT with dict + help segment padding
     dat_orig = os.path.join(ROOT, "src", "SPECTALK.DAT")
@@ -387,7 +535,7 @@ def main():
 
     dat_out = os.path.join(BUILD_DIR, "SPECTALK.DAT")
     with open(dat_out, "wb") as f:
-        f.write(bytes(header) + dict_bin + bytes(padded))
+        f.write(bytes(header) + dict_bin + earth_block + bytes(padded))
 
     # Step 6: Install compressed files for compilation
     for f in SRC_FILES:
@@ -401,7 +549,8 @@ def main():
     saved = content_bytes - compressed_bytes
     print(
         f"  BPE: {screen_count} strings, {len(dictionary)} tokens, "
-        f"{content_bytes}B -> {compressed_bytes}B (-{saved}B)"
+        f"{content_bytes}B -> {compressed_bytes}B (-{saved}B), "
+        f"Earth {len(earth_block)}B ({earth_packet_size}B packets), help @{help_offset}"
     )
 
 

@@ -11,6 +11,8 @@
 
 #include <stdint.h>
 
+#define TZ_RTC 127
+
 /* ===== Resident wrappers ===== */
 
 extern uint8_t overlay_header(const char *title) __z88dk_fastcall;
@@ -36,6 +38,7 @@ extern void set_attr_sys(void);
 extern void set_attr_priv(void);
 extern void sys_puts_print(const char *label, const char *value) __z88dk_callee;
 extern void ui_err(const char *s) __z88dk_fastcall;
+extern const uint8_t ikkle_packed[];
 
 /* ===== String/number utilities ===== */
 
@@ -75,6 +78,7 @@ extern uint8_t  ring_buffer[];    /* 2048B — overlay code lives here */
 extern uint16_t rb_head;
 extern uint16_t rb_tail;
 extern uint16_t rx_pos;
+extern uint16_t rx_last_len;
 
 /* Theme */
 extern uint8_t  theme_attrs[];
@@ -83,6 +87,7 @@ extern uint8_t  theme_raw[];      /* 75B: 3 themes x 25B, loaded from DAT */
 /* Print cursor state (set by print_str64, used by cfg_item layout) */
 extern volatile uint8_t g_ps64_y;
 extern volatile uint8_t g_ps64_col;
+extern volatile uint8_t g_ps64_attr;
 
 /* Shared string constants from resident */
 extern const char K_DAT[];
@@ -109,8 +114,16 @@ extern uint8_t  autojoin;
 extern uint8_t  autoaway_minutes;
 extern uint16_t autoaway_counter;
 extern uint8_t  autoaway_active;
+extern uint8_t  connection_state;
 extern int8_t   sntp_tz;
+extern uint8_t  sntp_init_sent;
+extern uint8_t  sntp_waiting;
+extern uint8_t  sntp_queried;
 extern uint8_t  time_hour;
+extern uint8_t  time_minute;
+extern uint8_t  time_second;
+extern uint8_t  last_frames_lo;
+extern uint16_t tick_accum;
 extern char     search_pattern[];
 extern char     autojoin_channels[];
 extern char     friend_nicks[][18];   /* MAX_FRIENDS(5) x IRC_NICK_SIZE(18) */
@@ -137,6 +150,7 @@ extern const char K_NOTIF[];
 
 /* ===== Theme attribute indices (must match spectalk.h) ===== */
 #define TATTR_MSG_CHAN   2
+#define TATTR_MAIN_BG    5
 #define TATTR_MSG_SYS    9      /* = ATTR_MSG_SERVER */
 #define TATTR_MSG_NICK  11
 #define TATTR_MSG_TIME  12
@@ -147,7 +161,20 @@ extern const char K_NOTIF[];
 
 /* ===== Layout constants ===== */
 #define LINES_PER_PAGE  12
-#define BPE_HELP_OFFSET 691
+#define BPE_HELP_OFFSET 13672
+#define EARTH_FRAME0_OFFSET 969
+#define EARTH_ATTR0_OFFSET 1556
+#define EARTH_LOGO_OFFSET 1600
+#define EARTH_DELTA_OFFSET 2128
+#define EARTH_DELTA_SIZE 11544
+#define EARTH_PACKET_SIZE 481
+#define EARTH_FRAME_COUNT 24
+#define EARTH_FRAME0_SIZE 587
+#define EARTH_ATTR0_SIZE 44
+#define EARTH_LOGO_SIZE 528
+#define EARTH_LOGO_W_BYTES 22
+#define EARTH_LOGO_H 24
+#define EARTH_LOGO_ATTR_H 3
 #define MAX_FRIENDS     5
 #define IRC_NICK_SIZE   18
 

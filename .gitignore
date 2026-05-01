@@ -1,5 +1,6 @@
 # Local tooling / notes
 .claude/
+.codex-safety/
 AGENTS.md
 CLAUDE.md
 Development/

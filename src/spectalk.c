@@ -100,6 +100,8 @@ const char S_DOT_SP[] = ". ";           // D9: dedup from search results
 const char S_USAGE_MSG[] = "msg nick message"; // D9: dedup from cmd_msg
 const char S_COMMA_SP[] = ", ";              // D9: dedup (3 uses)
 const char S_AT_SNTPTIME[] = "AT+CIPSNTPTIME?";  // D10: dedup (2 uses)
+static const char S_SNTP_CFG[] = "AT+CIPSNTPCFG=1,";
+static const char S_NTP_POOL[] = ",\"pool.ntp.org\"";
 const char S_IDENTIFY_CMD[] = " :IDENTIFY ";      // D10: dedup (2 uses)
 const char S_JOINED_SP[] = " joined ";            // D10: dedup (2 uses)
 const char S_AWAY_CMD[] = "AWAY";                 // D10: dedup (2 uses)
@@ -171,7 +173,7 @@ uint8_t show_timestamps = 1; // 0=off, 1=always, 2=on-change
 // big_status removed (big mode eliminated)
 uint8_t last_ts_hour = 0xFF;   // Last printed timestamp hour (0xFF = force print)
 uint8_t last_ts_minute = 0xFF; // Last printed timestamp minute
-int8_t sntp_tz = 1;         // SNTP timezone offset (-12..+12), default CET
+int8_t sntp_tz = 1;         // SNTP timezone offset (-12..+12), or TZ_RTC
 
 // Keep-alive system: detect silent disconnections
 // KEEPALIVE_SILENCE = 3 min = 9000 frames, KEEPALIVE_TIMEOUT = 30s = 1500 frames
@@ -183,7 +185,6 @@ uint8_t  keepalive_ping_sent;        // 1 = waiting for PONG
 uint16_t keepalive_timeout;          // Timeout counter after PING sent
 uint16_t lagmeter_counter;           // Counter for periodic lag measurement
 uint8_t ping_latency;               // 0=good, 1=medium, 2=high
-uint8_t flush_frames;               // Post-About silent parser drain, input paused
 
 // Pagination for long LIST/WHO results
 uint8_t pagination_active;
@@ -236,6 +237,14 @@ static void overlay_exit_maybe_discard(void)
     uint8_t discard = (rx_pos != 0) || rx_overflow;
     overlay_exit_full();
     if (discard) rx_overflow = 1;
+}
+
+static void about_keepalive_rebaseline(void)
+{
+    server_silence_frames = 0;
+    keepalive_ping_sent = 0;
+    keepalive_timeout = 0;
+    lagmeter_counter = 0;
 }
 
 
@@ -324,39 +333,8 @@ void names_finish_incomplete(void)
     status_bar_dirty = 1;
 }
 
-// Lightweight UART scanner during OVERLAY_ABOUT.
-// Responds to server PING and consumes PONG for client keepalive.
-// All other IRC data discarded (ring_buffer busy with overlay code).
-// Uses rx_line directly (bypass ring_buffer). Cleaned by flush_all_rx_buffers on exit.
-void overlay_keepalive(void)
-{
-    while (ay_uart_ready()) {
-        uint8_t ch = ay_uart_read();
-        if (ch == '\n') {
-            rx_line[rx_pos] = 0;
-            server_silence_frames = 0;
-            char *p = rx_line;
-            if (*p == ':') {
-                while (*p && *p != ' ') p++;
-                if (*p) p++;
-            }
-            if (p[0]=='P' && p[1] && p[2]=='N' && p[3]=='G') {
-                if (p[1] == 'I') {
-                    p += 4;
-                    while (*p == ' ') p++;
-                    if (*p == ':') p++;
-                    irc_send_pong(p);
-                } else if (p[1] == 'O') {
-                    keepalive_ping_sent = 0;
-                    keepalive_timeout = 0;
-                }
-            }
-            rx_pos = 0;
-        } else if (ch != '\r' && rx_pos < 200) {
-            rx_line[rx_pos++] = ch;
-        }
-    }
-}
+// Lightweight UART scanner during OVERLAY_ABOUT. ASM keeps resident size down.
+extern void overlay_keepalive(void);
 
 // rb_pop() está implementada en spectalk_asm.asm
 
@@ -1049,7 +1027,7 @@ uint8_t pagination_pause(void)
         cancel_search_state();
         // Ventana de silencio en h_default_cmd para evitar "><" garbage
         // de residuos de la lista cancelada (IRC no permite cancelar LIST
-        // server-side). No usamos flush_frames porque desconectaría.
+        // server-side). No usar drenajes fijos que bloqueen input.
         post_cancel_quiet = 100;
         return 1;
     }
@@ -1685,38 +1663,70 @@ void uart_send_line(const char *s) __z88dk_fastcall
 }
 
 // SNTP TIME SYNC (non-blocking)
-static void sntp_init(void)
+static void sntp_init(void) ST_NAKED
 {
-    if (sntp_init_sent) return;
-    if (connection_state != STATE_WIFI_OK) return;
-    
-    // Configure SNTP with configurable timezone
-    uart_send_string("AT+CIPSNTPCFG=1,");
-    {
-        int8_t tz = sntp_tz;
-        char buf[5];
-        char *p = buf;
-        if (tz < 0) { *p++ = '-'; tz = -tz; }
-        fast_u8_to_str(p, (uint8_t)tz);
-        // fast_u8_to_str writes 2 chars: tens, units (no null)
-        if (p[0] == '0') { p[0] = p[1]; p[1] = '\0'; }  // strip leading 0
-        else { p[2] = '\0'; }
-        uart_send_string(buf);
-    }
-    uart_send_line(",\"pool.ntp.org\"");
-    sntp_init_sent = 1;
-    sntp_waiting = 0;
+    __asm
+    ld      a, (_sntp_tz)
+    cp      TZ_RTC
+    ret     z
+    ld      a, (_sntp_init_sent)
+    or      a
+    ret     nz
+    ld      a, (_connection_state)
+    cp      STATE_WIFI_OK
+    ret     nz
+
+    ld      hl, _S_SNTP_CFG
+    call    _uart_send_string
+    ld      a, (_sntp_tz)
+    or      a
+    jp      p, sntp_init_abs
+    ld      l, '-'
+    call    _ay_uart_send
+    ld      a, (_sntp_tz)
+    neg
+
+sntp_init_abs:
+    cp      10
+    jr      c, sntp_init_one_digit
+    sub     10
+    ld      e, a
+    ld      l, '1'
+    call    _ay_uart_send
+    ld      a, e
+
+sntp_init_one_digit:
+    add     a, '0'
+    ld      l, a
+    call    _ay_uart_send
+    ld      hl, _S_NTP_POOL
+    call    _uart_send_line
+    ld      a, 1
+    ld      (_sntp_init_sent), a
+    xor     a
+    ld      (_sntp_waiting), a
+    ret
+    __endasm;
 }
 
-static void sntp_query_time(void)
+static void sntp_query_time(void) ST_NAKED
 {
-    if (!sntp_init_sent) return;
-    if (sntp_waiting) return;
-    // Only send AT commands when in WiFi-ready state (not in transparent mode)
-    if (connection_state != STATE_WIFI_OK) return;
-    
-    uart_send_line(S_AT_SNTPTIME);
-    sntp_waiting = 1;
+    __asm
+    ld      a, (_sntp_init_sent)
+    or      a
+    ret     z
+    ld      a, (_sntp_waiting)
+    or      a
+    ret     nz
+    ld      a, (_connection_state)
+    cp      STATE_WIFI_OK
+    ret     nz
+    ld      hl, _S_AT_SNTPTIME
+    call    _uart_send_line
+    ld      a, 1
+    ld      (_sntp_waiting), a
+    ret
+    __endasm;
 }
 
 // sntp_process_response is implemented in spectalk_asm.asm for size optimization
@@ -2395,8 +2405,12 @@ static void cfg_apply(char *key, char *val) __z88dk_callee {
         uint8_t v = (uint8_t)str_to_u16(val);
         show_timestamps = (v > 2) ? 1 : v;
     } else if (k0 == 't' && k1 == 'z') {
-        int8_t tz = (*val == '-') ? -(int8_t)str_to_u16(val + 1) : (int8_t)str_to_u16(val);
-        if (tz >= -12 && tz <= 12) sntp_tz = tz;
+        if (val[0] == 'r' && val[1] == 't') {
+            sntp_tz = TZ_RTC;
+        } else {
+            int8_t tz = (*val == '-') ? -(int8_t)str_to_u16(val + 1) : (int8_t)str_to_u16(val);
+            if (tz >= -12 && tz <= 12) sntp_tz = tz;
+        }
     } else if (k0 == 'n' && k1 == 'o') cfg_b(&notif_enabled);
 }
 
@@ -2494,7 +2508,6 @@ void main(void)
 
     // Fatal: no divMMC/esxDOS
     if (!has_esxdos) fatal_msg("REQUIRES DIVMMC!");
-
     // Load font + themes + BPE dict from SPECTALK.DAT
     {
         extern uint8_t font_lut[];
@@ -2510,6 +2523,10 @@ void main(void)
     cfg_ok = config_load();  // Load settings before theme/screen init
     apply_theme();
     init_screen();
+    if (sntp_tz == TZ_RTC) {
+        overlay_exec(4, 1);  // Cold RTC seed: driver API, M_GETDATE, PCF fallback.
+        if (sntp_tz == TZ_RTC) draw_status_bar_real();
+    }
 
     main_line = MAIN_START;
     main_col = 0;
@@ -2545,7 +2562,7 @@ void main(void)
         ui_sys("Connect to WiFi first or try !init");
     } else {
         main_newline();
-        sntp_init();  // OPT L2: inlined sync_time()
+        sntp_init();  // No-op when RTC mode is active and valid.
     }
     // -------------------------------------------
 
@@ -2594,6 +2611,7 @@ void main(void)
         uint8_t shift_held = 0;
         uint8_t ss_held = 0;    // SS+arrow state tracking
         uint8_t ss_repeat = 0;  // auto-repeat timer
+        static uint8_t about_anim_gate = 0;
 
         // Sync frame counter before entering main loop
         last_frames_lo = *(volatile uint8_t *)23672;
@@ -2676,18 +2694,18 @@ void main(void)
                     time_second = 0;
                     time_minute++;
                     uptime_minutes++;
-                    // Actualizar reloj en pantalla cada minuto
-                    draw_clock(); 
-                    
                     if (time_minute >= 60) {
                         time_minute = 0;
                         time_hour++;
                         if (time_hour >= 24) time_hour = 0;
                     }
+                    // Actualizar reloj en pantalla cada minuto, también en overlays.
+                    draw_clock();
                 }
             }
             
             // 1. TAREAS DE BAJA FRECUENCIA
+            sntp_init();  // self-guarded: no-op if RTC, already sent, or no WiFi
             if (sntp_init_sent || names_pending) {
                 if (sntp_init_sent && !sntp_queried) {
                     if (!sntp_waiting) {
@@ -2721,12 +2739,17 @@ void main(void)
             if (connection_state == STATE_IRC_READY) {
                 server_silence_frames++;
                 lagmeter_counter++;
-                
-                if (keepalive_ping_sent) {
+
+                if (overlay_mode == OVERLAY_ABOUT) {
+                    /* ABOUT owns ring_buffer and consumes only lightweight
+                     * keepalive traffic. Do not self-timeout or launch new
+                     * local probes while normal IRC parsing is intentionally
+                     * paused; overlay_keepalive() still answers server PINGs
+                     * and clears a pending PONG if one arrives. */
+                } else if (keepalive_ping_sent) {
                     // Waiting for PONG - check timeout
                     if (++keepalive_timeout >= KEEPALIVE_TIMEOUT_FRAMES) {
                         // No response to PING - connection is dead
-                        if (overlay_mode == OVERLAY_ABOUT) overlay_exit_full();
                         set_attr_err();
                         main_puts(S_TIMEOUT);
                         main_print(" (no response)");
@@ -2803,20 +2826,6 @@ void main(void)
                 draw_status_bar_real();
             }
 
-            if (flush_frames) {
-                flush_frames--;
-                overlay_mode = 1;           // suppress all screen output
-                uart_drain_limit = 0;       // drain everything from UART
-                process_irc_data();         // consume data silently
-                uart_drain_limit = DRAIN_NORMAL;
-                overlay_mode = 0;
-                if (!flush_frames) {
-                    cursor_visible = 1;
-                    cursor_show();
-                }
-                continue;
-            }
-             
             // 3. INPUT Y teclado
             check_caps_toggle();
 
@@ -2855,9 +2864,13 @@ void main(void)
             // Overlay system (state-based, non-blocking)
             if (overlay_mode) {
                 pagination_active = 0; /* W11: overlays and pagination are mutually exclusive */
+                if (overlay_mode == OVERLAY_ABOUT && connection_state >= STATE_TCP_CONNECTED)
+                    overlay_keepalive();
                 if (c) sw_timeout = 0; /* W14: reset help timeout on any keypress */
                 // About overlay: N key opens What's New
                 if (overlay_mode == OVERLAY_ABOUT && (c == 'n' || c == 'N')) {
+                    overlay_call(1);
+                    about_keepalive_rebaseline();
                     overlay_mode = OVERLAY_WHATSNEW;
                     overlay_exec(2, 0);
                     c = 0;
@@ -2868,17 +2881,15 @@ void main(void)
                     // Re-enter config overlay to show updated state
                     overlay_mode = OVERLAY_CONFIG;
                     cursor_visible = 0;
-                    overlay_exec(1, 1);
+                    overlay_exec(4, 0);
                     c = 0;
                 } else if (c == KEY_BREAK || (c && overlay_mode != OVERLAY_HELP)) {
                     // BREAK always exits; any key exits single-page overlays
                     if (overlay_mode == OVERLAY_ABOUT) {
-                        flush_frames = 15; /* consume about backlog silently before re-enabling input */
+                        overlay_call(1);
+                        about_keepalive_rebaseline();
                     }
                     overlay_exit_maybe_discard();
-                    if (flush_frames) {
-                        cursor_visible = 0;
-                    }
                 } else if (c) {
                     // Help: paginated — advance page
                     help_page++;
@@ -2892,7 +2903,10 @@ void main(void)
                     overlay_exit_maybe_discard();
                     continue;
                 } else if (overlay_mode == OVERLAY_ABOUT && !c) {
-                    overlay_call(2); /* globe animation tick (already in ring_buffer) */
+                    about_anim_gate ^= 1;
+                    if (!about_anim_gate) {
+                        overlay_call_timed(2); /* globe tick; keep ROM FRAMES live */
+                    }
                 }
                 c = 0;
             }
@@ -3035,8 +3049,7 @@ void main(void)
             // by main_print's overlay_mode early-return, data consumed silently.
             if (overlay_mode != OVERLAY_ABOUT) {
                 process_irc_data();
-            } else if (connection_state >= STATE_TCP_CONNECTED)
-                overlay_keepalive();
+            }
         }
     }
 }

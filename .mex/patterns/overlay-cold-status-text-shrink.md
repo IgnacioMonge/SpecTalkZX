@@ -1,13 +1,13 @@
-# Overlay Cold Status Text Shrink
+# Overlay Cold Status Text Guard
 
-Cold overlay status messages may be shortened when the shorter text still communicates the same state and the freed bytes buy useful safety margin in a nearly full overlay.
+Do not shorten established user-facing overlay text just to recover bytes.
 
 ## Rule
-- Apply only to cold overlay-only output such as save/config/about status, not IRC protocol text or hot chat rendering.
-- Keep error messages specific; shorten only success/progress text where the surrounding context already identifies the action.
-- Measure individual `SPCTLK*.OVL` sizes, because the TAP and resident binary may not change.
-- Do not remove information that is needed for debugging unless the overlay is close enough to the 2048-byte cap to justify it.
+- Preserve visible labels and status words in existing screens unless the user explicitly approves the wording change.
+- Shrink pressure must first come from code structure, dead data, shared constants, or overlay relocation.
+- Temporary debug-only wording may be shortened or removed when it is not part of the normal UI.
+- Measure individual `SPCTLK*.OVL` sizes after any restoration or approved wording change.
 
 ## Applied
-- `overlay/spectalk_ovl4.c` now prints `Saving config... OK` instead of `Saving config... OK (<bytes> bytes)`.
-- Measured result: SPCTLK4 drops from `2044B` to `2007B`; resident `make` stays at `35674B` trimmed / `35754B` TAP / `461B` BSS slack.
+- The previous `!status` recuts (`Server:` -> `Srv:`, `Network:` -> `Net:`, `IRC ready` -> `IRC`, etc.) were reverted after user report. Treat that change as rejected.
+- `overlay/spectalk_ovl4.c` may keep non-semantic save output like `Saving config... OK`, but not shortened screen labels in `!status`.

@@ -39,7 +39,13 @@ ASM_MODULE_SOURCES := $(wildcard asm/spectalk_asm/*.asm)
 ASM_DEP_SOURCES = $(ASM_SOURCES) $(ASM_MODULE_SOURCES)
 BPE_INPUTS = src/spectalk.c src/irc_handlers.c src/user_cmds.c include/spectalk.h \
              src/SPECTALK.DAT src/SPECTALK_HELP.txt overlay/overlay_api.h \
-             tools/bpe_build.py tools/bpe_compress.py
+             overlay/overlay_entry2.asm \
+             tools/bpe_build.py tools/bpe_compress.py \
+             release/about_earth/earth_frame0.compact.bin \
+             release/about_earth/earth_frame_deltas.bin \
+             release/about_earth/earth_attr0.compact4.bin \
+             release/about_earth/earth_attr_deltas.compact4.bin \
+             release/about_earth/earth_logo.bin
 ZORG        = 24000
 STACK_SIZE  = 512
 
@@ -195,6 +201,7 @@ clean:
 		cp $(BUILD_DIR)/bpe_originals/user_cmds.c src/ 2>/dev/null || true; \
 		cp $(BUILD_DIR)/bpe_originals/spectalk.h include/ 2>/dev/null || true; \
 		cp $(BUILD_DIR)/bpe_originals/overlay_api.h overlay/ 2>/dev/null || true; \
+		cp $(BUILD_DIR)/bpe_originals/overlay_entry2.asm overlay/ 2>/dev/null || true; \
 		cp $(BUILD_DIR)/bpe_originals/SPECTALK.DAT src/ 2>/dev/null || true; \
 	fi
 	@rm -f "$(OUTPUT)" "$(OUTPUT).tap" "$(TAP)" "$(MAP)" "$(LOG)" "$(BUILD_DIR)/SPECTALK.DAT" *.o *.bin *.sym 2>/dev/null || true
@@ -216,6 +223,7 @@ $(BPE_STAMP): $(BPE_INPUTS)
 	@cp include/spectalk.h $(BUILD_DIR)/bpe_originals/
 	@cp src/SPECTALK.DAT $(BUILD_DIR)/bpe_originals/
 	@cp overlay/overlay_api.h $(BUILD_DIR)/bpe_originals/
+	@cp overlay/overlay_entry2.asm $(BUILD_DIR)/bpe_originals/
 	@$(PYTHON) tools/bpe_build.py
 	@printf "ok\n" > "$(BPE_STAMP)"
 	$(call OK,BPE complete.)
@@ -238,6 +246,7 @@ restore_bpe:
 		cp $(BUILD_DIR)/bpe_originals/user_cmds.c src/; \
 		cp $(BUILD_DIR)/bpe_originals/spectalk.h include/; \
 		cp $(BUILD_DIR)/bpe_originals/overlay_api.h overlay/; \
+		cp $(BUILD_DIR)/bpe_originals/overlay_entry2.asm overlay/; \
 		cp $(BUILD_DIR)/bpe_originals/SPECTALK.DAT src/; \
 		dat_sz=$$(wc -c < src/SPECTALK.DAT); \
 		if [ "$$dat_sz" -ne 1517 ]; then \
@@ -340,11 +349,11 @@ overlay: $(MAP)
 	zcc +z80 -clib=sdcc_iy --no-crt --opt-code-size \
 		-Ioverlay -c overlay/spectalk_ovl2.c -o $(BUILD_DIR)/spectalk_ovl2.o 2>&1 || exit 1; \
 	z80asm -I$(BUILD_DIR) overlay/overlay_entry2.asm 2>&1 || exit 1; \
-	z80asm -I$(BUILD_DIR) overlay/globe_render.asm 2>&1 || exit 1; \
+	z80asm -I$(BUILD_DIR) -Irelease/about_earth overlay/earth_about_render.asm 2>&1 || exit 1; \
 	z80asm -b -r0x$$SLOT -o=$(BUILD_DIR)/SPCTLK2.OVL \
 		overlay/overlay_entry2.o \
 		$(BUILD_DIR)/spectalk_ovl2.o \
-		overlay/globe_render.o \
+		overlay/earth_about_render.o \
 		$(BUILD_DIR)/overlay_defs.o 2>&1 || exit 1; \
 	ovl2_size=$$(wc -c < $(BUILD_DIR)/SPCTLK2.OVL); \
 	if [ "$$ovl2_size" -gt 2048 ]; then \
@@ -381,13 +390,30 @@ overlay: $(MAP)
 		exit 1; \
 	fi; \
 	printf "$(C_GRN)[OK]$(C_RESET) SPCTLK4.OVL: $$ovl4_size bytes (max 2048)\n"; \
+	echo "  Building SPCTLK5.OVL..."; \
+	zcc +z80 -clib=sdcc_iy --no-crt --opt-code-size \
+		-Ioverlay -c overlay/spectalk_ovl5.c -o $(BUILD_DIR)/spectalk_ovl5.o 2>&1 || exit 1; \
+	z80asm -I$(BUILD_DIR) overlay/overlay_entry5.asm 2>&1 || exit 1; \
+	z80asm -I$(BUILD_DIR) overlay/rtc_seed_ovl.asm 2>&1 || exit 1; \
+	z80asm -b -r0x$$SLOT -o=$(BUILD_DIR)/SPCTLK5.OVL \
+		overlay/overlay_entry5.o \
+		overlay/rtc_seed_ovl.o \
+		$(BUILD_DIR)/spectalk_ovl5.o \
+		$(BUILD_DIR)/overlay_defs.o 2>&1 || exit 1; \
+	ovl5_size=$$(wc -c < $(BUILD_DIR)/SPCTLK5.OVL); \
+	if [ "$$ovl5_size" -gt 2048 ]; then \
+		printf "$(C_RED)[ERR]$(C_RESET) SPCTLK5.OVL too large: $$ovl5_size bytes (max 2048)\n"; \
+		exit 1; \
+	fi; \
+	printf "$(C_GRN)[OK]$(C_RESET) SPCTLK5.OVL: $$ovl5_size bytes (max 2048)\n"; \
 	echo "  Packing SPECTALK.OVL..."; \
 	dd if=$(BUILD_DIR)/SPCTLK1.OVL of=$(BUILD_DIR)/SPECTALK.OVL bs=2048 conv=sync 2>/dev/null; \
 	dd if=$(BUILD_DIR)/SPCTLK2.OVL of=$(BUILD_DIR)/SPECTALK.OVL bs=2048 conv=sync seek=1 2>/dev/null; \
 	dd if=$(BUILD_DIR)/SPCTLK3.OVL of=$(BUILD_DIR)/SPECTALK.OVL bs=2048 conv=sync seek=2 2>/dev/null; \
 	dd if=$(BUILD_DIR)/SPCTLK4.OVL of=$(BUILD_DIR)/SPECTALK.OVL bs=2048 conv=sync seek=3 2>/dev/null; \
-	printf "$(C_GRN)[OK]$(C_RESET) SPECTALK.OVL: $$(wc -c < $(BUILD_DIR)/SPECTALK.OVL) bytes (4 x 2048)\n"; \
-	rm -f $(BUILD_DIR)/SPCTLK[1-4].OVL; \
+	dd if=$(BUILD_DIR)/SPCTLK5.OVL of=$(BUILD_DIR)/SPECTALK.OVL bs=2048 conv=sync seek=4 2>/dev/null; \
+	printf "$(C_GRN)[OK]$(C_RESET) SPECTALK.OVL: $$(wc -c < $(BUILD_DIR)/SPECTALK.OVL) bytes (5 x 2048)\n"; \
+	rm -f $(BUILD_DIR)/SPCTLK[1-5].OVL; \
 	echo "  Cleaning build intermediates..."; \
 	rm -f $(BUILD_DIR)/*.o $(BUILD_DIR)/*.asm $(BUILD_DIR)/*.bin \
 		$(BUILD_DIR)/SPECTALK $(BUILD_DIR)/SP2.OVL \

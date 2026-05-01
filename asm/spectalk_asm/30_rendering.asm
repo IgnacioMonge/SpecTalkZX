@@ -345,7 +345,9 @@ dbc_valid:
     call _compute_attr_base
     call dbc_add_col
     ld a, (_g_ps64_attr)
+    or 0x40
     ld (hl), a
+    and 0xBF
     ld de, 32
     add hl, de
     ld (hl), a

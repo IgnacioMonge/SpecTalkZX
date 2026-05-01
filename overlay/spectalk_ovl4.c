@@ -8,7 +8,7 @@
 
 #include "overlay_api.h"
 
-static const char s_exit[] = "KEY TO EXIT";
+static const char s_exit[] = "ANY KEY TO EXIT";
 
 /* ================================================================
  * ENTRY 0 — Status display
@@ -30,12 +30,12 @@ extern uint16_t uptime_minutes;
 #define STATE_IRC_READY     3
 
 static const char ss_nick[]  = "Nick:";
-static const char ss_srv[]   = "Srv:";
-static const char ss_net[]   = "Net:";
-static const char ss_state[] = "St:";
-static const char ss_lag[]   = "Lag:";
-static const char ss_up[]    = "Up:";
-static const char ss_chans[] = "Chans:";
+static const char ss_srv[]   = "Server:";
+static const char ss_net[]   = "Network:";
+static const char ss_state[] = "State:";
+static const char ss_lag[]   = "Latency:";
+static const char ss_up[]    = "Uptime:";
+static const char ss_chans[] = "Channels:";
 
 void status_render_ovl(void)
 {
@@ -56,7 +56,7 @@ void status_render_ovl(void)
     print_str64(r, 2, ss_state, a_nick);
     { const char *st;
       switch (connection_state) {
-          case STATE_IRC_READY:     st = "IRC"; break;
+          case STATE_IRC_READY:     st = "IRC ready"; break;
           case STATE_TCP_CONNECTED: st = "TCP"; break;
           case STATE_WIFI_OK:       st = "WiFi OK"; break;
           default:                  st = "Offline"; break;
@@ -69,7 +69,7 @@ void status_render_ovl(void)
     { const char *lag;
       switch (ping_latency) {
           case 0:  lag = "Good"; break;
-          case 1:  lag = "Med"; break;
+          case 1:  lag = "Medium"; break;
           default: lag = "High"; break;
       }
       print_str64(r++, 11, lag, a_chan);
@@ -142,6 +142,7 @@ extern char *cfg_put_autojoin(char *p) __z88dk_fastcall;
 
 void save_config_ovl(void)
 {
+    uint16_t old_rx_pos = rx_pos;
     char *p = (char *)overlay_slot;
     char tmp[4];
 
@@ -172,7 +173,9 @@ void save_config_ovl(void)
         p = cfg_kv(p, K_AUTOAWAY, tmp);
     }
 
-    if (sntp_tz < 0) {
+    if (sntp_tz == TZ_RTC) {
+        tmp[0] = 'r'; tmp[1] = 't'; tmp[2] = 'c'; tmp[3] = 0;
+    } else if (sntp_tz < 0) {
         tmp[0] = '-';
         fast_u8_to_str(tmp + 1, (uint8_t)(-sntp_tz));
         tmp[3] = 0;
@@ -222,5 +225,7 @@ done:
     /* overlay_slot aliases rx_line: if save returns mid-IRC line, discard the
      * remaining tail up to the next '\n' instead of parsing a fragmented line. */
     rb_head = 0; rb_tail = 0; rx_pos = 0;
-    rx_overflow = 1;
+    if (old_rx_pos != 0) {
+        rx_overflow = 1;
+    }
 }

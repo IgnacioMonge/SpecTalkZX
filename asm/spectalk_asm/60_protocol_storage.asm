@@ -188,6 +188,222 @@ isci_crlf:
     jp _uart_send_crlf      ; tail call (saves 3B: no string load needed)
 
 
+; =============================================================================
+; ABOUT OVERLAY UART KEEPALIVE
+; =============================================================================
+
+EXTERN _ay_uart_ready
+EXTERN _ay_uart_read
+EXTERN _irc_send_pong
+EXTERN _temp_input
+EXTERN _rx_pos
+EXTERN _rx_pos_reset
+EXTERN _rx_last_len
+EXTERN _rx_overflow
+EXTERN _names_pending
+EXTERN _counting_new_users
+EXTERN _names_count_acc
+EXTERN _names_timeout_frames
+EXTERN _names_target_channel
+EXTERN _cur_chan_ptr
+EXTERN _status_bar_dirty
+
+DEFC OVLK_LINE_MAX     = 120
+DEFC OVLK_NAMES_PREFIX_TOKENS = 5
+DEFC OVLK_BYTE_BUDGET  = 224
+
+; void overlay_keepalive(void)
+; While ABOUT owns ring_buffer, consume UART into temp_input and answer PING.
+; Clobbers AF/BC/DE/HL; preserves IX/IY.
+PUBLIC _overlay_keepalive
+_overlay_keepalive:
+    ld b, OVLK_BYTE_BUDGET
+    ld d, 64                  ; bridge short UART inter-byte gaps
+ovlk_poll:
+    push bc
+    call _ay_uart_ready       ; L=1 if data available
+    ld a, l
+    pop bc
+    dec a
+    jr z, ovlk_have_byte
+    dec d
+    jr nz, ovlk_poll
+    ret
+ovlk_have_byte:
+    push bc
+    call _ay_uart_read        ; L=char
+    ld a, l
+    pop bc
+    dec b
+    ld d, 64
+    cp 10
+    jr z, ovlk_line
+    cp 13
+    jp z, ovlk_continue
+
+    ld c, a
+    call ovlk_track_names_char
+    ld hl, _rx_pos
+    ld a, (hl)
+    cp OVLK_LINE_MAX
+    jp nc, ovlk_continue
+    ld e, a
+    inc (hl)                  ; rx_pos high byte stays zero: capped at 126
+    ld d, 0
+    ld hl, _temp_input
+    add hl, de
+    ld (hl), c
+    jp ovlk_continue
+
+ovlk_line:
+    ld hl, (_rx_pos)
+    ld de, _temp_input
+    add hl, de
+    ld (hl), 0
+    ld hl, _temp_input
+    ld a, (hl)
+    cp ':'
+    jr nz, ovlk_check_cmd
+
+ovlk_skip_prefix:
+    ld a, (hl)
+    or a
+    jr z, ovlk_done
+    cp ' '
+    jr z, ovlk_after_prefix
+    inc hl
+    jr ovlk_skip_prefix
+
+ovlk_after_prefix:
+    inc hl
+
+ovlk_check_cmd:
+    ld a, (hl)
+    cp 'P'
+    jr nz, ovlk_check_names
+    inc hl
+    ld a, (hl)
+    cp 'I'
+    jr nz, ovlk_done
+    inc hl
+    ld a, (hl)
+    cp 'N'
+    jr nz, ovlk_done
+    inc hl
+    ld a, (hl)
+    cp 'G'
+    jr nz, ovlk_done
+
+ovlk_ping:
+    inc hl                     ; skip G, now at char after PING
+ovlk_skip_spaces:
+    ld a, (hl)
+    cp ' '
+    jr nz, ovlk_maybe_colon
+    inc hl
+    jr ovlk_skip_spaces
+
+ovlk_maybe_colon:
+    cp ':'
+    jr nz, ovlk_send_pong
+    inc hl
+
+ovlk_send_pong:
+    push bc
+    call _irc_send_pong        ; fastcall token pointer in HL
+    pop bc
+
+ovlk_done:
+    xor a
+    ld (_rx_overflow), a
+    call _rx_pos_reset
+    ld (_rx_last_len), hl        ; _rx_pos_reset returns HL=0
+    jp ovlk_continue
+
+ovlk_continue:
+    ld a, b
+    or a
+    ret z
+    ld d, 64
+    jp ovlk_poll
+
+ovlk_check_names:
+    cp '3'
+    jr nz, ovlk_done
+    inc hl
+    ld a, (hl)
+    cp '5'
+    jr z, ovlk_names_35x
+    cp '6'
+    jr nz, ovlk_done
+    inc hl
+    ld a, (hl)
+    cp '6'
+    jr z, ovlk_names_366
+    jr ovlk_done
+
+ovlk_names_35x:
+    inc hl
+    ld a, (hl)
+    cp '3'
+    jr z, ovlk_names_353
+    jr ovlk_done
+
+ovlk_names_active:
+    ld a, (_names_pending)
+    or a
+    ret
+
+ovlk_names_353:
+    call ovlk_names_active
+    jr z, ovlk_done
+    ld hl, 0
+    ld (_names_timeout_frames), hl
+    ld hl, (_rx_last_len)
+    ld de, -OVLK_NAMES_PREFIX_TOKENS
+    add hl, de
+    ex de, hl
+    ld hl, (_names_count_acc)
+    add hl, de
+    ld (_names_count_acc), hl
+    jr ovlk_done
+
+ovlk_names_366:
+    call ovlk_names_active
+    jr z, ovlk_done
+    xor a
+    ld (_names_pending), a
+    ld (_counting_new_users), a
+    ld hl, (_cur_chan_ptr)
+    ld de, 28                  ; ChannelInfo.user_count
+    add hl, de
+    ld de, (_names_count_acc)
+    ld (hl), e
+    inc hl
+    ld (hl), d
+    ld a, 1
+    ld (_status_bar_dirty), a
+    jr ovlk_done
+
+ovlk_track_names_char:
+    ld a, c
+    cp ' '
+    jr z, ovlk_track_space
+    ld a, (_rx_overflow)
+    or a
+    ret nz
+    inc a
+    ld (_rx_overflow), a
+    ld hl, (_rx_last_len)
+    inc hl
+    ld (_rx_last_len), hl
+    ret
+
+ovlk_track_space:
+    xor a
+    ld (_rx_overflow), a
+    ret
+
 
 ; =============================================================================
 ; esxDOS FILE I/O - Parameter passing via globals (zero ABI risk)

@@ -14,94 +14,143 @@ import sys
 
 REQUIRED_FUNCTIONS = [
     # ABI wrappers
-    '_overlay_header',
-
+    "_overlay_header",
     # Rendering
-    '_print_str64',
-    '_print_char64',
-    '_print_big_str',
-    '_clear_line',
-    '_draw_badge_dither',
-    '_notif_draw',
-    '_notif_center',
-    '_input_cache_invalidate',
-
+    "_print_str64",
+    "_print_char64",
+    "_print_big_str",
+    "_clear_line",
+    "_draw_badge_dither",
+    "_notif_draw",
+    "_notif_center",
+    "_input_cache_invalidate",
     # String/number utilities
-    '_st_strlen',
-    '_st_stricmp',
-    '_fast_u8_to_str',
-
+    "_st_strlen",
+    "_st_stricmp",
+    "_fast_u8_to_str",
     # esxDOS
-    '_esx_fopen',
-    '_esx_fread',
-    '_esx_fwrite',
-    '_esx_fcreate',
-    '_esx_fclose',
-
+    "_esx_fopen",
+    "_esx_fread",
+    "_esx_fwrite",
+    "_esx_fcreate",
+    "_esx_fclose",
     # Input / frame sync used by overlays
-    '_in_inkey',
-    '_frame_wait',
-
+    "_in_inkey",
+    "_frame_wait",
     # Screen output (for save status messages and cold local commands)
-    '_main_putc',
-    '_main_puts',
-    '_main_newline',
-    '_main_print',
-    '_set_attr_sys',
-    '_set_attr_priv',
-    '_sys_puts_print',
-    '_ui_err',
-    '_str_to_u16',
-    '_u16_to_dec',
-    '_puts_u8_nolz',
-
+    "_main_putc",
+    "_main_puts",
+    "_main_newline",
+    "_main_print",
+    "_set_attr_sys",
+    "_set_attr_priv",
+    "_sys_puts_print",
+    "_ui_err",
+    "_str_to_u16",
+    "_u16_to_dec",
+    "_puts_u8_nolz",
     # SDCC runtime (called implicitly by compiled C)
-    '___sdcc_enter_ix',
-    '____sdcc_2_copy_src_mhl_dst_deix',
-    '____sdcc_4_push_hlix',
+    "___sdcc_enter_ix",
+    "____sdcc_2_copy_src_mhl_dst_deix",
+    "____sdcc_4_push_hlix",
 ]
 
 REQUIRED_VARIABLES = [
     # esxDOS state
-    '_esx_handle', '_esx_buf', '_esx_count', '_esx_result',
-
+    "_esx_handle",
+    "_esx_buf",
+    "_esx_count",
+    "_esx_result",
     # Overlay state
-    '_overlay_mode', '_help_page', '_config_dirty', '_notif_enabled',
-    '_status_bar_dirty',
-
+    "_overlay_mode",
+    "_help_page",
+    "_config_dirty",
+    "_notif_enabled",
+    "_status_bar_dirty",
     # Buffers
-    '_overlay_slot', '_ring_buffer',
-    '_rb_head', '_rb_tail', '_rx_pos', '_rx_overflow',
-
+    "_overlay_slot",
+    "_ring_buffer",
+    "_rb_head",
+    "_rb_tail",
+    "_rx_pos",
+    "_rx_last_len",
+    "_rx_overflow",
     # Theme / print cursor
-    '_theme_attrs', '_theme_raw', '_g_ps64_y', '_g_ps64_col',
-
+    "_theme_attrs",
+    "_theme_raw",
+    "_g_ps64_y",
+    "_g_ps64_col",
+    "_g_ps64_attr",
+    "_print_str64_char",
+    "_ikkle_packed",
     # Connection state + channels (for status overlay)
-    '_connection_state', '_channels',
-    '_network_name', '_ping_latency', '_uptime_minutes',
-
+    "_connection_state",
+    "_channels",
+    "_network_name",
+    "_ping_latency",
+    "_uptime_minutes",
     # Shared strings
-    '_K_DAT', '_S_APPDESC', '_S_AUTOAWAY',
-    '_K_NICK', '_K_SERVER', '_K_PORT', '_K_PASS', '_K_NKPASS',
-    '_K_AUTOCONN', '_K_THEME', '_K_AUTOAWAY', '_K_BEEP', '_K_NCOLOR',
-    '_K_TRAFFIC', '_K_TS', '_K_CFG_PRI', '_K_CFG_ALT', '_K_TZ', '_K_NOTIF',
-
+    "_K_DAT",
+    "_S_APPDESC",
+    "_S_AUTOAWAY",
+    "_K_NICK",
+    "_K_SERVER",
+    "_K_PORT",
+    "_K_PASS",
+    "_K_NKPASS",
+    "_K_AUTOCONN",
+    "_K_THEME",
+    "_K_AUTOAWAY",
+    "_K_BEEP",
+    "_K_NCOLOR",
+    "_K_TRAFFIC",
+    "_K_TS",
+    "_K_CFG_PRI",
+    "_K_CFG_ALT",
+    "_K_TZ",
+    "_K_NOTIF",
     # Config variables (read-only from overlay)
-    '_irc_nick', '_irc_server', '_irc_port', '_irc_pass', '_nickserv_pass', '_nickserv_nick',
-    '_current_theme', '_current_channel_idx', '_beep_enabled', '_keyclick_enabled', '_nick_color_mode', '_show_traffic',
-    '_show_timestamps', '_autoconnect', '_autojoin', '_autoaway_minutes',
-    '_autoaway_counter', '_autoaway_active',
-    '_sntp_tz', '_time_hour', '_search_pattern', '_autojoin_channels',
-    '_friend_nicks', '_ignore_list', '_ignore_count',
+    "_irc_nick",
+    "_irc_server",
+    "_irc_port",
+    "_irc_pass",
+    "_nickserv_pass",
+    "_nickserv_nick",
+    "_current_theme",
+    "_current_channel_idx",
+    "_beep_enabled",
+    "_keyclick_enabled",
+    "_nick_color_mode",
+    "_show_traffic",
+    "_show_timestamps",
+    "_autoconnect",
+    "_autojoin",
+    "_autoaway_minutes",
+    "_autoaway_counter",
+    "_autoaway_active",
+    "_sntp_tz",
+    "_sntp_init_sent",
+    "_sntp_waiting",
+    "_sntp_queried",
+    "_time_hour",
+    "_time_minute",
+    "_time_second",
+    "_last_frames_lo",
+    "_tick_accum",
+    "_search_pattern",
+    "_autojoin_channels",
+    "_friend_nicks",
+    "_ignore_list",
+    "_ignore_count",
 ]
 
 
 def parse_map(map_path):
     """Extract symbol addresses from .map file."""
     symbols = {}
-    with open(map_path, 'r', errors='replace') as f:
+    with open(map_path, "r", errors="replace") as f:
         for line in f:
-            m = re.match(r'(\w+)\s+=\s+\$([0-9A-Fa-f]+)\s+;', line)
+            m = re.match(r"(\w+)\s+=\s+\$([0-9A-Fa-f]+)\s+;", line)
             if m:
                 symbols[m.group(1)] = int(m.group(2), 16)
     return symbols
@@ -132,5 +181,5 @@ def main():
         sys.exit(1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
