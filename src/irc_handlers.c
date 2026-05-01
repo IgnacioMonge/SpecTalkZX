@@ -1286,13 +1286,14 @@ static void h_numeric_default(void)
     // Filtrar ruido de conexión y canal (silencioso)
     // 001-005: welcome/server info, 250-266: stats, 329: channel creation time,
     // 333: topic who/time, 396: host hidden
-    if ((num >= 250 && num <= 266) ||
+    // H1: underflow trick — single 8-bit-fitting comparison vs dual 16-bit
+    if ((uint16_t)(num - 250) <= 16 ||
         num == 329 || num == 333 || num == 396) {
         return;
     }
 
     // 2. Gestión de Errores (400-599)
-    if (num >= 400 && num <= 599) {
+    if ((uint16_t)(num - 400) <= 199) {
         // Si estábamos paginando o buscando, cancelamos para ver el error
         if (pagination_active || search_mode != SEARCH_NONE) cancel_search_state();
 
@@ -1369,13 +1370,14 @@ static void h_pong(void)
 {
     // Calculate latency from keepalive_timeout (frames since PING)
     // 50 frames = 1 second
-    if (keepalive_timeout < 20) {
-        ping_latency = 0;       // Good: < 400ms
-    } else if (keepalive_timeout < 40) {
-        ping_latency = 1;       // Medium: 400-800ms
-    } else {
+    // H17: segregated byte evaluation (high-byte short-circuits 16-bit cmp)
+    if ((uint8_t)(keepalive_timeout >> 8) || (uint8_t)keepalive_timeout >= 40) {
         ping_latency = 2;       // High: > 800ms
         notify("High lag", ATTR_ERROR);
+    } else if ((uint8_t)keepalive_timeout >= 20) {
+        ping_latency = 1;       // Medium: 400-800ms
+    } else {
+        ping_latency = 0;       // Good: < 400ms
     }
     status_bar_dirty = 1;       // Redraw indicator
     
