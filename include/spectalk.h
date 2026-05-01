@@ -158,7 +158,7 @@ typedef struct {
 // DRAIN LIMITS
 // =============================================================================
 #define DRAIN_NORMAL    32
-#define RX_TICK_PARSE_BYTE_BUDGET 1024  // Reduced from 4096 to prevent UI lag
+#define RX_TICK_PARSE_BYTE_BUDGET 512   // Reduced from 1024 to prevent keyboard lag during JOIN bursts
 
 // Buffer pressure thresholds
 #define BUFFER_PRESSURE_THRESHOLD (RING_BUFFER_SIZE * 3 / 4)  // 1536 bytes = 75%
