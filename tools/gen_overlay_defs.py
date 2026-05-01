@@ -20,6 +20,7 @@ REQUIRED_FUNCTIONS = [
     "_print_char64",
     "_print_big_str",
     "_clear_line",
+    "_clear_zone",
     "_draw_badge_dither",
     "_notif_draw",
     "_notif_center",

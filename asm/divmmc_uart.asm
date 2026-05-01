@@ -10,6 +10,7 @@ PUBLIC _ay_uart_init
 PUBLIC _ay_uart_send
 PUBLIC _ay_uart_read
 PUBLIC _ay_uart_ready
+PUBLIC uartRead
 
 ; ZX-Uno compatible register interface
 UART_DATA_REG     EQU 0xC6

@@ -18,8 +18,8 @@ When an overlay needs a string that already exists in the resident core with ide
 
 ## Example
 - `overlay/spectalk_ovl4.c` now reuses resident config keys like `K_SERVER`, `K_PORT`, `K_NICK`, `K_PASS`, `K_NOTIF`.
-- `overlay/spectalk_ovl2.c` now reuses the same resident keys for the config screen labels where the displayed text matches exactly.
+- `overlay/spectalk_ovl5.c` reuses the same resident keys for the config screen labels where the displayed text matches exactly.
 
 ## Rejected
-- `overlay/spectalk_ovl2.c` must not reuse `SB_ON`, `SB_OFF`, `SB_NOTSET`, or `SB_SMART` for config values because it renders them with `print_str64()`. HW showed missing characters in `(not set)` and `smart`.
+- Config overlays must not reuse `SB_ON`, `SB_OFF`, `SB_NOTSET`, or `SB_SMART` for values rendered with `print_str64()`. HW showed missing characters in `(not set)` and `smart`.
 - `overlay/spectalk_ovl3.c` must not compare `args` against `SB_OFF` with `st_stricmp()`. Keep the local plain `"off"` string.

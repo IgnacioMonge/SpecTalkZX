@@ -1,26 +1,30 @@
-# Overlay About Keepalive
+# Overlay About Parser Pump
 
-`OVERLAY_ABOUT` reuses `ring_buffer` for overlay code, so normal IRC parsing cannot run there. Keepalive still has to work while the overlay is open.
+`OVERLAY_ABOUT` reuses `ring_buffer` for `SPCTLK2.OVL`, so the normal ring-buffer IRC path cannot run while the overlay is resident. The accepted experiment is not a second mini-parser: it is a direct UART-to-`rx_line` pump that calls the normal parser. Earth packets must not use `rx_line`; they are read into a private dead-code packet slot inside SPCTLK2 after ABOUT init has finished.
 
 ## Rule
-- During `OVERLAY_ABOUT`, do not launch new client-originated keepalive/lag PINGs and do not expire an already pending local PING. Normal IRC parsing is intentionally paused while `ring_buffer` holds overlay code, so a self-timeout can be false-positive even though server PING/PONG traffic is still being scanned.
-- The lightweight scanner must reply to server `PING`. Local `PONG` consumption is optional if ABOUT exit rebaselines local keepalive state.
-- Do not make the lightweight scanner poll through UART inter-byte gaps unless it also preserves protocol state for the traffic it consumes. The gap-poll variant reached server PING faster, but it also drained and discarded full `353/366` NAMES bursts during `ABOUT`, so the normal parser never committed the channel user count.
-- The scanner may poll through short UART inter-byte gaps only if it preserves protocol state for consumed traffic. Current divMMC shape uses `D=64` gap bridging but a fixed `224B` byte budget and runs before the ABOUT animation tick. Do not drain unbounded: hardware proved it makes `/names` count work but freezes the globe until `366` arrives.
-- Do not store the lightweight scanner line in `rx_line` while an overlay also uses `overlay_slot`; `rx_line` aliases `overlay_slot`, so animation/file chunks can destroy partial `PING`/`PONG` lines. Use a non-aliased scratch buffer such as `temp_input` and cap writes to that buffer's size.
-- Before loading the ABOUT overlay, process complete lines already present in `ring_buffer` with the normal parser while `overlay_mode=OVERLAY_ABOUT` suppresses rendering. This preserves pending `353/366` lines that would otherwise be overwritten by the overlay binary.
-- Automatic JOIN/NAMES is part of the ABOUT keepalive contract. While `names_pending` is live, the scanner must advance automatic `353/366` state without rendering: count users from `353`, reset the NAMES timeout, commit `cur_chan_ptr->user_count` on `366`, and set `status_bar_dirty`.
-- Keep the automatic NAMES scanner streaming and tiny. Current accepted shape counts whole-line tokens and uses `tokens - 5` for normal prefixed `353` lines (`server 353 nick = #chan :names`). It reuses existing RX globals for temporary state to avoid new BSS.
-- Detect `366` as `36x`, not as the old broken `35x` branch. The `35x` path is only for `353`; otherwise ABOUT never commits the accumulated count while the overlay is open.
-- Initialize the reused token state (`rx_last_len` and `rx_overflow`) when ABOUT starts; stale parser state can corrupt the first counted line.
-- Do not try to support manual `/names` pagination inside ABOUT unless there is a broader parser redesign. Manual `/names` owns the main area and needs the normal renderer/summary path.
-- On `ABOUT` exit, do not call `flush_all_rx_buffers()`: that throws away parser context and can break keepalive/backlog handling.
-- Do not use a fixed post-ABOUT `flush_frames` drain. It blocks user input and still risks a visible burst if bytes keep arriving after the drain window.
-- Do not preserve an arbitrary partial `rx_line` from the lightweight scanner across exit; if the line was really part of a long `353`/topic flood, restoring it leaks a chopped tail as `>< ...` once normal parsing resumes.
-- `overlay_keepalive()` does not have to consume local PONG if ABOUT exit rebaselines local keepalive state (`server_silence_frames`, `keepalive_ping_sent`, `keepalive_timeout`, lag counter). Server PING replies are mandatory; local PONG consumption is optional under this contract.
-- Accept that other non-keepalive IRC traffic can still be discarded during `ABOUT`; this pattern is for avoiding false disconnects and preserving automatic NAMES counts, not for full background IRC processing.
+- Do not write `ring_buffer` while `OVERLAY_ABOUT` is active. `SPCTLK2.OVL` lives there.
+- During ABOUT, drain UART directly into `rx_line` with the same line contract as the normal RX path: complete LF-terminated line, NUL terminator, `_rx_last_len`, `_rx_overflow`, then `parse_irc_message(rx_line)`.
+- `rx_line` still aliases the generic `_overlay_slot`, but ABOUT animation must not use that alias for frame packets. `SPCTLK2` exposes `_about_packet_slot` over init-only code (`about_render_ovl`, logo/text drawing, strings). After entry 0 returns this code is dead and may be overwritten by each generated Earth packet.
+- The dead packet slot must stay large enough for `EARTH_PACKET_SIZE`. Current build emits 459B packets; live tick/close/seek/apply/draw code and frame/attr buffers must stay outside that range.
+- `_globe_tick_ovl` must read packets from `_about_packet_slot`, not `_overlay_slot`, and must not gate on `_rx_pos`. The C scheduler can keep the simple 25Hz about gate because packets no longer clobber partial IRC lines.
+- Keep the ABOUT pump bounded. Current divMMC shape uses a `224B` byte budget and short inter-byte gap bridging (`C=64`).
+- On divMMC, the ABOUT pump hot path should call `uartRead` directly and use its `CF=1/A=byte` contract, rather than calling `_ay_uart_ready` and `_ay_uart_read` for every byte. Keep `uartRead` exported and preserve the pump's own budget/gap registers across that call.
+- Cache the next `rx_line` write pointer in `DE` inside `_about_pump`; `uartRead` preserves `DE` but clobbers `HL`, so do not cache `rx_pos` in `HL` across the UART call. Store `rx_pos` back only when returning with a partial line.
+- The pump must yield immediately after parsing or discarding one complete LF-terminated line. Do not continue polling into the next line after `_rx_pos_reset()`, or the pump can return with a new partial line and starve animation during NAMES bursts.
+- Before loading ABOUT, process complete lines already present in `ring_buffer` with the normal parser while `overlay_mode=OVERLAY_ABOUT` suppresses rendering. This preserves pending `353/366` lines that would otherwise be overwritten by the overlay binary.
+- Do not reintroduce a separate ABOUT `PING/353/366` mini-parser. It grows resident code and loses normal handler semantics such as JOIN/PART count updates.
+- Parser work that is purely display-cosmetic may be skipped while `overlay_mode != 0`, because overlay rendering suppresses main output. Current accepted skips are `strip_irc_codes(pkt_txt)`, `utf8_to_ascii(pkt_txt)`, channel mention scans in `PRIVMSG`, JOIN/QUIT friend notifications, and the NAMES friend-notification scan inside `353`; do not skip user-count accumulation, `353/366` state, PING/PONG, JOIN/PART/QUIT count updates, PM/query state, status-bar state, or any required connection mutation.
+- Friend lookups should first reject on a cheap case-folded first-character compare before calling `st_stricmp()`. This preserves semantics while avoiding most expensive string compares during large NAMES/JOIN bursts.
+- Keep local client keepalive timeout/probe suppression during ABOUT until hardware proves the direct parser path handles long sessions cleanly. Server `PING`/`PONG` traffic is handled by the normal parser through the pump.
+- If parser execution inside ABOUT can enter a path that reuses `ring_buffer`, close ABOUT first. `force_disconnect()` must call the ABOUT close entry and `overlay_exit_full()` before any `flush_all_rx_buffers()` or ESP command wait.
+- Do not use fixed post-ABOUT `flush_frames` drains. They block input and produce visible backlog bursts.
+- Manual `/names` pagination does not need a special ABOUT renderer. The goal is full parser state correctness and status-bar updates, not drawing paginated lists over the ABOUT screen.
+- Do not keep debug profile counters in the release path. The temporary `ABOUT_PROFILE`/`ABP` instrumentation was removed after proving the remaining `/names` lag is real parser+Earth work, not a pump/scheduler pathology.
 
 ## Applied In
-- `src/spectalk.c` main keepalive block
+- `src/spectalk.c` main overlay branch, keepalive block, `force_disconnect()`
 - `src/user_cmds.c` `sys_about` pending-line pre-drain
-- `asm/spectalk_asm/60_protocol_storage.asm` `_overlay_keepalive`
+- `asm/spectalk_asm/60_protocol_storage.asm` `_about_pump`
+- `overlay/overlay_entry2.asm` `_globe_tick_ovl`
+- `overlay/earth_about_render.asm` `_about_packet_slot` dead-code region

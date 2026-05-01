@@ -346,13 +346,10 @@ overlay: $(MAP)
 	fi; \
 	printf "$(C_GRN)[OK]$(C_RESET) SPCTLK1.OVL: $$ovl_size bytes (max 2048)\n"; \
 	echo "  Building SPCTLK2.OVL..."; \
-	zcc +z80 -clib=sdcc_iy --no-crt --opt-code-size \
-		-Ioverlay -c overlay/spectalk_ovl2.c -o $(BUILD_DIR)/spectalk_ovl2.o 2>&1 || exit 1; \
 	z80asm -I$(BUILD_DIR) overlay/overlay_entry2.asm 2>&1 || exit 1; \
 	z80asm -I$(BUILD_DIR) -Irelease/about_earth overlay/earth_about_render.asm 2>&1 || exit 1; \
 	z80asm -b -r0x$$SLOT -o=$(BUILD_DIR)/SPCTLK2.OVL \
 		overlay/overlay_entry2.o \
-		$(BUILD_DIR)/spectalk_ovl2.o \
 		overlay/earth_about_render.o \
 		$(BUILD_DIR)/overlay_defs.o 2>&1 || exit 1; \
 	ovl2_size=$$(wc -c < $(BUILD_DIR)/SPCTLK2.OVL); \

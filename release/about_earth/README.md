@@ -11,9 +11,11 @@ Current asset pass:
 - Globe layout: `ZX_X_BYTE = 10`, `ZX_Y_LINE = 24`
 - Logo layout: `LOGO_X_BYTE = 5`, `LOGO_Y_LINE = 104`
 - Logo size: `176x24` pixels
-- Post-process: `tools/about_earth_polish.py` fills single black pinholes
-  fully surrounded by lit pixels; attributes/colors are unchanged.
-- Current generated interleaved delta packet size: `481` bytes
+- Bitmap pass: copied from the compatible `GloboTerraqueoZX\build` output
+  that matches the SpecTalkZX 24-frame/587-byte compact geometry. Do not use
+  the older `GloboTerraqueoZX\SpectalkZX` export here; that set is 16 frames
+  with a 584-byte compact frame and needs different constants/spans.
+- Current generated interleaved delta packet size: `459` bytes
 
 Shipped files:
 - `earth_frame0.compact.bin`: first compact bitmap frame

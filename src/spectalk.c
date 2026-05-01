@@ -333,8 +333,8 @@ void names_finish_incomplete(void)
     status_bar_dirty = 1;
 }
 
-// Lightweight UART scanner during OVERLAY_ABOUT. ASM keeps resident size down.
-extern void overlay_keepalive(void);
+// Direct UART-to-parser pump during OVERLAY_ABOUT. ASM keeps resident size down.
+extern void about_pump(void);
 
 // rb_pop() está implementada en spectalk_asm.asm
 
@@ -863,6 +863,7 @@ uint8_t current_attr;  // Initialized in apply_theme()
 // Lives in the free Printer Buffer tail; $5BE7-$5BE8 is mpwr_last_space.
 // Used by draw_clock, draw_status_bar_real and search index rendering (never simultaneously).
 #define fmt_buf ((char *)0x5BE9)
+
 // COMMAND HISTORY
 #define HISTORY_SIZE    4
 // E2: Reduced from 128 to 96 - saves 128 bytes BSS
@@ -1930,6 +1931,11 @@ void force_disconnect(void)
     
     if (disconnecting_in_progress) return;
     disconnecting_in_progress = 1;
+
+    if (overlay_mode == OVERLAY_ABOUT) {
+        overlay_call(1);       /* close ABOUT DAT before ring_buffer is reused */
+        overlay_exit_full();
+    }
     
     if (connection_state >= STATE_TCP_CONNECTED) {
         // No QUIT here: sending QUIT before reconnect triggers server-side
@@ -2742,10 +2748,9 @@ void main(void)
 
                 if (overlay_mode == OVERLAY_ABOUT) {
                     /* ABOUT owns ring_buffer and consumes only lightweight
-                     * keepalive traffic. Do not self-timeout or launch new
-                     * local probes while normal IRC parsing is intentionally
-                     * paused; overlay_keepalive() still answers server PINGs
-                     * and clears a pending PONG if one arrives. */
+                     * parser pump. Do not self-timeout or launch new local
+                     * probes until the ABOUT parser path is hardware-proven;
+                     * about_pump() still handles server PING/PONG traffic. */
                 } else if (keepalive_ping_sent) {
                     // Waiting for PONG - check timeout
                     if (++keepalive_timeout >= KEEPALIVE_TIMEOUT_FRAMES) {
@@ -2864,8 +2869,9 @@ void main(void)
             // Overlay system (state-based, non-blocking)
             if (overlay_mode) {
                 pagination_active = 0; /* W11: overlays and pagination are mutually exclusive */
-                if (overlay_mode == OVERLAY_ABOUT && connection_state >= STATE_TCP_CONNECTED)
-                    overlay_keepalive();
+                if (overlay_mode == OVERLAY_ABOUT && connection_state >= STATE_TCP_CONNECTED) {
+                    about_pump();
+                }
                 if (c) sw_timeout = 0; /* W14: reset help timeout on any keypress */
                 // About overlay: N key opens What's New
                 if (overlay_mode == OVERLAY_ABOUT && (c == 'n' || c == 'N')) {

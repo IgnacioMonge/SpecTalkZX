@@ -13,8 +13,13 @@ PUBLIC _earth_draw_separator
 PUBLIC _earth_seek
 PUBLIC _earth_frame_buffer
 PUBLIC _earth_attr_buffer
+PUBLIC _about_render_ovl
+PUBLIC _about_close_ovl
+PUBLIC _about_packet_slot
 
+EXTERN _esx_fopen
 EXTERN _esx_fread
+EXTERN _esx_fclose
 EXTERN _esx_handle
 EXTERN _esx_buf
 EXTERN _esx_count
@@ -23,15 +28,40 @@ EXTERN _overlay_slot
 EXTERN _ikkle_packed
 EXTERN _theme_attrs
 EXTERN _current_theme
-EXTERN ___sdcc_enter_ix
+EXTERN _K_DAT
+EXTERN _clear_zone
+EXTERN _rb_head
+EXTERN _rb_tail
+EXTERN _rx_pos
+EXTERN _rx_last_len
+EXTERN _rx_overflow
+EXTERN _earth_ready
+EXTERN _frame_idx
 
+DEFC EARTH_FRAME0_OFFSET = 969
 DEFC EARTH_FRAME0_SIZE = 587
 DEFC EARTH_ATTR0_SIZE  = 44
+DEFC EARTH_ATTR0_OFFSET = 1556
+DEFC EARTH_DELTA_OFFSET = 2128
 DEFC EARTH_LOGO_PRELOAD_ROWS = EARTH_LOGO_H - 1
 DEFC EARTH_LOGO_PRELOAD_SIZE = EARTH_LOGO_PRELOAD_ROWS * EARTH_LOGO_W_BYTES
+DEFC TA_MSG_CHAN  = 2
 DEFC TA_MAIN_BG   = 5
+DEFC TA_MSG_SYS   = 9
 DEFC TA_MSG_NICK  = 11
 DEFC TA_MSG_TOPIC = 13
+
+_about_close_ovl:
+        ld a,(_esx_handle)
+        or a
+        jr z,about_close_ready
+        call _esx_fclose
+        xor a
+        ld (_esx_handle),a
+about_close_ready:
+        xor a
+        ld (_earth_ready),a
+        ret
 
 _earth_seek:
         push ix
@@ -53,11 +83,23 @@ _earth_draw_frame:
         ld hl,_earth_frame_buffer
         ld ix,earth_screen_spans
         call earth_draw_spans_packed
+        call earth_mask_edge_sparkles
 
         ld hl,_earth_attr_buffer
         ld ix,earth_attr_spans
         call earth_draw_attr_spans_packed
         pop ix
+        ret
+
+earth_mask_edge_sparkles:
+        ld hl,$4871
+        ld a,(hl)
+        and $77
+        ld (hl),a
+        ld h,$4C
+        ld a,(hl)
+        and $77
+        ld (hl),a
         ret
 
 _earth_apply_frame_delta:
@@ -88,98 +130,6 @@ earth_delta_copy:
         ld b,0
         ldir
         jr earth_apply_delta
-
-_earth_read_logo:
-        ld hl,_overlay_slot
-        ld (_esx_buf),hl
-        ld hl,EARTH_LOGO_PRELOAD_SIZE
-        ld (_esx_count),hl
-        call _esx_fread
-        ld hl,(_esx_result)
-        ld de,EARTH_LOGO_PRELOAD_SIZE
-        or a
-        sbc hl,de
-        jr nz,earth_logo_fail
-
-        ld hl,_overlay_slot
-        ld de,EARTH_LOGO_SCREEN_ADDR
-        ld b,EARTH_LOGO_PRELOAD_ROWS
-
-earth_logo_copy_row_loop:
-        push bc
-        push de
-        ld bc,EARTH_LOGO_W_BYTES
-        ldir
-        pop de
-        call earth_screen_down
-        pop bc
-        djnz earth_logo_copy_row_loop
-
-        ld (_esx_buf),de
-        ld hl,EARTH_LOGO_W_BYTES
-        ld (_esx_count),hl
-        call _esx_fread
-        ld hl,(_esx_result)
-        ld a,h
-        or a
-        jr nz,earth_logo_fail
-        ld a,l
-        cp EARTH_LOGO_W_BYTES
-        jr nz,earth_logo_fail
-
-        ld de,EARTH_LOGO_ATTR_ADDR
-        ld a,EARTH_LOGO_ATTR_H
-
-earth_logo_attr_row_loop:
-        push af
-        ld b,EARTH_LOGO_W_BYTES
-        call earth_logo_attr_value
-
-earth_logo_attr_byte_loop:
-        ld (de),a
-        inc de
-        djnz earth_logo_attr_byte_loop
-        ld a,32-EARTH_LOGO_W_BYTES
-        add a,e
-        ld e,a
-        jr nc,earth_logo_attr_next
-        inc d
-
-earth_logo_attr_next:
-        pop af
-        dec a
-        jr nz,earth_logo_attr_row_loop
-        ld hl,1
-        ret
-
-earth_logo_fail:
-        ld hl,0
-        ret
-
-earth_logo_attr_value:
-        ld a,(_current_theme)
-        cp 1
-        ld a,$47
-        ret z
-        ld a,(_theme_attrs + TA_MSG_NICK)
-        ret
-
-_earth_draw_separator:
-        ld hl,$4040
-        ld b,32
-        ld a,$FF
-earth_sep_px_loop:
-        ld (hl),a
-        inc l
-        djnz earth_sep_px_loop
-        ld hl,$5840
-        ld b,32
-        ld a,(_theme_attrs + TA_MSG_TOPIC)
-earth_sep_attr_loop:
-        ld (hl),a
-        inc l
-        djnz earth_sep_attr_loop
-        ret
 
 earth_screen_down:
         inc d
@@ -331,17 +281,255 @@ earth_theme_attr:
         or 4
         ret
 earth_theme_not_terminal:
+        ld a,(_current_theme)
+        cp 3
+        ld a,c
+        jr nz,earth_theme_default
+        and 7
+        cp 1
+        jr nz,earth_theme_default
+        ld a,c
+        and $40
+        or b
+        or 5
+        ret
+earth_theme_default:
+        ld a,c
         and $47
         or b
         ret
 
-;; void earth_ikkle_draw(uint8_t row, uint8_t col, const char *str, uint8_t attr)
-;; cdecl stack: [IX+4]=row, [IX+5]=col, [IX+6,7]=str, [IX+8]=attr
+;; Everything from _about_packet_slot up to _about_packet_slot_end is needed only
+;; while ABOUT opens. Once entry 0 returns, globe ticks reuse this dead code area
+;; as a 481-byte packet buffer, so keep close/tick/seek/apply/draw code above.
+_about_packet_slot:
+_about_render_ovl:
+        call _about_close_ovl
+
+        ld a,(_theme_attrs + TA_MAIN_BG)
+        ld c,a
+        ld b,0
+        push bc
+        ld bc,(19 << 8) | 2
+        push bc
+        call _clear_zone
+        pop bc
+        pop bc
+        call _earth_draw_separator
+
+        ld hl,_K_DAT
+        call _esx_fopen
+        ld a,(_esx_handle)
+        or a
+        jp z,about_fail
+
+        ld hl,EARTH_FRAME0_OFFSET
+        call _earth_seek
+        ld a,l
+        or a
+        jp z,about_fail
+
+        ld hl,_earth_frame_buffer
+        ld de,EARTH_FRAME0_SIZE
+        call about_read_exact
+        jr nz,about_fail
+
+        ld hl,_earth_attr_buffer
+        ld de,EARTH_ATTR0_SIZE
+        call about_read_exact
+        jr nz,about_fail
+
+        call _earth_draw_frame
+        call _earth_read_logo
+        ld a,l
+        or a
+        jr z,about_fail
+
+        ld hl,EARTH_DELTA_OFFSET
+        call _earth_seek
+        ld a,l
+        or a
+        jr z,about_fail
+
+        xor a
+        ld (_frame_idx),a
+        inc a
+        ld (_earth_ready),a
+
+        ld a,(_current_theme)
+        cp 1
+        jr nz,about_theme_attr
+        ld hl,about_s_line1
+        ld d,16
+        ld e,10
+        ld c,$46
+        call _earth_ikkle_draw
+        ld hl,about_s_line2
+        ld d,17
+        ld e,11
+        ld c,$47
+        jr about_draw_line2
+
+about_theme_attr:
+        ld hl,about_s_line1
+        ld d,16
+        ld e,10
+        ld a,(_theme_attrs + TA_MSG_NICK)
+        ld c,a
+        call _earth_ikkle_draw
+        ld hl,about_s_line2
+        ld d,17
+        ld e,11
+        ld a,(_theme_attrs + TA_MSG_CHAN)
+        ld c,a
+
+about_draw_line2:
+        call _earth_ikkle_draw
+        ld hl,about_s_foot
+        ld d,20
+        ld e,18
+        ld a,(_theme_attrs + TA_MSG_SYS)
+        ld c,a
+        call _earth_ikkle_draw
+        jr about_reset_rx
+
+about_fail:
+        call _about_close_ovl
+        ld hl,about_s_foot
+        ld d,20
+        ld e,18
+        ld a,(_theme_attrs + TA_MSG_SYS)
+        ld c,a
+        call _earth_ikkle_draw
+
+about_reset_rx:
+        xor a
+        ld hl,0
+        ld (_rb_head),hl
+        ld (_rb_tail),hl
+        ld (_rx_pos),hl
+        ld (_rx_last_len),hl
+        ld (_rx_overflow),a
+        ret
+
+about_read_exact:
+        ld (_esx_buf),hl
+        ld (_esx_count),de
+        call _esx_fread
+        ld hl,(_esx_result)
+        ld de,(_esx_count)
+        or a
+        sbc hl,de
+        ret
+
+_earth_read_logo:
+        ld hl,_overlay_slot
+        ld (_esx_buf),hl
+        ld hl,EARTH_LOGO_PRELOAD_SIZE
+        ld (_esx_count),hl
+        call _esx_fread
+        ld hl,(_esx_result)
+        ld de,EARTH_LOGO_PRELOAD_SIZE
+        or a
+        sbc hl,de
+        jr nz,earth_logo_fail
+
+        ld hl,_overlay_slot
+        ld de,EARTH_LOGO_SCREEN_ADDR
+        ld b,EARTH_LOGO_PRELOAD_ROWS
+
+earth_logo_copy_row_loop:
+        push bc
+        push de
+        ld bc,EARTH_LOGO_W_BYTES
+        ldir
+        pop de
+        call earth_screen_down
+        pop bc
+        djnz earth_logo_copy_row_loop
+
+        ld (_esx_buf),de
+        ld hl,EARTH_LOGO_W_BYTES
+        ld (_esx_count),hl
+        call _esx_fread
+        ld hl,(_esx_result)
+        ld a,h
+        or a
+        jr nz,earth_logo_fail
+        ld a,l
+        cp EARTH_LOGO_W_BYTES
+        jr nz,earth_logo_fail
+
+        ld de,EARTH_LOGO_ATTR_ADDR
+        ld a,EARTH_LOGO_ATTR_H
+
+earth_logo_attr_row_loop:
+        push af
+        ld b,EARTH_LOGO_W_BYTES
+        call earth_logo_attr_value
+
+earth_logo_attr_byte_loop:
+        ld (de),a
+        inc de
+        djnz earth_logo_attr_byte_loop
+        ld a,32-EARTH_LOGO_W_BYTES
+        add a,e
+        ld e,a
+        jr nc,earth_logo_attr_next
+        inc d
+
+earth_logo_attr_next:
+        pop af
+        dec a
+        jr nz,earth_logo_attr_row_loop
+        ld hl,1
+        ret
+
+earth_logo_fail:
+        ld hl,0
+        ret
+
+earth_logo_attr_value:
+        ld a,(_current_theme)
+        cp 1
+        jr z,earth_logo_theme1
+        cp 3
+        jr z,earth_logo_theme3
+        ld a,(_theme_attrs + TA_MSG_NICK)
+        ret
+
+earth_logo_theme1:
+        ld a,$47
+        ret
+
+earth_logo_theme3:
+        ld a,(_theme_attrs + TA_MAIN_BG)
+        ret
+
+_earth_draw_separator:
+        ld hl,$4040
+        ld b,32
+        ld a,$FF
+earth_sep_px_loop:
+        ld (hl),a
+        inc l
+        djnz earth_sep_px_loop
+        ld hl,$5840
+        ld b,32
+        ld a,(_theme_attrs + TA_MAIN_BG)
+earth_sep_attr_loop:
+        ld (hl),a
+        inc l
+        djnz earth_sep_attr_loop
+        ret
+
+;; Input: HL = string, D = row, E = 64-col column, C = attr.
 _earth_ikkle_draw:
-        call ___sdcc_enter_ix
-        ld l,(ix+6)
-        ld h,(ix+7)
-        ld c,(ix+5)
+        ld a,d
+        ld (earth_ikkle_row + 1),a
+        ld a,c
+        ld (earth_ikkle_attr + 1),a
+        ld c,e
 
 earth_ikkle_char_loop:
         ld a,(hl)
@@ -351,7 +539,7 @@ earth_ikkle_char_loop:
 
         ld a,c
         srl a
-        ld b,a                     ; physical byte column
+        ld b,a
         push bc
         ld a,(hl)
         cp 33
@@ -372,7 +560,8 @@ earth_ikkle_no_fold:
         inc hl
         ld e,(hl)
 
-        ld a,(ix+4)
+earth_ikkle_row:
+        ld a,0
         call earth_screen_base
         inc h
         inc h
@@ -439,12 +628,13 @@ earth_ikkle_odd_col:
 
 earth_ikkle_set_attr:
         pop bc
-        ld a,(ix+4)
+        ld a,(earth_ikkle_row + 1)
         call earth_attr_base
         ld a,b
         add a,l
         ld l,a
-        ld a,(ix+8)
+earth_ikkle_attr:
+        ld a,0
         ld (hl),a
 
         pop hl
@@ -453,7 +643,6 @@ earth_ikkle_set_attr:
         jp earth_ikkle_char_loop
 
 earth_ikkle_done:
-        pop ix
         ret
 
 earth_screen_base:
@@ -480,6 +669,17 @@ earth_attr_base:
         ld de,$5800
         add hl,de
         ret
+
+about_s_line1:
+        db "SPECTALKZX 1.3.8: IRC CLIENT FOR ZX SPECTRUM",0
+about_s_line2:
+        db "GITHUB.COM/IGNACIOMONGE/SPECTALKZX GPL-2.0",0
+about_s_foot:
+        db "N: What's New  Any key: Exit",0
+_about_packet_slot_end:
+IF _about_packet_slot_end - _about_packet_slot < EARTH_PACKET_SIZE
+        defb 1 / 0
+ENDIF
 
         INCLUDE "earth_overlay_spans.asm"
         INCLUDE "earth_logo.asm"

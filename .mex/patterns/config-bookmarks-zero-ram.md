@@ -23,5 +23,5 @@ IRC bookmarks and session restore must be config-driven and transient. The proje
 - `src/spectalk.c` config loader stores `channels=` transiently and parses `autojoin=`.
 - `asm/spectalk_asm/70_input_lookup.asm` exposes `_snapshot_autojoin_channels()` so resident C can refresh the transient `channels=` display/save buffer without growing SPCTLK2.
 - `src/user_cmds.c` exposes `!autojoin`; `src/irc_handlers.c` replays the pending list from the `376`/`422` handshake gate.
-- `overlay/spectalk_ovl2.c` shows `autojoin=` and `channels=` in `!config`.
+- `overlay/spectalk_ovl5.c` shows `autojoin=` and `channels=` in `!config`.
 - `overlay/spectalk_ovl4.c` writes the already-refreshed `search_pattern` during `!save`; it must not grow back a separate channel scan unless future callsites bypass `cmd_save()`.

@@ -141,11 +141,16 @@ static void print_reason_and_newline(void)
 static uint8_t is_tracked_friend(const char *nick) __z88dk_fastcall
 {
     uint8_t i;
+    uint8_t n0, f0;
     char *fn;
-    if (!nick || !*nick) return 0;
+    if (!nick || !(n0 = *nick)) return 0;
+
+    n0 |= 0x20;
 
     for (i = 0, fn = friend_nicks[0]; i < MAX_FRIENDS; i++, fn += IRC_NICK_SIZE) {
-        if (*fn && st_stricmp(fn, nick) == 0) return 1;
+        f0 = *fn;
+        if (!f0) continue;
+        if ((f0 | 0x20) == n0 && st_stricmp(fn, nick) == 0) return 1;
     }
     return 0;
 }
@@ -413,7 +418,7 @@ static void h_privmsg_notice(void)
             mark_channel_activity((uint8_t)idx);
 
             // Mención en canal NO activo: marcar flag y salir
-            if ((uint8_t)idx != current_channel_idx && irc_nick[0] && st_stristr(pkt_txt, irc_nick)) {
+            if (!overlay_mode && (uint8_t)idx != current_channel_idx && irc_nick[0] && st_stristr(pkt_txt, irc_nick)) {
                 channels[(uint8_t)idx].flags |= CH_FLAG_MENTION;
                 status_bar_dirty = 1;
                 mention_beep();
@@ -513,7 +518,7 @@ static void h_privmsg_notice(void)
 
         // Mention: BRIGHT highlight + beep
         set_attr_chan();
-        if (irc_nick[0] && st_stristr(pkt_txt, irc_nick)) {
+        if (!overlay_mode && irc_nick[0] && st_stristr(pkt_txt, irc_nick)) {
             current_attr |= 0x40;
             mention_beep();
         }
@@ -601,7 +606,7 @@ static void h_join(void)
         if (idx >= 0) {
             channels[idx].user_count++;
 
-            if (is_tracked_friend(pkt_usr)) {
+            if (!overlay_mode && is_tracked_friend(pkt_usr)) {
                 mention_beep();
                 nb_init("Friend: "); nb(pkt_usr); nb(S_IN_SP); nb(chan); NB_END();
                 notify(temp_input, ATTR_MSG_NICK);
@@ -666,7 +671,7 @@ static void h_part(void)
 static void h_quit(void)
 {
     // audit L09: notify friend quit
-    if (is_tracked_friend(pkt_usr))
+    if (!overlay_mode && is_tracked_friend(pkt_usr))
         notify2(pkt_usr, S_QUIT_SUFFIX, ATTR_MSG_NICK);
 
     if (show_traffic && current_channel_idx > 0) {
@@ -926,8 +931,9 @@ static void h_numeric_353(void)
         }
     }
 
-    // Accumulate friends found in NAMES for batch notification on 366
-    {
+    // Accumulate friends found in NAMES for batch notification on 366.
+    // Overlay output is suppressed, so skip this CPU-heavy cosmetic pass there.
+    if (!overlay_mode) {
         char *p = pkt_txt;
         while (*p) {
             char *ns;
@@ -992,7 +998,7 @@ static void h_numeric_366(void)
 
     // Batch friend notification (accumulated during 353 chunks)
     if (names_friend_pos > 0) {
-        if (!search_data_lost) {
+        if (!overlay_mode && !search_data_lost) {
             mention_beep();
             notify3(names_friend_buf, S_IN_SP, msg_chan, ATTR_MSG_NICK);
         }
@@ -1487,7 +1493,7 @@ void parse_irc_message(char *line) __z88dk_fastcall
 
     // Sanitize text: strip IRC formatting + convert UTF-8 to ASCII
     // Prevents BPE decompressor from misinterpreting high bytes as tokens
-    if (*pkt_txt) { strip_irc_codes(pkt_txt); utf8_to_ascii(pkt_txt); }
+    if (*pkt_txt && !overlay_mode) { strip_irc_codes(pkt_txt); utf8_to_ascii(pkt_txt); }
 
     // --- UNIFIED DISPATCHER ---
     {

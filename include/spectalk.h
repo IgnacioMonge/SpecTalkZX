@@ -534,6 +534,7 @@ void print_str64(uint8_t y, uint8_t col, const char *s, uint8_t attr) __z88dk_ca
 void print_big_str(uint8_t y, uint8_t col, const char *s, uint8_t attr) __z88dk_callee;
 
 // Overlay modes
+extern uint8_t overlay_mode;
 #define OVERLAY_NONE   0
 #define OVERLAY_HELP   1
 #define OVERLAY_ABOUT  2

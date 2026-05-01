@@ -3,7 +3,7 @@ SECTION code_user
 
 EXTERN _about_render_ovl
 EXTERN _about_close_ovl
-EXTERN _overlay_slot
+EXTERN _about_packet_slot
 EXTERN _esx_handle
 EXTERN _esx_buf
 EXTERN _esx_count
@@ -35,7 +35,7 @@ _globe_tick_ovl:
     or a
     ret z
 
-    ld hl, _overlay_slot
+    ld hl, _about_packet_slot
     ld (_esx_buf), hl
     ld hl, EARTH_PACKET_SIZE
     ld (_esx_count), hl
@@ -49,13 +49,13 @@ tick_have_packet:
     sbc hl, de
     jp nz, _about_close_ovl       ; tail-call if read fails
 
-    ; Apply frame delta: earth_apply_frame_delta(overlay_slot + 2)
-    ld hl, _overlay_slot + 2
+    ; Apply frame delta: earth_apply_frame_delta(about_packet_slot + 2)
+    ld hl, _about_packet_slot + 2
     call _earth_apply_frame_delta
 
-    ; Apply attr delta: earth_apply_attr_delta(overlay_slot + len + 3)
-    ld hl, (_overlay_slot)        ; reads little-endian 16-bit len
-    ld de, _overlay_slot + 3
+    ; Apply attr delta: earth_apply_attr_delta(about_packet_slot + len + 3)
+    ld hl, (_about_packet_slot)   ; reads little-endian 16-bit len
+    ld de, _about_packet_slot + 3
     add hl, de
     call _earth_apply_attr_delta
 
