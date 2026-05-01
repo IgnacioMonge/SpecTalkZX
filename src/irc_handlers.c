@@ -143,6 +143,7 @@ static uint8_t is_tracked_friend(const char *nick) __z88dk_fastcall
     uint8_t i;
     uint8_t n0, f0;
     char *fn;
+    if (!friend_count) return 0;
     if (!nick || !(n0 = *nick)) return 0;
 
     n0 |= 0x20;
@@ -905,7 +906,7 @@ static void h_numeric_353(void)
     // Accumulate user count in temp variable (only committed on 366)
     {
         char *p = pkt_txt;
-        uint16_t count = 0;
+        uint8_t count = 0;
 
         if (*p) count = 1;
         while (*p) { if (*p == ' ') count++; p++; }
@@ -933,7 +934,8 @@ static void h_numeric_353(void)
 
     // Accumulate friends found in NAMES for batch notification on 366.
     // Overlay output is suppressed, so skip this CPU-heavy cosmetic pass there.
-    if (!overlay_mode) {
+    // Skip entirely when no friends configured (avoids per-nick parse cost).
+    if (!overlay_mode && friend_count) {
         char *p = pkt_txt;
         while (*p) {
             char *ns;

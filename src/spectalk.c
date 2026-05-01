@@ -366,6 +366,7 @@ uint8_t autojoin_ident_grace;
 uint8_t has_esxdos;
 // friend_nicks mapped to UDG area 0xFF58 via ASM defc
 uint8_t friends_ison_sent;
+uint8_t friend_count;
 char user_mode[USER_MODE_SIZE];
 char network_name[NETWORK_NAME_SIZE];
 uint8_t connection_state;
@@ -2397,6 +2398,7 @@ static void cfg_apply(char *key, char *val) __z88dk_callee {
         char *tok, *p = val;
         while (idx < MAX_FRIENDS && (tok = csv_next_tok(&p)) != NULL)
             st_copy_n(friend_nicks[idx++], tok, IRC_NICK_SIZE);
+        friend_count = idx;
     } else if (k0 == 'i' && k1 == 'g') {  // ignores
         char *tok, *p = val;
         while (ignore_count < MAX_IGNORES && (tok = csv_next_tok(&p)) != NULL)

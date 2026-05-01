@@ -1326,6 +1326,7 @@ static void cmd_friend(const char *args) __z88dk_fastcall
         if (*fn) {
             if (st_stricmp(fn, args) == 0) {
                 *fn = '\0';
+                friend_count--;
                 SYS_PUTS("- "); main_print(args);
                 config_dirty = 1;
                 return;
@@ -1336,6 +1337,7 @@ static void cmd_friend(const char *args) __z88dk_fastcall
     }
     if (free_fn) {
         st_copy_n(free_fn, args, IRC_NICK_SIZE);
+        friend_count++;
         SYS_PUTS("+ "); main_print(args);
         config_dirty = 1;
         return;

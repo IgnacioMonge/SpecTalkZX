@@ -613,6 +613,7 @@ void nick_try_alternate(void);
 
 extern char friend_nicks[MAX_FRIENDS][IRC_NICK_SIZE];
 extern uint8_t friends_ison_sent;
+extern uint8_t friend_count;
 
 // =============================================================================
 // FUNCTION DECLARATIONS - IRC HANDLERS (irc_handlers.c)
