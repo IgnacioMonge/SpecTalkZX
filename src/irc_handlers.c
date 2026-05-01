@@ -1308,7 +1308,8 @@ static void h_numeric_default(void)
 
 print_tail:
     // Imprimir parámetros intermedios (saltando el 0 que es nuestro nick)
-    if (irc_param_count > 1) {
+    // H12: outer guard removed — for loop self-protects (1 < 0/1 = false)
+    {
         uint8_t i;
         for (i = 1; i < irc_param_count; i++) {
             const char *p = irc_param(i);

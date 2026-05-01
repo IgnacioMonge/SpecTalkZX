@@ -2555,8 +2555,8 @@ void main(void)
             if (retries) {
                 ui_sys("Press any key to retry...");
                 // FIX: Drenar la UART mientras esperamos la tecla
-                while (!in_inkey()) { frame_wait(); uart_drain_to_buffer(); }
-                while (in_inkey()) { frame_wait(); uart_drain_to_buffer(); }
+                do { frame_wait(); uart_drain_to_buffer(); } while (!in_inkey());
+                do { frame_wait(); uart_drain_to_buffer(); } while (in_inkey());
             }
         }
     }
@@ -2863,7 +2863,8 @@ void main(void)
             if (c) { autoaway_counter = 0; badge_flash_off(); }
 
             // D2: SHIFT+5/6/7/8 => cursor keys via lookup table
-            if (c >= '5' && c <= '8' && shift_held) {
+            // H14: short-circuit (shift first) + 8-bit underflow range check
+            if (shift_held && (uint8_t)(c - '5') <= 3) {
                 static const uint8_t shift_keys[] = {KEY_LEFT, KEY_DOWN, KEY_UP, KEY_RIGHT};
                 c = shift_keys[c - '5'];
             }
