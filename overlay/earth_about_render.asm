@@ -222,6 +222,8 @@ earth_attr_dx_done:
 ;; LUT-based unpack: 16-byte table built once per about_render_ovl entry.
 ;; Eliminates per-cell theme_attr call (~40-50T saved per attr cell).
 ;; SMC sites patched by _build_theme_attr_lut with low/high of LUT base.
+;; AUDIT-L01 FIX: `adc a, 0` propagates carry from `add a, nibble` into H,
+;; so a LUT base whose low byte > $F0 still resolves correctly.
 earth_unpack_attr_span:
         ld a,(hl)
         inc hl
@@ -236,7 +238,9 @@ smc_lut_lo_hi:
         add a,0                          ; SMC: + low(_theme_attr_lut)
         ld l,a
 smc_lut_hi_hi:
-        ld h,0                           ; SMC: high(_theme_attr_lut)
+        ld a,0                           ; SMC: high(_theme_attr_lut)
+        adc a,0                          ; +carry from add a, nibble
+        ld h,a
         ld a,(hl)
         ld (de),a
         inc de
@@ -247,7 +251,10 @@ smc_lut_hi_hi:
 smc_lut_lo_lo:
         add a,0                          ; SMC: + low(_theme_attr_lut)
         ld l,a
-        ; H still holds LUT high byte from previous lookup
+smc_lut_hi_lo:
+        ld a,0                           ; SMC: high(_theme_attr_lut)
+        adc a,0                          ; +carry
+        ld h,a
         ld a,(hl)
         ld (de),a
         inc de
@@ -318,12 +325,13 @@ blut_store:
         inc a
         djnz blut_loop
 
-        ; Patch SMC sites with LUT base address
+        ; Patch SMC sites with LUT base address (4 sites: 2 low + 2 high)
         ld a,_theme_attr_lut & $FF
         ld (smc_lut_lo_hi + 1),a
         ld (smc_lut_lo_lo + 1),a
         ld a,_theme_attr_lut >> 8
         ld (smc_lut_hi_hi + 1),a
+        ld (smc_lut_hi_lo + 1),a
         ret
 
 ;; Everything from _about_packet_slot up to _about_packet_slot_end is needed only

@@ -174,8 +174,14 @@ uartReady_check_hw:
 
 ; -----------------------------------------------------------------------------
 ; _ay_uart_read
+; AUDIT-L03 FIX: return 0 when no data available (CF=0 from uartRead) instead
+; of leaking the stale status byte left in A by the AND inside uartRead. All
+; current callers gate on _ay_uart_ready, but this hardens the contract.
 ; -----------------------------------------------------------------------------
 _ay_uart_read:
     call uartRead
+    jr c, ay_uart_read_got
+    xor a
+ay_uart_read_got:
     ld l, a
     ret

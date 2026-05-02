@@ -936,7 +936,9 @@ static void h_numeric_353(void)
     // Accumulate friends found in NAMES for batch notification on 366.
     // Overlay output is suppressed, so skip this CPU-heavy cosmetic pass there.
     // Skip entirely when no friends configured (avoids per-nick parse cost).
-    if (!overlay_mode && friend_count) {
+    // AUDIT-L02 FIX: also skip while a previous notification is still sliding,
+    // since names_friend_buf is aliased to notif_buf and would corrupt the slide.
+    if (!overlay_mode && friend_count && !notif_timeout) {
         char *p = pkt_txt;
         while (*p) {
             char *ns;
