@@ -52,7 +52,7 @@ _globe_tick_ovl:
     ld de, EARTH_PACKET_SIZE
     or a
     sbc hl, de
-    jp nz, _about_close_ovl       ; tail-call if read fails
+    jr nz, _about_close_ovl       ; tail-call if read fails
 
     ; Apply frame delta: earth_apply_frame_delta(about_packet_slot + 2)
     ld hl, _about_packet_slot + 2
@@ -75,7 +75,7 @@ _globe_tick_ovl:
     call _earth_seek
     ld a, l
     or a
-    jp z, _about_close_ovl        ; tail-call if seek fails
+    jr z, _about_close_ovl        ; tail-call if seek fails
     xor a
     ld (_frame_idx), a
     ret
