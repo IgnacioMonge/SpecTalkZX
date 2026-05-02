@@ -2604,7 +2604,7 @@ void main(void)
         uint8_t shift_held = 0;
         uint8_t ss_held = 0;    // SS+arrow state tracking
         uint8_t ss_repeat = 0;  // auto-repeat timer
-        static uint8_t about_anim_gate = 0;
+        static uint8_t about_anim_last = 0;  /* FRAMES low byte at last globe tick */
 
         // Sync frame counter before entering main loop
         last_frames_lo = *(volatile uint8_t *)23672;
@@ -2895,9 +2895,12 @@ void main(void)
                     overlay_exit_maybe_discard();
                     continue;
                 } else if (overlay_mode == OVERLAY_ABOUT && !c) {
-                    about_anim_gate ^= 1;
-                    if (!about_anim_gate) {
-                        overlay_call_timed(2); /* globe tick; keep ROM FRAMES live */
+                    /* Frame-counter gate: tick fires when ≥2 ROM FRAMES have
+                     * passed since last tick. Guarantees 25Hz cadence even if
+                     * iter time spikes (fread latency). uint8 wraps cleanly. */
+                    if ((uint8_t)(last_frames_lo - about_anim_last) >= 2) {
+                        about_anim_last = last_frames_lo;
+                        overlay_call_timed(2);
                     }
                 }
                 c = 0;

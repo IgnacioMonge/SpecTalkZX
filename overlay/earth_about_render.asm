@@ -219,72 +219,111 @@ earth_attr_dx_done:
         pop de
         jr earth_attr_span_loop
 
+;; LUT-based unpack: 16-byte table built once per about_render_ovl entry.
+;; Eliminates per-cell theme_attr call (~40-50T saved per attr cell).
+;; SMC sites patched by _build_theme_attr_lut with low/high of LUT base.
 earth_unpack_attr_span:
         ld a,(hl)
         inc hl
-        ld c,a
+        push hl                          ; save source ptr (HL repurposed for LUT)
+        ld c,a                           ; save raw byte for low nibble pass
         rrca
         rrca
         rrca
         rrca
-        and $0F
-        cp 8
-        jr c,earth_attr_high_no_bright
-        add a,$38
-
-earth_attr_high_no_bright:
-        push bc
-        call earth_theme_attr
+        and $0F                          ; high nibble (0..15)
+smc_lut_lo_hi:
+        add a,0                          ; SMC: + low(_theme_attr_lut)
+        ld l,a
+smc_lut_hi_hi:
+        ld h,0                           ; SMC: high(_theme_attr_lut)
+        ld a,(hl)
         ld (de),a
-        pop bc
         inc de
         dec b
-        ret z
+        jr z,earth_unpack_done
         ld a,c
-        and $0F
-        cp 8
-        jr c,earth_attr_low_no_bright
-        add a,$38
-
-earth_attr_low_no_bright:
-        push bc
-        call earth_theme_attr
+        and $0F                          ; low nibble
+smc_lut_lo_lo:
+        add a,0                          ; SMC: + low(_theme_attr_lut)
+        ld l,a
+        ; H still holds LUT high byte from previous lookup
+        ld a,(hl)
         ld (de),a
-        pop bc
         inc de
+        pop hl                           ; restore source ptr
         djnz earth_unpack_attr_span
         ret
+earth_unpack_done:
+        pop hl
+        ret
 
-earth_theme_attr:
-        ld c,a
+;; _build_theme_attr_lut — populate _theme_attr_lut[16] for current theme.
+;; Mapping per nibble: pre-decode (0..7 → 0..7, 8..15 → $40..$47), then apply
+;; theme transform once. Patches SMC sites in earth_unpack_attr_span with the
+;; LUT base address. Called from _about_render_ovl before first _earth_draw_frame.
+_build_theme_attr_lut:
         ld a,(_theme_attrs + TA_MAIN_BG)
         and $38
-        ld b,a
+        ld c,a                           ; C = bg_paper bits (PAPER from theme)
+
         ld a,(_current_theme)
+        ld d,a                           ; D = theme number (1..3)
+
+        ld hl,_theme_attr_lut
+        ld b,16                          ; loop counter
+        xor a                            ; A = nibble (0..15)
+
+blut_loop:
+        push af                          ; save nibble counter
+        cp 8
+        jr c,blut_no_bright
+        add a,$38                        ; nibbles 8..15 → $40..$47 (BRIGHT+INK)
+blut_no_bright:
+        ld e,a                           ; E = raw_decoded
+
+        ld a,d
         cp 2
-        ld a,c
-        jr nz,earth_theme_not_terminal
-        and $40
-        or b
-        or 4
-        ret
-earth_theme_not_terminal:
-        ld a,(_current_theme)
+        jr z,blut_terminal
         cp 3
-        ld a,c
-        jr nz,earth_theme_default
+        jr z,blut_commander_check
+
+blut_default:
+        ld a,e
+        and $47
+        or c
+        jr blut_store
+
+blut_terminal:
+        ld a,e
+        and $40
+        or c
+        or 4
+        jr blut_store
+
+blut_commander_check:
+        ld a,e
         and 7
         cp 1
-        jr nz,earth_theme_default
-        ld a,c
+        jr nz,blut_default               ; not INK 1 → default formula
+        ld a,e
         and $40
-        or b
+        or c
         or 5
-        ret
-earth_theme_default:
-        ld a,c
-        and $47
-        or b
+
+blut_store:
+        ld (hl),a
+        inc hl
+        pop af
+        inc a
+        djnz blut_loop
+
+        ; Patch SMC sites with LUT base address
+        ld a,_theme_attr_lut & $FF
+        ld (smc_lut_lo_hi + 1),a
+        ld (smc_lut_lo_lo + 1),a
+        ld a,_theme_attr_lut >> 8
+        ld (smc_lut_hi_hi + 1),a
         ret
 
 ;; Everything from _about_packet_slot up to _about_packet_slot_end is needed only
@@ -327,6 +366,7 @@ _about_render_ovl:
         call about_read_exact
         jr nz,about_fail
 
+        call _build_theme_attr_lut       ; theme is locked while !about open
         call _earth_draw_frame
         call _earth_read_logo
         ld a,l
@@ -677,3 +717,5 @@ _earth_frame_buffer:
         DS EARTH_FRAME0_SIZE
 _earth_attr_buffer:
         DS EARTH_ATTR0_SIZE
+_theme_attr_lut:
+        DS 16

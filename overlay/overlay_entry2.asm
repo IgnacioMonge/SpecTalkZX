@@ -14,7 +14,7 @@ EXTERN _earth_apply_attr_delta
 EXTERN _earth_seek
 EXTERN _earth_draw_frame
 
-DEFC EARTH_PACKET_SIZE  = 481
+DEFC EARTH_PACKET_SIZE  = 467
 DEFC EARTH_FRAME_COUNT  = 24
 DEFC EARTH_DELTA_OFFSET = 2128
 
@@ -35,6 +35,13 @@ _globe_tick_ovl:
     or a
     ret z
 
+    ; Draw current buffer FIRST. Anchors visible repaint to consistent
+    ; timing right after frame_wait. Variable fread latency is absorbed
+    ; into the post-draw window of this same tick, so display update no
+    ; longer jitters with disk I/O. Buffer was prepared either by
+    ; _about_render_ovl (frame 0) or by previous tick.
+    call _earth_draw_frame
+
     ld hl, _about_packet_slot
     ld (_esx_buf), hl
     ld hl, EARTH_PACKET_SIZE
@@ -42,8 +49,6 @@ _globe_tick_ovl:
     call _esx_fread
 
     ld hl, (_esx_result)
-
-tick_have_packet:
     ld de, EARTH_PACKET_SIZE
     or a
     sbc hl, de
@@ -64,19 +69,16 @@ tick_have_packet:
     inc (hl)
     ld a, (hl)
     cp EARTH_FRAME_COUNT
-    jr nz, tick_draw
+    ret nz
 
     ld hl, EARTH_DELTA_OFFSET
     call _earth_seek
-
     ld a, l
     or a
     jp z, _about_close_ovl        ; tail-call if seek fails
     xor a
     ld (_frame_idx), a
-
-tick_draw:
-    jp _earth_draw_frame          ; tail-call draws and returns natively
+    ret
 
 _earth_ready: db 0
 _frame_idx:   db 0
