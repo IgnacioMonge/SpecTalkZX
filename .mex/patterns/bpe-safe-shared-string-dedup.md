@@ -9,7 +9,8 @@
 
 ## Current Example
 
-- Shared screen strings: `S_IN_SP`, `S_QUIT_SUFFIX`, `S_SP_LBRACKET`, `S_CHANNEL_WORD`, `S_CLOSED_SP`, `S_USAGE_NOTICE`.
+- Shared screen strings: `S_IN_SP`, `S_QUIT_SUFFIX`, `S_SP_LBRACKET`, `S_CHANNEL_WORD`, `S_USAGE_NOTICE`.
+- Keep notification prefixes passed through `notify2()` out of `SAFE_CONSTANTS`, even if they are screen-only. The footer notification builder concatenates raw bytes in `temp_input` and does not BPE-decode prefix constants.
 - Shared UART strings: `S_AT_CMD`, `S_JOIN_CMD`; these are deliberately not in `SAFE_CONSTANTS`.
 
 ## Applies To

@@ -84,7 +84,6 @@ SAFE_CONSTANTS = [
     "S_QUIT_SUFFIX",
     "S_SP_LBRACKET",
     "S_CHANNEL_WORD",
-    "S_CLOSED_SP",
     "S_USAGE_NOTICE",
 ]
 

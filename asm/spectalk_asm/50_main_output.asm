@@ -483,6 +483,31 @@ nrg_flush:
 
     pop hl
     ret
+
+; -----------------------------------------------------------------------------
+; uint8_t names_count_line(char *p) __z88dk_fastcall
+; Match the old C NAMES count: empty => 0, otherwise 1 + number of spaces.
+; -----------------------------------------------------------------------------
+PUBLIC _names_count_line
+_names_count_line:
+    ld e, 0
+    ld a, (hl)
+    or a
+    jr z, ncl_done
+    inc e
+ncl_loop:
+    ld a, (hl)
+    or a
+    jr z, ncl_done
+    cp ' '
+    jr nz, ncl_next
+    inc e
+ncl_next:
+    inc hl
+    jr ncl_loop
+ncl_done:
+    ld l, e
+    ret
     
 ; -----------------------------------------------------------------------------
 ; void main_puts(const char *s) __z88dk_fastcall
@@ -711,8 +736,16 @@ _is_ignored:
     
     ld b, a             ; B = contador de bucle
     ld de, _ignore_list ; DE = puntero al inicio de la lista
+    ld a, (hl)
+    or 0x20
+    ld c, a             ; C = first char folded like RFC1459 ASCII subset
     
 ign_loop:
+    ld a, (de)
+    or 0x20
+    cp c
+    jr nz, ign_skip
+
     ; Guardar contexto
     push bc
     push de
@@ -733,6 +766,7 @@ ign_loop:
     pop bc              ; contador
     jr z, ign_match
     
+ign_skip:
     ; Avanzar DE + 16 (tama?o fijo de cada entrada en ignore_list)
     ld a, e
     add a, 16

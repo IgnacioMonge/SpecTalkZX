@@ -217,7 +217,6 @@ extern char* u16_to_dec(char *dst, uint16_t v);
 extern uint16_t str_to_u16(const char *s) __z88dk_fastcall;
 extern void st_copy_n(char *dst, const char *src, uint8_t max_len);
 extern void uart_send_string(const char *s) __z88dk_fastcall;
-extern void strip_irc_codes(char *s);
 extern int16_t rb_pop(void);
 
 extern uint8_t try_read_line_nodrain(void);
@@ -528,7 +527,7 @@ void main_puts2(const char *a, const char *b) __z88dk_callee;
 void main_putc(char c) __z88dk_fastcall;
 void main_newline(void);
 void main_hline(void);
-void utf8_to_ascii(char *s) __z88dk_fastcall;  // UTF-8 → ASCII conversion
+void utf8_to_ascii(char *s) __z88dk_fastcall;  // UTF-8 + IRC control cleanup
 void print_char64(uint8_t y, uint8_t col, uint8_t c, uint8_t attr) __z88dk_callee;
 void print_str64(uint8_t y, uint8_t col, const char *s, uint8_t attr) __z88dk_callee;
 void print_big_str(uint8_t y, uint8_t col, const char *s, uint8_t attr) __z88dk_callee;

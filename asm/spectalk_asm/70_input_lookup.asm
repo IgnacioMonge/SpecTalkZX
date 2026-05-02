@@ -1,5 +1,5 @@
 ; =============================================================================
-; UTF-8 to ASCII - Versi?n corregida
+; UTF-8 to ASCII + IRC control cleanup.
 ; Cubre Latin-1 Supplement (C2 80-BF, C3 80-BF) = codepoints 0080-00FF
 ; =============================================================================
 PUBLIC _utf8_to_ascii
@@ -21,7 +21,7 @@ u8a_loop:
     jr c, u8a_skip1         ; OPT: jp?jr (80-C1: inv?lido)
 
     cp 0xC4
-    jr c, u8a_latin1        ; OPT: jp?jr (C2-C3: Latin-1)
+    jp c, u8a_latin1
 
     cp 0xE0
     jr c, u8a_skip2         ; OPT: jp?jr (C4-DF: Latin Extended)
@@ -56,13 +56,13 @@ u8a_3byte:
     ld c, a                  ; save OR'd byte3 (fix: A clobbered by ld)
     cp 0x99
     ld a, 39                 ; apostrophe for smart single quotes
-    jr z, u8a_store
+    jp z, u8a_store
     ld a, c                  ; restore OR'd byte3
     cp 0x9D
     ld a, 34                 ; double quote for smart double quotes
-    jr z, u8a_store
+    jp z, u8a_store
     ld a, '?'                ; audit L11: unknown E2 80 XX ? '?' not '"'
-    jr u8a_store
+    jp u8a_store
 
 u8a_skip3:
     inc hl
@@ -73,13 +73,53 @@ u8a_skip2:
 u8a_skip1:
     inc hl
     ld a, '?'
-    jr u8a_store            ; OPT: jp?jr (~74 bytes)
+    jp u8a_store
 
 u8a_copy:
+    cp 0x02                 ; IRC bold
+    jr z, u8a_ascii_skip
+    cp 0x0F                 ; IRC reset
+    jr z, u8a_ascii_skip
+    cp 0x16                 ; IRC reverse
+    jr z, u8a_ascii_skip
+    cp 0x1F                 ; IRC underline
+    jr z, u8a_ascii_skip
+    cp 0x03                 ; IRC color
+    jr z, u8a_color
     ld (de), a
-    inc hl
     inc de
-    jr u8a_loop             ; OPT: jp?jr (backward ~70 bytes)
+u8a_ascii_skip:
+    inc hl
+    jr u8a_loop
+
+u8a_color:
+    inc hl
+    ld a, (hl)
+    sub '0'
+    cp 10
+    jp nc, u8a_loop
+    inc hl
+    ld a, (hl)
+    sub '0'
+    cp 10
+    jr nc, u8a_check_bg
+    inc hl
+u8a_check_bg:
+    ld a, (hl)
+    cp ','
+    jp nz, u8a_loop
+    inc hl
+    ld a, (hl)
+    sub '0'
+    cp 10
+    jp nc, u8a_loop
+    inc hl
+    ld a, (hl)
+    sub '0'
+    cp 10
+    jp nc, u8a_loop
+    inc hl
+    jp u8a_loop
 
 u8a_latin1:
     ; A = C2 o C3
@@ -87,7 +127,7 @@ u8a_latin1:
     inc hl
     ld a, (hl)
     or a
-    jr z, u8a_done          ; OPT: jp?jr
+    jp z, u8a_done
     ld c, a                 ; C = segundo byte (80-BF)
     inc hl
 

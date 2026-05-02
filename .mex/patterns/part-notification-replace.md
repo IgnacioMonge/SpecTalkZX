@@ -8,12 +8,13 @@ When ikkle footer notifications are enabled, `You have left ...` has two failure
 ## Rule
 Before showing `You have left ...`, call `notif_cancel_current()` so the next notification replaces the active footer state instead of merging with it. `notif_cancel_current()` must clear the physical notification row as well as the timer/buffer state; otherwise `/quit` or a quick disconnect can leave an old ikkle notification visible after the logical state is gone.
 Do not solve this by adding a generic BPE decoder to `notify()` unless multiple footer call sites truly need it; that bloats the resident core.
-Keep the `You have left ` prefix out of `SAFE_CONSTANTS` in `tools/bpe_build.py`, because `notify2()` must receive plain ASCII if it is going to concatenate directly into `temp_input`.
+Keep notification prefixes such as `You have left ` and `Closed ` out of `SAFE_CONSTANTS` in `tools/bpe_build.py`, because `notify2()` must receive plain ASCII if it is going to concatenate directly into `temp_input`.
 
 ## Applied In
 - `src/user_cmds.c` for local `/part`
 - `src/user_cmds.c` for immediate `/quit` footer cleanup before transparent-mode disconnect waits
 - `src/irc_handlers.c` for server-confirmed self `PART`
 - `src/spectalk.c` for switcher-driven `PART`
+- `src/spectalk.c` and `src/user_cmds.c` for query close notifications
 - `src/spectalk.c` `notif_cancel_current()` / `force_disconnect()` for physical row cleanup on disconnect
-- `tools/bpe_build.py` to exclude `S_YOU_LEFT` from the BPE-safe constant rename list
+- `tools/bpe_build.py` to exclude `S_YOU_LEFT`/`S_CLOSED_SP` style prefixes from the BPE-safe constant rename list

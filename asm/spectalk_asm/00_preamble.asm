@@ -136,7 +136,6 @@ PUBLIC _st_stristr
 PUBLIC _u16_to_dec
 PUBLIC _str_to_u16
 PUBLIC _uart_send_string
-PUBLIC _strip_irc_codes
 PUBLIC _rb_pop
 PUBLIC _rb_push
 PUBLIC _try_read_line_nodrain

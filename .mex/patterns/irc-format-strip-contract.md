@@ -4,10 +4,9 @@ IRC parser text handling splits parameters and display text before stripping for
 
 ## Rule
 - `parse_irc_message()` must isolate trailing `:text with spaces` into `pkt_txt` before calling `tokenize_params(pkt_par, ...)`; otherwise `tokenize_params()` will correctly split on spaces and corrupt message text.
-- `strip_irc_codes()` treats `^C` color arguments as optional `fg[,bg]`, where each color side has up to two decimal digits.
-- `strip_is_digit()` returns carry set for digits and carry clear for non-digits. The `cp '9'+1` instruction already leaves carry set for `A <= '9'`; do not add `ccf`.
-- For `A < '0'`, branch to an explicit carry-clear path such as `or a / ret`.
+- `_utf8_to_ascii()` now owns display sanitization as well as UTF-8 folding. Its ASCII path treats IRC `^C` color arguments as optional `fg[,bg]`, where each color side has up to two decimal digits.
+- The old standalone `_strip_irc_codes()` pass was deleted after the fused helper measured smaller and faster for parser display text. Do not restore it unless a new build proves a net win.
 
 ## Applied In
-- `asm/spectalk_asm/40_text_numeric_screen.asm` `strip_is_digit()`
+- `asm/spectalk_asm/70_input_lookup.asm` `_utf8_to_ascii()`
 - `src/irc_handlers.c` `parse_irc_message()`

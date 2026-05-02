@@ -13,6 +13,6 @@ When shrinking resident hand-written ASM, first look for values that are already
 - Re-measure with `make`; these local hand-tuned wins are only worth keeping if the full TAP confirms a real net byte saving.
 
 ## Applied In
-- `asm/spectalk_asm/40_text_numeric_screen.asm` `_st_stricmp()`, `_st_stristr()`, `_strip_irc_codes()`, `_tokenize_params()`, `_sb_append()`
+- `asm/spectalk_asm/40_text_numeric_screen.asm` `_st_stricmp()`, `_st_stristr()`, `_tokenize_params()`, `_sb_append()`
 - `asm/spectalk_asm/40_text_numeric_screen.asm` `_u16_to_dec()`, `_u16_to_dec3()`, `u16_digit()`, `_str_to_u16()`
 - `asm/spectalk_asm/40_text_numeric_screen.asm` `_uart_drain_to_buffer()`, `_main_newline()`, `_draw_badge_dither()`, `_reapply_screen_attributes()`

@@ -41,6 +41,7 @@ static uint8_t names_friend_pos;
 static void h_numeric_default(void);
 static void session_autoidentify_done(void);
 extern uint8_t names_render_grid(char *p) __z88dk_fastcall;
+extern uint8_t names_count_line(char *p) __z88dk_fastcall;
 // INTERNAL HELPERS
 // =============================================================================
 
@@ -913,11 +914,7 @@ static void h_numeric_353(void)
 
     // Accumulate user count in temp variable (only committed on 366)
     {
-        char *p = pkt_txt;
-        uint8_t count = 0;
-
-        if (*p) count = 1;
-        while (*p) { if (*p == ' ') count++; p++; }
+        uint8_t count = names_count_line(pkt_txt);
 
         if (counting_new_users) {
             names_count_acc = count;
@@ -1503,21 +1500,23 @@ void parse_irc_message(char *line) __z88dk_fastcall
     // Tokenize params (modifies pkt_par in place)
     tokenize_params(pkt_par, 0);
 
+    const char *c = pkt_cmd;
+
     // Sanitize only text that can reach display/BPE paths. NAMES payloads are
     // protocol ASCII and hot during JOIN bursts.
     if (*pkt_txt && !overlay_mode &&
-        (pkt_cmd[0] != '3' || pkt_cmd[1] != '5' ||
-         (pkt_cmd[2] != '3' && pkt_cmd[2] != '6'))) {
-        strip_irc_codes(pkt_txt);
+        (c[0] != '3' || c[1] != '5' ||
+         (c[2] != '3' && c[2] != '6'))) {
         utf8_to_ascii(pkt_txt);
     }
 
     // --- UNIFIED DISPATCHER ---
     {
         uint16_t cmd_id;
-        if (pkt_cmd[0] >= '0' && pkt_cmd[0] <= '9') {
+        uint8_t c0 = c[0];
+        if (c0 >= '0' && c0 <= '9') {
             cmd_id = str_to_u16(pkt_cmd);
-        } else if (pkt_cmd[0] && pkt_cmd[1]) {
+        } else if (c0 && c[1]) {
             // Normalize to uppercase: 0xDF clears bit 5 (a→A, A→A, \0→\0)
             pkt_cmd[0] &= 0xDF; pkt_cmd[1] &= 0xDF;
             cmd_id = ((uint16_t)pkt_cmd[0] << 8) | pkt_cmd[1];
