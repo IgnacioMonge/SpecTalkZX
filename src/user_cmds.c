@@ -80,24 +80,30 @@ split_at_space_none:
     __endasm;
 }
 
-static uint8_t confirm_disconnect(void)
+// Generic yes/no prompt with ~5s timeout. Returns 1 on y/Y, 0 on n/N or timeout.
+// Drains UART/parser between key polls to keep IRC state consistent during the wait.
+// Caller is responsible for any "Cancelled"/"Aborted" message on a 0 return.
+static uint8_t prompt_yn(const char *q) __z88dk_fastcall
 {
-    uint8_t tmout = 250;  // ~5s timeout
+    uint8_t tmout = 250;  // ~5s
 
     set_attr_err();
-    main_print("Disconnect (y/n)?");
+    main_print(q);
     while (tmout--) {
         uint8_t k = in_inkey();
         frame_wait();
         uart_drain_to_buffer();
         while (try_read_line_nodrain());
         if (k == 'y' || k == 'Y') return 1;
-        if (k == 'n' || k == 'N' || !tmout) {
-            ui_err(S_CANCELLED);
-            return 0;
-        }
+        if (k == 'n' || k == 'N') return 0;
     }
+    return 0;
+}
 
+static uint8_t confirm_disconnect(void)
+{
+    if (prompt_yn("Disconnect (y/n)?")) return 1;
+    ui_err(S_CANCELLED);
     return 0;
 }
 
@@ -296,6 +302,12 @@ do_connect:
     esp_at_cmd(S_AT_CIPSERVER0);
     esp_at_cmd("AT+CIPDINFO=0");
     if (use_ssl) { esp_at_cmd("AT+CIPSSLSIZE=4096"); }
+
+    // Settle ESP and clear any tail OK/ERROR lines before CIPSTART. Without
+    // this, a stale terminal status from the prior AT cmd can be misread by
+    // wait_for_connection_result as the CIPSTART verdict → spurious failure.
+    wait_drain(20);
+    flush_all_rx_buffers();
 
     uart_send_string("AT+CIPSTART=\"");
     uart_send_string(use_ssl ? "SSL" : S_TCP);
@@ -503,6 +515,19 @@ join_fail:
 
     connect_cleanup:
         cursor_visible = 1; draw_status_bar(); redraw_input_full();
+}
+
+// Wrapper around cmd_connect that offers a one-key retry on failure. Kept
+// outside cmd_connect to avoid SDCC re-entry register spills (a goto back
+// into cmd_connect's body cost ~115B; this wrapper is ~30B).
+static void cmd_connect_retry(const char *args) __z88dk_fastcall
+{
+    cmd_connect(args);
+    while (connection_state < STATE_TCP_CONNECTED && irc_server[0]
+           && prompt_yn("Retry (y/n)?")) {
+        main_newline();
+        cmd_connect(NULL);
+    }
 }
 
 
@@ -1430,7 +1455,7 @@ static const PackedCmd USER_COMMANDS[] = {
     {  55,  56, cmd_nickcolor },
     {  60, 255, cmd_click },
     // --- IRC commands (/ prefix) ---
-    {  10,  11, cmd_connect },
+    {  10,  11, cmd_connect_retry },
     {  12, 255, cmd_nick },
     {  13, 255, cmd_pass },
     {  14, 255, cmd_id },
