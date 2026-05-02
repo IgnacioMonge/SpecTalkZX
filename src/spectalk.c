@@ -912,7 +912,7 @@ static void history_nav_up(void)
     
     // OPTIMIZADO: % 4 -> & 3
     idx = (hist_head + HISTORY_SIZE - 1 - hist_pos) & 3;
-    
+
     st_copy_n(line_buffer, history[idx], sizeof(line_buffer));
     line_len = st_strlen(line_buffer);
     cursor_pos = line_len;
@@ -2654,19 +2654,17 @@ void main(void)
                     autojoin_ident_grace -= elapsed;
                 }
             }
-            // Notification slide-in animation (3 chars/frame, right to left)
-            // Skip during overlays: overlay footer is static, don't overwrite it
-            if (notif_timeout && notif_slide_pos < notif_slide_len && !overlay_mode) {
-                notif_slide_pos += 3;
-                if (notif_slide_pos > notif_slide_len) notif_slide_pos = notif_slide_len;
-                notif_draw(64 - notif_slide_pos,
-                           notif_buf + notif_slide_len - notif_slide_pos,
-                           notif_attr);
-            }
-
-            // Notification bar timeout (frame-accurate via HALT)
-            // Skip during overlays: overlay footer must persist until exit
+            // H3: fold both notif blocks under shared `notif_timeout && !overlay_mode`
+            // Slide-in animation runs first, then timeout decrement/clear.
+            // Skip during overlays: overlay footer is static, must persist until exit.
             if (notif_timeout && !overlay_mode) {
+                if (notif_slide_pos < notif_slide_len) {
+                    notif_slide_pos += 3;
+                    if (notif_slide_pos > notif_slide_len) notif_slide_pos = notif_slide_len;
+                    notif_draw(64 - notif_slide_pos,
+                               notif_buf + notif_slide_len - notif_slide_pos,
+                               notif_attr);
+                }
                 if (notif_timeout <= elapsed) {
                     notif_timeout = 0;
                     notif_is_pm = 0;
