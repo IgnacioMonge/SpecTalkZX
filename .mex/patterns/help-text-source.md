@@ -7,6 +7,7 @@ If command help is rendered from `SPECTALK.DAT`, keep the editable help text in 
 - Store the canonical help text in a tracked file such as `src/SPECTALK_HELP.txt`.
 - Make `tools/bpe_build.py` read that tracked help source when generating the final `SPECTALK.DAT`.
 - When adding a user-facing command, update both the command implementation and the tracked help source in the same change.
+- If help data moves deeper into `SPECTALK.DAT`, do not skip to `BPE_HELP_OFFSET` with a large `F_READ` into `overlay_slot`; `overlay_slot` is only 512B. Use esxDOS `F_SEEK` or bounded 512B reads before rendering/counting help segments.
 - If help is paged from a computed line count, wrap `help_page >= total_pages` before calculating the page's starting line. Exact multiples of `LINES_PER_PAGE` otherwise render an empty page after the last real page.
 - The help footer row is outside `overlay_header()` / `clear_main()`. Draw `ANY KEY: NEXT / BREAK: EXIT` on the first help page and let it persist while pages change; redrawing it on every page turn causes visible footer flicker.
 

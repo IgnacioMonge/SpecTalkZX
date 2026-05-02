@@ -13,6 +13,12 @@
 
 #include "overlay_api.h"
 
+#ifdef __SDCC
+#define ST_NAKED __naked
+#else
+#define ST_NAKED
+#endif
+
 static uint8_t *ovl_p;
 static uint8_t *ovl_s;
 static uint8_t cur_seg;     /* currently loaded segment */
@@ -30,6 +36,26 @@ static uint8_t cur_seg;     /* currently loaded segment */
 
 static const char s_hnot[] = "NEXT/BREAK:EXIT";
 
+static uint8_t help_seek(uint16_t offset) __z88dk_fastcall ST_NAKED
+{
+    (void)offset;
+    __asm
+    push ix
+    ld e,l
+    ld d,h
+    ld bc,0
+    ld a,(_esx_handle)
+    ld ix,0
+    rst 8
+    defb 0x9F                  ; F_SEEK, mode=SET in IXL
+    pop ix
+    ld hl,1
+    ret nc
+    dec hl
+    ret
+    __endasm;
+}
+
 /* Read help text segment N from SPECTALK.DAT into overlay_slot.
  * Supports any segment index (0, 1, 2, ...). */
 static void help_load_segment(uint8_t segment)
@@ -38,12 +64,14 @@ static void help_load_segment(uint8_t segment)
     esx_fopen(K_DAT);
     if (!esx_handle) { overlay_mode = 0; return; }
 
-    /* Skip to help text offset (BPE_HELP_OFFSET = 691) */
+    /* Seek to help text offset; overlay_slot is only 512B, so never use
+     * a large F_READ as a skip buffer when Earth data moves the help block. */
     esx_buf   = (uint16_t)overlay_slot;
-    esx_count = 512;
-    esx_fread();                            /* skip 0-511 */
-    esx_count = BPE_HELP_OFFSET - 512;
-    esx_fread();                            /* skip 512-690 */
+    if (!help_seek(BPE_HELP_OFFSET)) {
+        esx_fclose();
+        overlay_mode = 0;
+        return;
+    }
 
     for (sk = segment; sk; sk--) {
         esx_count = 512;
