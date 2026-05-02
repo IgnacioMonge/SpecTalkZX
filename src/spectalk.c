@@ -1565,14 +1565,15 @@ static void input_add_char(char c) __z88dk_fastcall
         cursor_pos++;
         line_buffer[line_len] = 0;
         
-        // Redibujar desde el cambiof
+        // Redibujar desde el cambio
+        // PD5: cursor_pos already incremented, so screen_abs = (cursor_pos-1)+2 = cursor_pos+1
         if (cursor_pos == line_len) {
             // Append rápido
-            input_put_char_at((uint8_t)(cursor_pos - 1) + 2, c);
+            input_put_char_at(cursor_pos + 1, c);
             input_prev_len = line_len;
             cursor_show();
         } else {
-            redraw_input_from((uint8_t)(cursor_pos - 1));
+            redraw_input_from(cursor_pos - 1);
         }
     }
 }
@@ -1624,25 +1625,7 @@ extern void input_delete_word(void);
 extern void input_line_start(void);
 extern void input_line_end(void);
 
-// Hide cursor during command execution (visual feedback)
-static void set_input_busy(uint8_t busy) __z88dk_fastcall
-{
-    if (busy) {
-        // Hide cursor by redrawing character without underline
-        uint8_t cur_abs = cursor_pos + 2;
-        // OPTIMIZADO: Divisiones por 64 -> Shifts/Masks
-        uint8_t row = INPUT_START + (cur_abs >> 6);
-        uint8_t col = cur_abs & 63;
-        
-        if (row <= INPUT_END) {
-            char c = (cursor_pos < line_len) ? line_buffer[cursor_pos] : ' ';
-            input_put_char_at(cur_abs, c);
-        }
-    } else {
-        // Restore cursor
-        cursor_show();
-    }
-}
+// PD1: set_input_busy() removed — cursor_hide()/cursor_show() do the same job
 
 // KEYBOARD HANDLING
 uint8_t last_k;
@@ -2147,7 +2130,8 @@ void apply_theme(void)
     uint8_t *t;
 
     // Protección de rango
-    if (current_theme < 1 || current_theme > 3) current_theme = 1;
+    // PD3: underflow trick — single comparison vs dual range check
+    if ((uint8_t)(current_theme - 1) > 2) current_theme = 1;
     t = theme_raw + (current_theme - 1) * 25;
 
     // Copy 20 attribute bytes from theme_raw into theme_attrs[]
@@ -2386,7 +2370,7 @@ static void cfg_apply(char *key, char *val) __z88dk_callee {
         cfg_s(irc_pass, IRC_PASS_SIZE);
     } else if (k0 == 't' && k1 == 'h') {    // theme
         uint8_t v = (uint8_t)str_to_u16(val);
-        if (v >= 1 && v <= 3) current_theme = v;
+        if ((uint8_t)(v - 1) <= 2) current_theme = v;  // PD4: underflow trick
     } else if (k0 == 'a' && k1 == 'u') {
         if (key[4] == 'j') cfg_b(&autojoin);
         else {
@@ -2919,6 +2903,9 @@ void main(void)
                 c = 0;
             }
 
+            // PD2: cache shared input-enabled condition (3 sites below)
+            uint8_t input_enabled = !pagination_active && search_mode == SEARCH_NONE && !autoconnect_delay;
+
             // Channel switcher overlay (non-blocking, state-based)
             if (sw_active) {
                 // Rebuild map BEFORE key handling to avoid stale sw_map
@@ -2978,7 +2965,7 @@ void main(void)
 
                 if (sw_active && sw_dirty) switcher_render();
                 c = 0;  // consume all keys while switcher is open
-            } else if (c == 7 && !pagination_active && search_mode == SEARCH_NONE && !autoconnect_delay) {
+            } else if (c == 7 && input_enabled) {
                 switcher_open();
                 c = 0;
             }
@@ -3000,7 +2987,7 @@ void main(void)
                 uint8_t ssa = key_ss_arrow();
                 if (ssa) {
                     if (!ss_held || !ss_repeat) {
-                        if (!pagination_active && search_mode == SEARCH_NONE && !autoconnect_delay) {
+                        if (input_enabled) {
                             if (ssa == 1) input_word_left();
                             else if (ssa == 2) input_word_right();
                             else if (ssa == 3) input_delete_word();
@@ -3020,7 +3007,7 @@ void main(void)
                 }
             }
 
-            if (c != 0 && !pagination_active && search_mode == SEARCH_NONE && !autoconnect_delay) {
+            if (c != 0 && input_enabled) {
                 if (c >= 32 && c <= 126) {
                     uint8_t c_lower = c | 32;
 
@@ -3036,9 +3023,8 @@ void main(void)
                         memcpy(temp_input, line_buffer, line_len + 1);
                         history_add(temp_input, line_len); 
                         input_clear();
-                        set_input_busy(1); 
-                        parse_user_input(temp_input); 
-                        set_input_busy(0);
+                        cursor_hide();
+                        parse_user_input(temp_input);
                         cursor_show();
                      }
                 }
