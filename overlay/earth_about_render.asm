@@ -83,23 +83,11 @@ _earth_draw_frame:
         ld hl,_earth_frame_buffer
         ld ix,earth_screen_spans
         call earth_draw_spans_packed
-        call earth_mask_edge_sparkles
 
         ld hl,_earth_attr_buffer
         ld ix,earth_attr_spans
         call earth_draw_attr_spans_packed
         pop ix
-        ret
-
-earth_mask_edge_sparkles:
-        ld hl,$4871
-        ld a,(hl)
-        and $77
-        ld (hl),a
-        ld h,$4C
-        ld a,(hl)
-        and $77
-        ld (hl),a
         ret
 
 _earth_apply_frame_delta:
