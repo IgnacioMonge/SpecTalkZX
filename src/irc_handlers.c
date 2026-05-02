@@ -262,13 +262,7 @@ static void session_autoidentify_done(void)
     }
 }
 
-static uint8_t is_ident_success_notice(void)
-{
-    if (st_stristr(pkt_txt, "identified")) return 1;
-    if (st_stristr(pkt_txt, "logged in")) return 1;
-    if (st_stristr(pkt_txt, "recognized")) return 1;
-    return 0;
-}
+// PD2: is_ident_success_notice() inlined at single caller (h_privmsg_notice)
 
 static void h_mode(void)
 {
@@ -338,7 +332,14 @@ static void h_privmsg_notice(void)
 
     uint8_t is_notice = (pkt_cmd[0] == 'N');
     uint8_t is_server = is_notice && strchr(pkt_usr, '.') != NULL;
-    uint8_t ident_ok = (is_notice && (autojoin_defer_flags & AUTOJOIN_IDENT_WAIT)) ? is_ident_success_notice() : 0;
+    // PD2: inlined is_ident_success_notice — single caller
+    uint8_t ident_ok = 0;
+    if (is_notice && (autojoin_defer_flags & AUTOJOIN_IDENT_WAIT)) {
+        if (st_stristr(pkt_txt, "identified") ||
+            st_stristr(pkt_txt, "logged in") ||
+            st_stristr(pkt_txt, "recognized"))
+            ident_ok = 1;
+    }
 
     // Auto-IDENTIFY: detect "identify" in NOTICE from NickServ-like service
     // Security (audit C02): validate sender before sending password
@@ -976,14 +977,10 @@ static void h_numeric_366(void)
     // - JOIN automático (names_was_manual=0): siempre actualizar
     // - /names manual (names_was_manual=1): solo si no hubo pérdida de datos ni cancelación
     // FIX BUG-10: write user_count to the channel named in 366, not current channel
-    if (names_count_acc > 0) {
-        uint8_t update = 0;
-        if (!names_was_manual) update = 1;
-        else if (!search_data_lost) update = 1;
-        if (update) {
-            int8_t ci = find_channel(msg_chan);
-            if (ci >= 0) channels[ci].user_count = names_count_acc;
-        }
+    // PD1: collapse update flag — direct condition equivalent
+    if (names_count_acc > 0 && (!names_was_manual || !search_data_lost)) {
+        int8_t ci = find_channel(msg_chan);
+        if (ci >= 0) channels[ci].user_count = names_count_acc;
     }
     
     // Finalizar paginación de /names
