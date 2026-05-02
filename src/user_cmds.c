@@ -48,23 +48,7 @@ static const char K_CFG_ALT[]  = "/SYS/SPECTALK.CFG";
 static const char K_TZ[]       = "tz=";
 static const char K_NOTIF[]    = "notif=";
 
-static void cut_at_space(char *p) __z88dk_fastcall ST_NAKED
-{
-    (void)p;
-    __asm
-cut_at_space_loop:
-    ld a,(hl)
-    or a
-    ret z
-    cp 32
-    jr z,cut_at_space_found
-    inc hl
-    jr cut_at_space_loop
-cut_at_space_found:
-    ld (hl),0
-    ret
-    __endasm;
-}
+// PD1: cut_at_space() removed — split_at_space() does same buffer cut
 
 static char *split_at_space(char *p) __z88dk_fastcall ST_NAKED
 {
@@ -589,7 +573,7 @@ static void cmd_join(const char *args) __z88dk_fastcall
     char *p = (char *)args;
     if (!*p) return;
 
-    cut_at_space(p);
+    split_at_space(p);
 
     // Fast-path: si ya trae # o &, usar el puntero directo
     if (*p == '#' || *p == '&') {
@@ -722,7 +706,7 @@ static void cmd_query(const char *args) __z88dk_fastcall
     p = (char *)args;
     if (!*p) return;
 
-    cut_at_space(p);
+    split_at_space(p);
 
     {
         int8_t idx = add_query(p);
@@ -859,7 +843,6 @@ static void cmd_raw(const char *args) __z88dk_fastcall
 static void cmd_whois(const char *args) __z88dk_fastcall
 {
     char *p;
-    uint8_t n;
 
     if (!ensure_args(args, "whois nick")) return;
     if (!check_status(LVL_IRC)) return; // Nivel 2
@@ -868,10 +851,8 @@ static void cmd_whois(const char *args) __z88dk_fastcall
     p = (char *)args;
     if (!*p) return;
 
-    /* Truncar en primer espacio o al límite (mismo comportamiento que antes: nickbuf[32]) */
-    n = 0;
-    while (p[n] && p[n] != ' ' && n < 31) n++;
-    if (p[n]) p[n] = 0;
+    // PD2: split_at_space() truncates at first space (same as cmd_ignore/friend)
+    split_at_space(p);
 
     irc_send_cmd1("WHOIS", p);
     
@@ -1047,7 +1028,7 @@ static void cmd_ignore(const char *args) __z88dk_fastcall
         p = skip_spaces(p);
         if (!*p) { ui_usage("ignore -nick to unignore"); return; }
 
-        cut_at_space(p);
+        split_at_space(p);
 
         if (remove_ignore(p)) {
             notify2("Unignored: ", p, ATTR_MSG_SYS);
@@ -1059,7 +1040,7 @@ static void cmd_ignore(const char *args) __z88dk_fastcall
     }
 
     // Caso IGNORE
-    cut_at_space(p);
+    split_at_space(p);
 
     if (add_ignore(p)) {
         notify2("Now ignoring: ", p, ATTR_MSG_SYS);
@@ -1320,7 +1301,7 @@ static void cmd_friend(const char *args) __z88dk_fastcall
         return;
     }
     // Truncar en primer espacio (igual que cmd_ignore)
-    cut_at_space((char *)args);
+    split_at_space((char *)args);
     // Toggle: remove if exists, add if not (single pass)
     { char *free_fn = NULL;
     for (i = 0, fn = friend_nicks[0]; i < MAX_FRIENDS; i++, fn += IRC_NICK_SIZE) {
