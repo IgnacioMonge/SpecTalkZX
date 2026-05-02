@@ -1310,10 +1310,11 @@ static void h_numeric_default(void)
 print_tail:
     // Imprimir parámetros intermedios (saltando el 0 que es nuestro nick)
     // H12: outer guard removed — for loop self-protects (1 < 0/1 = false)
+    // H9: bypass irc_param() accessor — loop already bounds-checks vs irc_param_count
     {
         uint8_t i;
         for (i = 1; i < irc_param_count; i++) {
-            const char *p = irc_param(i);
+            const char *p = irc_params[i];
             if (p && *p) {
                 main_puts(p);
                 main_putc(' ');
