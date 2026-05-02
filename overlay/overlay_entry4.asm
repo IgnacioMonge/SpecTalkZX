@@ -78,8 +78,7 @@ ovl4_ckv_crlf:
     ld a, 13
     call ovl4_put_a_hl
     ld a, 10
-    call ovl4_put_a_hl
-    ret
+    jp ovl4_put_a_hl            ; tail-call
 
 ; char *cfg_put_autojoin(char *p) __z88dk_fastcall
 ; Prefer active non-query channel slots; fall back to preloaded search_pattern

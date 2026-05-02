@@ -276,8 +276,7 @@ ap_overflow_line:
 ap_reset:
     xor a
     ld (_rx_overflow), a
-    call _rx_pos_reset
-    ret                         ; yield after one complete/discarded line
+    jp _rx_pos_reset            ; tail-call yields after one complete/discarded line
 
 ap_continue:
     ld a, b
