@@ -1,11 +1,12 @@
-IRC session bookmarks
-Saved channels autojoin
+IRC session bookmarks + autojoin
+Symbol Shift word navigation
+/mode, /reply and /notice commands
+Smoother JOIN to large channels
 Safer NickServ identify gate
-/mode, /reply and /notice
-Safer /quit and /connect
-ABOUT keepalive fixed
+Search UX polish + cancel marker
+ABOUT overlay keepalive fixed
 Spanish UTF-8 fixed
-Config save bounds checks
 Faster render and UART paths
-ASM audit shrink pass
+Code audit shrink pass
+Animated earth in !about
 And much much more!

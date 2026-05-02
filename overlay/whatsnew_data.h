@@ -4,7 +4,7 @@
 #define WN_LOGO_WB 12   /* bytes per row (96px) */
 #define WN_LOGO_H  76   /* rows */
 #define WN_LOGO_PACKED_SIZE 394
-#define WN_CHANGES 11
+#define WN_CHANGES 12
 
 static const uint8_t wn_logo_packed[394] = {
     0x00, 0x00, 0xF0, 0x00, 0x3F, 0x87, 0xC3, 0xF0, 0xF0, 0x00, 0x70, 0xCC, 0xC4, 0x1C, 0xF8, 0x00,
@@ -36,15 +36,16 @@ static const uint8_t wn_logo_packed[394] = {
 
 /* Packed changelog: null-terminated entries, walk with pointer */
 static const char wn_changes[] =
-    "IRC session bookmarks\0"
-    "Saved channels autojoin\0"
+    "IRC session bookmarks + autojoin\0"
+    "Symbol Shift word navigation\0"
+    "/mode, /reply and /notice commands\0"
+    "Smoother JOIN to large channels\0"
     "Safer NickServ identify gate\0"
-    "/mode, /reply and /notice\0"
-    "Safer /quit and /connect\0"
-    "ABOUT keepalive fixed\0"
+    "Search UX polish + cancel marker\0"
+    "ABOUT overlay keepalive fixed\0"
     "Spanish UTF-8 fixed\0"
-    "Config save bounds checks\0"
     "Faster render and UART paths\0"
-    "ASM audit shrink pass\0"
+    "Code audit shrink pass\0"
+    "Animated earth in !about\0"
     "And much much more!\0"
 ;
