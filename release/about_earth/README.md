@@ -6,16 +6,16 @@ overlay.
 Current asset pass:
 - `FRAME_COUNT = 24`
 - `TEMPORAL_HYSTERESIS = 0.025`
-- Playback direction: west-to-east Earth rotation, generated as frame phases
-  `0, -15, -30...` degrees.
+- Playback direction: natural visual Earth rotation, using the compatible
+  `GloboTerraqueoZX\build` frame order (`0, +15, +30...` degrees).
 - Globe layout: `ZX_X_BYTE = 10`, `ZX_Y_LINE = 24`
 - Logo layout: `LOGO_X_BYTE = 5`, `LOGO_Y_LINE = 104`
 - Logo size: `176x24` pixels
-- Bitmap pass: same compatible `GloboTerraqueoZX\build` frames and 587-byte
-  compact geometry, but the bitmap delta order is reversed to match the
-  restored SpecTalkZX attribute direction. Do not use the older
-  `GloboTerraqueoZX\SpectalkZX` export here; that set is 16 frames with a
-  584-byte compact frame and needs different constants/spans.
+- Bitmap and attribute pass: same compatible `GloboTerraqueoZX\build` frames
+  and 587-byte compact geometry, with both streams kept in the same playback
+  order. Do not use the older `GloboTerraqueoZX\SpectalkZX` export here; that
+  set is 16 frames with a 584-byte compact frame and needs different
+  constants/spans.
 - Edge sparkle cleanup is baked into the bitmap frames: any lit pixel outside
   `earth_attr_spans` is cleared. The demo hides those pixels because it clears
   all attributes to black ink first; SpecTalkZX uses a visible themed background
