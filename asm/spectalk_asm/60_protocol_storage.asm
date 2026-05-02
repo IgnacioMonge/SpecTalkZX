@@ -270,8 +270,7 @@ ap_line:
     ld (_server_silence_frames), hl
     ld hl, _rx_line
     call _parse_irc_message
-
-    jr ap_reset
+    ; PD1: fall through to ap_reset (jr removed, -2B)
 
 ap_overflow_line:
 ap_reset:
@@ -285,7 +284,7 @@ ap_continue:
     or a
     jr z, ap_store_pos_ret
     ld c, 64
-    jp ap_poll
+    jr ap_poll                ; PD2: jr instead of jp (-1B)
 
 ap_store_pos_ret:
     ex de, hl                 ; HL = next rx_line write pointer
