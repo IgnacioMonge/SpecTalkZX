@@ -1584,6 +1584,9 @@ void process_irc_data(void)
     else if (backlog > 128)  { max_lines = 10; }
     else                     { max_lines = 6;  }
 
+    // Raw peek only; read_key() still owns debounce/consumption.
+    if (in_inkey()) max_lines = 4;
+
     // FIX P0-2: Variable para detectar CLOSED sin actuar dentro del bucle
     uint8_t closed_detected = 0;
 
