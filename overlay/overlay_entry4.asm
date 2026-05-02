@@ -111,31 +111,15 @@ ovl4_cpa_loop:
     cp '&'
     jr nz, ovl4_cpa_next
 ovl4_cpa_chan:
-    ld a, (ovl4_cpa_any)
-    or a
-    jr nz, ovl4_cpa_comma
-    inc a
-    ld (ovl4_cpa_any), a
-    push bc
     push hl
     ld de, ovl4_ck_chans
-    call ovl4_cpa_put_de
+    call ovl4_csv_prefix
     pop hl
-    pop bc
-    jr ovl4_cpa_put_chan
-ovl4_cpa_comma:
-    push hl
-    ld a, ','
-    call ovl4_cpa_put_a
-    pop hl
-ovl4_cpa_put_chan:
-    push bc
     push hl
     ld d, h
     ld e, l
     call ovl4_cpa_put_de
     pop hl
-    pop bc
 ovl4_cpa_next:
     ld de, 32                 ; CH_SIZE
     add hl, de
@@ -247,7 +231,7 @@ ovl4_csv_finish:
     ld a, (ovl4_cpa_any)
     or a
     jp nz, ovl4_cpa_crlf
-    jp ovl4_cpa_ret_dest
+    jr ovl4_cpa_ret_dest
 
 ovl4_csv_prefix:
     ld a, (ovl4_cpa_any)
@@ -255,7 +239,7 @@ ovl4_csv_prefix:
     jr nz, ovl4_csv_comma
     inc a
     ld (ovl4_cpa_any), a
-    jp ovl4_cpa_put_de
+    jr ovl4_cpa_put_de
 ovl4_csv_comma:
     ld a, ','
     jp ovl4_cpa_put_a
