@@ -34,7 +34,7 @@ static uint8_t cur_seg;     /* currently loaded segment */
 #define CH_FLAG_MENTION 0x08
 #define CH_FLAGS_OFF    30
 
-static const char s_hnot[] = "NEXT/BREAK:EXIT";
+static const char s_hnot[] = "ANY KEY: NEXT / BREAK: EXIT";
 
 static uint8_t help_seek(uint16_t offset) __z88dk_fastcall ST_NAKED
 {
