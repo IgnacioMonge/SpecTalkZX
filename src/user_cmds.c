@@ -180,18 +180,19 @@ static uint8_t wait_for_connection_result(uint16_t max_frames) __z88dk_fastcall
             // FIX P0-1: Verificar longitud antes de acceder a índices fijos
             if (rx_last_len < 2) { rx_pos = 0; continue; }
 
-            char c0 = rx_line[0];
+            // H5: 16-bit head read — little-endian magic numbers
+            uint16_t h2 = *(uint16_t *)rx_line;
 
             // FIX: "CONNECT" exacto (7 chars) o "ALREADY CONNECT", NO "WIFI CONNECTED"
-            if (c0 == 'C' && rx_line[1] == 'O' && rx_last_len == 7) goto wcr_ok;
-            if (c0 == 'A' && rx_line[1] == 'L') goto wcr_ok;
-            if (c0 == 'O' && rx_line[1] == 'K') goto wcr_ok;
+            if (h2 == 0x4F43 /* "CO" */ && rx_last_len == 7) goto wcr_ok;
+            if (h2 == 0x4C41 /* "AL" */) goto wcr_ok;
+            if (h2 == 0x4B4F /* "OK" */) goto wcr_ok;
 
             // ERRORES - prefix checks (ya verificamos rx_last_len >= 2 arriba)
-            if (c0 == 'D' && rx_line[1] == 'N') { ui_err("DNS failed"); goto wcr_fail; }
-            if (c0 == 'C' && rx_line[1] == 'L') { ui_err(S_CONN_REFUSED); goto wcr_fail; }
-            if (c0 == 'c' && rx_line[1] == 'o') { ui_err(S_CONN_REFUSED); goto wcr_fail; }
-            if (c0 == 'E' && rx_line[1] == 'R') { ui_err("Connection error"); goto wcr_fail; }
+            if (h2 == 0x4E44 /* "DN" */) { ui_err("DNS failed"); goto wcr_fail; }
+            if (h2 == 0x4C43 /* "CL" */) { ui_err(S_CONN_REFUSED); goto wcr_fail; }
+            if (h2 == 0x6F63 /* "co" */) { ui_err(S_CONN_REFUSED); goto wcr_fail; }
+            if (h2 == 0x5245 /* "ER" */) { ui_err("Connection error"); goto wcr_fail; }
             rx_pos = 0;
         }
         frames++;

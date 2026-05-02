@@ -1750,15 +1750,16 @@ uint8_t wait_for_response(const char *expected, uint16_t max_frames) __z88dk_cal
 
         if (try_read_line_nodrain()) {
             // FIX P0-1: Verificar longitud antes de acceder a índices fijos
-            // Prefix checks para ERROR/FAIL/OK (siempre al inicio de línea)
+            // H11: 16-bit head read — little-endian magic numbers
             if (rx_last_len >= 2) {
-                if (rx_line[0] == 'E' && rx_line[1] == 'R') return 0;  // ERROR
-                if (rx_line[0] == 'F' && rx_line[1] == 'A') return 0;  // FAIL
+                uint16_t h2 = *(uint16_t *)rx_line;
+                if (h2 == 0x5245 /* "ER" */) return 0;  // ERROR
+                if (h2 == 0x4146 /* "FA" */) return 0;  // FAIL
+                // Si no hay expected específico, OK es suficiente
+                if (!expected && h2 == 0x4B4F /* "OK" */) return 1;
             }
             // OPT-02: Usar st_stristr (ASM) en lugar de strstr (stdlib)
             if (expected && st_stristr(rx_line, expected) != NULL) return 1;
-            // Si no hay expected específico, OK es suficiente
-            if (!expected && rx_last_len >= 2 && rx_line[0] == 'O' && rx_line[1] == 'K') return 1;
             rx_pos = 0;
         }
         
