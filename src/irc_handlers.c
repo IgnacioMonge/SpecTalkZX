@@ -503,8 +503,15 @@ static void h_privmsg_notice(void)
 
     // --- STANDARD MESSAGE RENDERING ---
     if (pkt_cmd[0] == 'N') {
-        current_attr = ATTR_MSG_SERVER;
-        main_print(pkt_txt);
+        if (is_server) {
+            main_print_time_prefix();
+            current_attr = ATTR_MSG_SERVER;
+            main_puts("*** ");
+            main_print_wrapped_ram(pkt_txt);
+        } else {
+            current_attr = ATTR_MSG_SERVER;
+            main_print(pkt_txt);
+        }
         if (ident_ok) session_autoidentify_done();
         return;
     }
