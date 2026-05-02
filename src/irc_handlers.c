@@ -1408,12 +1408,12 @@ static const CmdEntry CMD_TABLE[] = {
     { 0x5049, h_ping },           // PI (PING)    - keepalive frecuente
 
     // Comandos Numéricos (0x0001 - 0x03E7)
+    { 353, h_numeric_353 },
+    { 366, h_numeric_366 },
     { 322, h_numeric_322_352 },
     { 352, h_numeric_322_352 },
     { 323, h_end_of_list },
     { 315, h_end_of_list },
-    { 353, h_numeric_353 },
-    { 366, h_numeric_366 },
     { 1,   h_numeric_1 },
     { 2,   h_ignore },
     { 3,   h_ignore },
@@ -1503,9 +1503,14 @@ void parse_irc_message(char *line) __z88dk_fastcall
     // Tokenize params (modifies pkt_par in place)
     tokenize_params(pkt_par, 0);
 
-    // Sanitize text: strip IRC formatting + convert UTF-8 to ASCII
-    // Prevents BPE decompressor from misinterpreting high bytes as tokens
-    if (*pkt_txt && !overlay_mode) { strip_irc_codes(pkt_txt); utf8_to_ascii(pkt_txt); }
+    // Sanitize only text that can reach display/BPE paths. NAMES payloads are
+    // protocol ASCII and hot during JOIN bursts.
+    if (*pkt_txt && !overlay_mode &&
+        (pkt_cmd[0] != '3' || pkt_cmd[1] != '5' ||
+         (pkt_cmd[2] != '3' && pkt_cmd[2] != '6'))) {
+        strip_irc_codes(pkt_txt);
+        utf8_to_ascii(pkt_txt);
+    }
 
     // --- UNIFIED DISPATCHER ---
     {
@@ -1514,7 +1519,7 @@ void parse_irc_message(char *line) __z88dk_fastcall
             cmd_id = str_to_u16(pkt_cmd);
         } else if (pkt_cmd[0] && pkt_cmd[1]) {
             // Normalize to uppercase: 0xDF clears bit 5 (a→A, A→A, \0→\0)
-            pkt_cmd[0] &= 0xDF; pkt_cmd[1] &= 0xDF; pkt_cmd[2] &= 0xDF;
+            pkt_cmd[0] &= 0xDF; pkt_cmd[1] &= 0xDF;
             cmd_id = ((uint16_t)pkt_cmd[0] << 8) | pkt_cmd[1];
         } else {
             h_default_cmd();

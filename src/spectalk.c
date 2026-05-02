@@ -169,7 +169,7 @@ uint8_t keyclick_enabled;   // 0 = off (default), 1 = key click sound
 uint8_t nick_color_mode = 1;  // 0 = theme fixed, 1 = per-nick hash color
 uint8_t show_traffic = 1;     // 0 = hide JOIN/QUIT messages
 uint8_t notif_enabled = 1;    // 1 = ikkle notifications, 0 = classic inline messages
-uint8_t show_timestamps = 1; // 0=off, 1=always, 2=on-change
+uint8_t show_timestamps = 2; // 0=off, 1=always, 2=on-change
 // big_status removed (big mode eliminated)
 uint8_t last_ts_hour = 0xFF;   // Last printed timestamp hour (0xFF = force print)
 uint8_t last_ts_minute = 0xFF; // Last printed timestamp minute
