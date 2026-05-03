@@ -419,6 +419,8 @@ _main_hline:
 ; Lee bytes del UART y los mete en el Ring Buffer lo m?s r?pido posible.
 ; CR?TICO: Minimiza la latencia entre bytes para evitar p?rdida de datos en AY.
 ; OPTIMIZED: loop counter in B, protected across call chain with PUSH/POP BC.
+; divMMC hot path calls uartRead directly: one backend call per byte instead of
+; public ready+read wrappers.
 ; =============================================================================
 
 _uart_drain_to_buffer:
@@ -436,13 +438,10 @@ drain_set_limit:
 drain_loop_start:
     push bc                 ; preserve loop counter across calls
 
-    ; 2. ?Hay datos disponibles?
-    call _ay_uart_ready     ; Retorna L=1 (S?) o 0 (No)
-    dec l
-    jr nz, drain_exit_pop   ; L was 0: no hay m?s datos -> Salir
-
-    ; 3. Leer byte
-    call _ay_uart_read      ; Retorna byte en L
+    ; 2. Leer byte si hay datos
+    call uartRead           ; CF=1 and A=byte if data available
+    jr nc, drain_exit_pop   ; no hay m?s datos -> Salir
+    ld l, a
 
     ; 4. Meter en Ring Buffer
     call _rb_push           ; Retorna L=1 (?xito) o 0 (Fallo/Lleno)

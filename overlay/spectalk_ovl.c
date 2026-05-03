@@ -228,8 +228,8 @@ void banner_render_ovl(void)
 
     clear_line(0, banner_attr | 0x40);
     clear_line(1, banner_attr & 0xBF);
-    print_big_str(0, 0, "SPECTALK ZX v" VERSION " - ", banner_attr);
-    print_big_str(0, 21, S_APPDESC, banner_attr);
+    print_big_str(0, 0, "SPECTALKZX " VERSION " - ", banner_attr);
+    print_big_str(0, 19, S_APPDESC, banner_attr);
 
     if (t[21] != 0x40) {
         uint8_t b1 = (t[21] & 0x7F) | 0x40, b2 = (t[22] & 0x7F) | 0x40;

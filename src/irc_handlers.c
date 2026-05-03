@@ -88,8 +88,8 @@ split_next_param_scan:
     ld a,(hl)
     or a
     ret z
-    cp 32
-    jr z,split_next_param_found
+    cp 33
+    jr c,split_next_param_found
     inc hl
     jr split_next_param_scan
 split_next_param_found:
@@ -97,8 +97,10 @@ split_next_param_found:
 split_next_param_skip:
     inc hl
     ld a,(hl)
-    cp 32
-    jr z,split_next_param_skip
+    or a
+    ret z
+    cp 33
+    jr c,split_next_param_skip
     ret
     __endasm;
 }
@@ -508,7 +510,7 @@ static void h_privmsg_notice(void)
             main_print_time_prefix();
             current_attr = ATTR_MSG_SERVER;
             main_puts("*** ");
-            main_print_wrapped_ram(pkt_txt);
+            main_print_wrapped_clean(pkt_txt);
         } else {
             current_attr = ATTR_MSG_SERVER;
             main_print(pkt_txt);

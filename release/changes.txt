@@ -1,12 +1,12 @@
+RTC clock support
 IRC session bookmarks + autojoin
+New /mode, /reply, /notice
 Symbol Shift word navigation
-/mode, /reply and /notice commands
-Smoother JOIN to large channels
-Safer NickServ identify gate
-Search UX polish + cancel marker
-ABOUT overlay keepalive fixed
-Spanish UTF-8 fixed
+New animated !about page
+Faster SD overlay loading
 Faster render and UART paths
-Code audit shrink pass
-Animated earth in !about
+Better /names for big channels
+Spanish UTF-8 support
+Search UX improvements
+Safer NickServ auto-identify
 And much much more!

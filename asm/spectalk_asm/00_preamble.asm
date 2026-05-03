@@ -200,13 +200,12 @@ EXTERN _irc_param_count
 EXTERN _force_status_redraw
 EXTERN _status_bar_dirty
 EXTERN _uart_drain_limit
-EXTERN _ay_uart_ready   ; Retorna L=1 si hay datos
+EXTERN uartRead         ; CF=1/A=byte si hay datos (divMMC backend)
 ; _line_buffer, _temp_input, _input_cache_char: via defc at end of file
 ; (mapped to system RAM: Printer Buffer, CHANS workspace)
 EXTERN _irc_pass
 EXTERN _nickserv_pass
 EXTERN _network_name
-EXTERN _ay_uart_read    ; Retorna byte en L
 EXTERN _irc_is_away
 EXTERN _buffer_pressure
 EXTERN _ping_latency

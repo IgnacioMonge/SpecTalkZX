@@ -2,7 +2,7 @@
 
 Server-origin NOTICE lines such as `@time=... :server.name NOTICE nick :text`
 should render in the main area with the normal message timestamp prefix, a
-visible `*** ` marker, and `main_print_wrapped_ram(pkt_txt)` so long MOTD or
+visible `*** ` marker, and wrapped output so long MOTD or
 channel-policy notices wrap by words and keep the timestamp continuation indent.
 
 Keep this scoped to `is_server` NOTICEs. Ordinary non-server NOTICE messages
@@ -11,4 +11,6 @@ context and broadens a cosmetic fix into unrelated IRC behavior.
 
 `parse_irc_message()` strips IRCv3 tags before command dispatch and isolates the
 trailing text into writable `pkt_txt`, so this path may pass `pkt_txt` to
-`main_print_wrapped_ram()`.
+the `main_print_wrapped_clean()` entry. Do not use `main_print_wrapped_ram()` for
+this already-sanitized `pkt_txt` path, or server NOTICE pays a second
+`utf8_to_ascii()` scan before word wrapping.

@@ -222,12 +222,10 @@ extern int16_t rb_pop(void);
 extern uint8_t try_read_line_nodrain(void);
 
 // =============================================================================
-// EXTERNAL UART DRIVER (ay_uart.asm or divmmc_uart.asm)
+// divMMC UART backend (legacy ay_uart_* symbol names)
 // =============================================================================
 extern void     ay_uart_init(void);
 extern void     ay_uart_send(uint8_t byte) __z88dk_fastcall;
-extern uint8_t  ay_uart_read(void);
-extern uint8_t  ay_uart_ready(void);
 
 // =============================================================================
 // GLOBAL variables (defined in spectalk.c)
@@ -521,6 +519,7 @@ void switch_or_notify(uint8_t idx) __z88dk_fastcall;
 // =============================================================================
 void main_print(const char *s) __z88dk_fastcall;
 void main_print_wrapped_ram(char *s) __z88dk_fastcall;
+void main_print_wrapped_clean(char *s) __z88dk_fastcall;
 void main_puts(const char *s) __z88dk_fastcall;
 void main_puts2(const char *a, const char *b) __z88dk_callee;
 // OPT-P2-A: main_puts3 eliminated (single call site inlined)

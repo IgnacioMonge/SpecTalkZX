@@ -8,8 +8,6 @@ SECTION code_user
 EXTERN _frame_wait
 PUBLIC _ay_uart_init
 PUBLIC _ay_uart_send
-PUBLIC _ay_uart_read
-PUBLIC _ay_uart_ready
 PUBLIC uartRead
 
 ; ZX-Uno compatible register interface
@@ -145,43 +143,4 @@ uartSend_wait_tx:
 
     inc b
     out (c), l          ; OPT: direct from fastcall reg, no push/pop
-    ret
-
-; -----------------------------------------------------------------------------
-; _ay_uart_ready
-; OPTIMIZACIÓN: `_is_recv` is the only latched fast path.
-; -----------------------------------------------------------------------------
-_ay_uart_ready:
-    ld a, (_is_recv)
-    ld l, a
-    or a
-    ret nz
-
-uartReady_check_hw:
-    ld bc, ZXUNO_ADDR
-    ld a, UART_STAT_REG
-    out (c), a
-    
-    inc b           ; OPTIMIZACIÓN
-    
-    in a, (c)
-    ; OPT: rlca moves bit 7 (UART_BYTE_RECIVED) to bit 0, branchless
-    rlca
-    and 1
-    ld (_is_recv), a
-    ld l, a
-    ret
-
-; -----------------------------------------------------------------------------
-; _ay_uart_read
-; AUDIT-L03 FIX: return 0 when no data available (CF=0 from uartRead) instead
-; of leaking the stale status byte left in A by the AND inside uartRead. All
-; current callers gate on _ay_uart_ready, but this hardens the contract.
-; -----------------------------------------------------------------------------
-_ay_uart_read:
-    call uartRead
-    jr c, ay_uart_read_got
-    xor a
-ay_uart_read_got:
-    ld l, a
     ret

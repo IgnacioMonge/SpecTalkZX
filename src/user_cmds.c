@@ -502,9 +502,8 @@ join_fail:
             ui_err(abort_msg);
             if (abort_disc) force_disconnect();
             abort_msg = 0;
+            reset_rx_state();
         }
-
-        reset_rx_state();
     } else {
         force_disconnect();
     }

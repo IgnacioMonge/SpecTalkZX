@@ -231,6 +231,13 @@ mputc_no_wrap:
 ; Wrap por palabras dentro del ancho disponible (64 - main_col).
 ; HL = string (RAM)  [MODIFICA temporalmente RAM insertando 0]
 ; -----------------------------------------------------------------------------
+PUBLIC _main_print_wrapped_clean
+_main_print_wrapped_clean:
+    ld a, (_overlay_mode)
+    or a
+    ret nz
+    jr mpwr_loop
+
 PUBLIC _main_print_wrapped_ram
 _main_print_wrapped_ram:
     ld a, (_overlay_mode)
