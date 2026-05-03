@@ -39,7 +39,7 @@ ASM_MODULE_SOURCES := $(wildcard asm/spectalk_asm/*.asm)
 ASM_DEP_SOURCES = $(ASM_SOURCES) $(ASM_MODULE_SOURCES)
 BPE_INPUTS = src/spectalk.c src/irc_handlers.c src/user_cmds.c include/spectalk.h \
              src/SPECTALK.DAT src/SPECTALK_HELP.txt overlay/overlay_api.h \
-             overlay/overlay_entry2.asm \
+             overlay/overlay_entry2.asm overlay/earth_about_render.asm \
              tools/bpe_build.py tools/bpe_compress.py \
              release/about_earth/earth_frame0.compact.bin \
              release/about_earth/earth_frame_deltas.bin \
@@ -224,6 +224,7 @@ $(BPE_STAMP): $(BPE_INPUTS)
 	@cp src/SPECTALK.DAT $(BUILD_DIR)/bpe_originals/
 	@cp overlay/overlay_api.h $(BUILD_DIR)/bpe_originals/
 	@cp overlay/overlay_entry2.asm $(BUILD_DIR)/bpe_originals/
+	@cp overlay/earth_about_render.asm $(BUILD_DIR)/bpe_originals/
 	@$(PYTHON) tools/bpe_build.py
 	@printf "ok\n" > "$(BPE_STAMP)"
 	$(call OK,BPE complete.)
@@ -247,6 +248,7 @@ restore_bpe:
 		cp $(BUILD_DIR)/bpe_originals/spectalk.h include/; \
 		cp $(BUILD_DIR)/bpe_originals/overlay_api.h overlay/; \
 		cp $(BUILD_DIR)/bpe_originals/overlay_entry2.asm overlay/; \
+		cp $(BUILD_DIR)/bpe_originals/earth_about_render.asm overlay/; \
 		cp $(BUILD_DIR)/bpe_originals/SPECTALK.DAT src/; \
 		dat_sz=$$(wc -c < src/SPECTALK.DAT); \
 		if [ "$$dat_sz" -ne 1517 ]; then \

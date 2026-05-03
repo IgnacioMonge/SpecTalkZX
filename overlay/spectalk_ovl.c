@@ -60,26 +60,21 @@ static uint8_t help_seek(uint16_t offset) __z88dk_fastcall ST_NAKED
  * Supports any segment index (0, 1, 2, ...). */
 static void help_load_segment(uint8_t segment)
 {
-    uint8_t sk;
     esx_fopen(K_DAT);
     if (!esx_handle) { overlay_mode = 0; return; }
 
-    /* Seek to help text offset; overlay_slot is only 512B, so never use
-     * a large F_READ as a skip buffer when Earth data moves the help block. */
+    /* Seek directly to the requested 512B help segment. overlay_slot is only
+     * 512B, so never use dummy F_READ skips when the help block sits deep in
+     * SPECTALK.DAT. */
     esx_buf   = (uint16_t)overlay_slot;
-    if (!help_seek(BPE_HELP_OFFSET)) {
+    if (!help_seek((uint16_t)(BPE_HELP_OFFSET + ((uint16_t)segment << 9)))) {
         esx_fclose();
         overlay_mode = 0;
         return;
     }
 
-    for (sk = segment; sk; sk--) {
-        esx_count = 512;
-        esx_fread();                        /* skip one help segment */
-    }
-
     esx_count = 512;
-    esx_fread();                            /* read target segment */
+    esx_fread();
     esx_fclose();
     input_cache_invalidate();
     { uint16_t n = esx_result;

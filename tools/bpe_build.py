@@ -38,6 +38,7 @@ EARTH_FRAME0_SIZE = 587
 EARTH_ATTR0_SIZE = 44
 EARTH_LOGO_SIZE = 528
 EARTH_PACKET_SIZE_LIMIT = 512
+EARTH_PACKET_SIZE_TARGET = 512
 EARTH_LOGO_W_BYTES = 22
 EARTH_LOGO_H = 24
 EARTH_LOGO_ATTR_H = 3
@@ -331,10 +332,10 @@ def load_earth_assets():
 
     deltas = bytearray()
     for packet in packets:
-        packet.extend(b"\0" * (earth_packet_size - len(packet)))
+        packet.extend(b"\0" * (EARTH_PACKET_SIZE_TARGET - len(packet)))
         deltas.extend(packet)
 
-    return frame0, attr0, logo, bytes(deltas), earth_packet_size
+    return frame0, attr0, logo, bytes(deltas), EARTH_PACKET_SIZE_TARGET
 
 
 def patch_overlay_api_offsets(path, bpe_help_offset, earth_offsets):
@@ -361,6 +362,27 @@ def patch_overlay_entry2_consts(path, earth_offsets):
     replacements = {
         "EARTH_PACKET_SIZE": earth_offsets["EARTH_PACKET_SIZE"],
         "EARTH_FRAME_COUNT": EARTH_FRAME_COUNT,
+        "EARTH_DELTA_OFFSET": earth_offsets["EARTH_DELTA_OFFSET"],
+    }
+    for name, value in replacements.items():
+        content, count = re.subn(
+            rf"(DEFC\s+{name}\s*=\s*)\d+",
+            rf"\g<1>{value}",
+            content,
+        )
+        if count != 1:
+            raise SystemExit(f"  [BPE ABORT] could not patch {name} in {path}")
+    write_file(path, content)
+
+
+def patch_earth_render_consts(path, earth_offsets):
+    """Keep the about renderer's initial DAT seeks in sync with generated layout."""
+    content = read_file(path)
+    replacements = {
+        "EARTH_FRAME0_OFFSET": earth_offsets["EARTH_FRAME0_OFFSET"],
+        "EARTH_FRAME0_SIZE": EARTH_FRAME0_SIZE,
+        "EARTH_ATTR0_SIZE": EARTH_ATTR0_SIZE,
+        "EARTH_ATTR0_OFFSET": earth_offsets["EARTH_ATTR0_OFFSET"],
         "EARTH_DELTA_OFFSET": earth_offsets["EARTH_DELTA_OFFSET"],
     }
     for name, value in replacements.items():
@@ -445,7 +467,8 @@ def main():
     delta_unaligned = (
         earth_offset + len(earth_frame0) + len(earth_attr0) + len(earth_logo)
     )
-    earth_delta_offset = delta_unaligned
+    earth_delta_pad = (-delta_unaligned) % 512
+    earth_delta_offset = delta_unaligned + earth_delta_pad
     earth_offsets = {
         "EARTH_FRAME0_OFFSET": earth_offset,
         "EARTH_ATTR0_OFFSET": earth_offset + len(earth_frame0),
@@ -454,7 +477,13 @@ def main():
         "EARTH_DELTA_SIZE": len(earth_deltas),
         "EARTH_PACKET_SIZE": earth_packet_size,
     }
-    earth_block = earth_frame0 + earth_attr0 + earth_logo + earth_deltas
+    earth_block = (
+        earth_frame0
+        + earth_attr0
+        + earth_logo
+        + (b"\0" * earth_delta_pad)
+        + earth_deltas
+    )
     help_offset = earth_offset + len(earth_block)
 
     # Step 4b: Fix offsets in compressed sources if dict size differs from default
@@ -476,6 +505,9 @@ def main():
     patch_overlay_api_offsets(ovl_api, help_offset, earth_offsets)
     patch_overlay_entry2_consts(
         os.path.join(ROOT, "overlay", "overlay_entry2.asm"), earth_offsets
+    )
+    patch_earth_render_consts(
+        os.path.join(ROOT, "overlay", "earth_about_render.asm"), earth_offsets
     )
 
     # Step 5: Generate SPECTALK.DAT with dict + help segment padding

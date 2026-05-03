@@ -44,16 +44,13 @@ _overlay_exec:
     ld hl, 2048
     ld (_esx_count), hl
 
-    ; Skip ovl_id blocks (each 2048B) by reading into ring_buffer
+    ; Seek to ovl_id block (each 2048B). Avoid reading previous overlay
+    ; blocks into ring_buffer just to discard them.
     ld a, (ix+4)        ; ovl_id
     or a
-    jr z, ovl_read      ; ovl_id=0: no skip
-ovl_skip:
-    push af
-    call _esx_fread     ; read 2048B (skip — overwrites ring_buffer, will be overwritten again)
-    pop af
-    dec a
-    jr nz, ovl_skip
+    jr z, ovl_read      ; ovl_id=0: already at start
+    call ovl_seek_block
+    jr c, ovl_fail_close
 
 ovl_read:
     ; Read the actual OVL block (2048B into ring_buffer)
@@ -130,6 +127,10 @@ ovl_bad_entry:
     pop de
     jr ovl_fail
 
+ovl_fail_close:
+    call _esx_fclose
+    jr ovl_fail
+
 ovl_fail:
     pop ix
     pop de              ; ret addr
@@ -138,6 +139,23 @@ ovl_fail:
     call _overlay_exit_full
     ld hl, ovl_err_msg
     jp _ui_err          ; tail call
+
+; A = ovl_id (1..n). Seek SPECTALK.OVL to ovl_id * 2048.
+; F_SEEK takes 32-bit BCDE distance and whence=SET in IXL.
+ovl_seek_block:
+    add a, a
+    add a, a
+    add a, a            ; A = ovl_id * 8, high byte of low word
+    ld d, a
+    ld e, 0
+    ld bc, 0
+    ld a, (_esx_handle)
+    push ix
+    ld ix, 0
+    rst 8
+    defb 0x9F           ; F_SEEK
+    pop ix
+    ret
 
 ; void overlay_call(uint8_t entry_id) __z88dk_fastcall
 ; Call entry in ALREADY-LOADED overlay (ring_buffer). No disk I/O.
