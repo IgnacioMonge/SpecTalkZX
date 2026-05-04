@@ -1302,7 +1302,8 @@ static void cmd_tz(const char *args) __z88dk_fastcall
 {
     uint16_t had_partial = rx_pos;
 
-    if (args && args[0] == 'r' && args[1] == 't' && args[2] == 'c' && args[3] == 0) {
+    if (args && (args[0] | 0x20) == 'r' && (args[1] | 0x20) == 't' &&
+        (args[2] | 0x20) == 'c' && args[3] == 0) {
         overlay_exec(4, 2);
     } else {
         st_copy_n((char *)overlay_slot, args ? args : "", 8);

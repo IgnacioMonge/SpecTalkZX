@@ -17,6 +17,7 @@ RTC is an opt-in time source. Detect and use it only when the user selects `tz=r
 - Do not apply a numeric timezone to RTC time. RTC is local system time once selected.
 - When leaving RTC with `!tz +N/-N/N`, switch `sntp_tz` to numeric and clear `sntp_init_sent/sntp_waiting/sntp_queried`, but do not adjust `time_hour`; keep the last RTC hour visible until NTP validates. Numeric-to-numeric TZ changes may adjust `time_hour` by delta immediately, as before.
 - Keep feedback short: `tz=RTC`, `No RTC`, `tz=+N sync` when SNTP can be configured immediately in `STATE_WIFI_OK`, and `tz=+N later` when sync is pending until AT mode is available.
+- The resident `!tz` command gate must match `rtc` case-insensitively; the command parser lowercases the command token, not the argument bytes. Use a compact ASCII fold before dispatching to entry 2.
 - In RTC mode, `!config` should display `timezone= RTC`; otherwise show the numeric `+NN/-NN` value even if the machine has RTC hardware.
 - Save `tz=rtc` only when RTC mode is active. Save the numeric `tz=` value after `!tz +N/-N` so users can permanently opt out of bad/misconfigured RTC hardware.
 - The temporary diagnostic display and `rtc_diag[19]` buffer were removed after DivTIESUS confirmation. Reintroduce diagnostics only as a bounded temporary debug build, not as normal resident/overlay state.
@@ -26,5 +27,5 @@ RTC is an opt-in time source. Detect and use it only when the user selects `tz=r
 - `overlay/spectalk_ovl5.c`: config overlay and entry 2 for `!tz rtc`.
 - `overlay/overlay_entry5.asm`: entry 3 for numeric `!tz`, including short feedback and SNTP-pending flag reset.
 - `src/spectalk.c`: startup calls RTC only for `tz=rtc`; SNTP bypass only when RTC mode is selected.
-- `src/user_cmds.c`: dispatches `!tz rtc` to SPCTLK5 entry 2 and numeric `!tz` to SPCTLK5 entry 3.
+- `src/user_cmds.c`: dispatches case-insensitive `!tz rtc` to SPCTLK5 entry 2 and numeric `!tz` to SPCTLK5 entry 3.
 - `overlay/spectalk_ovl4.c`: saves `tz=rtc` when `sntp_tz == TZ_RTC`, otherwise saves numeric timezone.

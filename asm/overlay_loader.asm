@@ -57,14 +57,12 @@ ovl_read:
     call _esx_fread
     call _esx_fclose
 
-    ; W3 fix: verify read succeeded (at least 64 bytes)
+    ; Overlay blocks are fixed-size; never execute a partial/stale ring load.
     ld hl, (_esx_result)
     ld a, h
-    or a
-    jr nz, ovl_read_ok   ; >= 256B, OK
-    ld a, l
-    cp 64
-    jr c, ovl_fail        ; < 64B, corrupted/truncated
+    sub 8
+    or l
+    jr nz, ovl_fail
 ovl_read_ok:
 
     ; W7 fix: validate entry_id < entry_count
