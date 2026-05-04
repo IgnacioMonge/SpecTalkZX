@@ -469,10 +469,6 @@ drain_exit_pop:
 ; until measured on the target emulator/hardware.
 ; =============================================================================
 _scroll_main_zone:
-IFDEF SCROLL_PROFILE
-    ld a, 2                ; red: bitmap copy phase
-    out (0xFE), a
-ENDIF
     push iy
 
     ld iyl, 7              ; IYL = scanline offset (7..0)
@@ -485,8 +481,7 @@ smz_scanline_loop:
     ld d, a
     ld l, 0x80
     ld e, 0x60
-    ld bc, 128
-    ldir
+    call _scroll_stack_blit_128
 
     ; BLOQUE 2: Fila 8 -> 7 (Src: 0x4800, Dest: 0x40E0, Len: 32)
     ld a, 0x48
@@ -512,42 +507,35 @@ smz_scanline_loop:
     ld d, a
     ld l, 0x20
     ld e, 0x00
-    ld bc, 96
-    ldir
+    call _scroll_stack_blit_96
 
     ; Siguiente scanline (7..0, termina al pasar a 0xFF)
     dec iyl
     jp p, smz_scanline_loop
 
     ; Scroll atributos (16 filas: 4->3 ... 19->18)
-IFDEF SCROLL_PROFILE
-    ld a, 6                ; yellow: attribute copy phase
-    out (0xFE), a
-ENDIF
     ld de, 0x5860
     ld hl, 0x5880
     ld bc, 512
     ldir
 
     ; Clear last chat row (19) directly; avoids general clear_line setup.
-IFDEF SCROLL_PROFILE
-    ld a, 5                ; cyan: row-19 clear phase
-    out (0xFE), a
-ENDIF
-    ld hl, 0x5060          ; SCREEN_ROW_ADDR(19)
-    ld iyl, 8
-    xor a
+    di
+    ld (smz_clear_save_sp + 1), sp
+    ld hl, 0x5080          ; SCREEN_ROW_ADDR(19) + 32
+    ld de, 0
+    ld c, 8
 smz_clear19_px:
-    ld (hl), a
-    ld d, h
-    ld e, l
-    inc de
-    ld bc, 31
-    ldir
-    ld l, 0x60
+    ld sp, hl
+    ld b, 16
+smz_clear19_push:
+    push de
+    djnz smz_clear19_push
     inc h
-    dec iyl
+    dec c
     jr nz, smz_clear19_px
+smz_clear_save_sp:
+    ld sp, 0x0000
 
     ld a, (_current_attr)
     ld hl, 0x5A60          ; ATTR row 19
@@ -555,10 +543,6 @@ smz_clear19_px:
     call _fast_fill_attr
 
     pop iy
-IFDEF SCROLL_PROFILE
-    ld a, (_theme_attrs + TA_BORDER)
-    out (0xFE), a
-ENDIF
     ret
 
 ; Cross-page scroll helper: copies 32 bytes from page A to page A-8
@@ -576,14 +560,26 @@ smz_cross_block:
     ret
 
 PUBLIC _scroll_stack_blit_224
-; 224-byte forward copy using SP as the transfer pointer.
+; Forward copy using SP as the transfer pointer.
 ; Input: HL = source, DE = destination. Destroys all main/alternate regs.
 ; Destination low byte must not cross page before the final unused update.
 ; Leaves interrupts disabled: mainline IM1 is only enabled inside frame_wait()
 ; with IY set to ROM system variables.
+_scroll_stack_blit_128:
+    ld a, 8
+    jr ssb_entry
+
 _scroll_stack_blit_224:
+    ld a, 14
+    jr ssb_entry
+
+_scroll_stack_blit_96:
+    ld a, 6
+
+ssb_entry:
     di
     push ix
+    ld ixl, a
     ld (ssb_save_sp + 1), sp
 
     ld (ssb_src + 1), hl
@@ -595,8 +591,6 @@ _scroll_stack_blit_224:
     ld a, l
     ld (ssb_dst_low + 1), a
     pop hl
-
-    ld ixl, 14
 
 ssb_loop:
 ssb_src:

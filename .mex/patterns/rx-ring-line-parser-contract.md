@@ -9,6 +9,9 @@ The resident RX path uses `_rb_head`/`_rb_tail` as ring offsets, not absolute po
 - The `_rx_line + RX_LINE_MAX` algebra in the non-overflow write path depends on linker support for `symbol + constant`, and on `HL` holding `rx_pos - RX_LINE_MAX` immediately before `add hl,de`.
 - `_rx_overflow` is a byte flag. It can be tested through `HL=_rx_overflow` and cleared with `ld (hl),0` when `HL` is dead on both next paths.
 - Do not keep stack-cleanup labels such as `trln_overflow_pop` unless a live branch reaches them after a matching `push`. A stale `pop` in this parser is both unreachable code and a future stack-corruption trap if revived casually.
+- Current `_try_read_line_nodrain()` caches `_rb_tail` in `DE` and the live `_rx_line` write pointer in `BC` for one parser pass. Commit `_rb_tail` only on valid-line and empty/partial exits. Commit `_rx_pos` only on empty/partial exit by computing `BC - _rx_line`; valid lines store `_rx_last_len` from that same pointer delta and reset `_rx_pos` to zero.
+- Do not move UART draining into `_try_read_line_nodrain()`. It is a no-drain parser by contract; scheduling belongs at resident call sites that are known not to be executing overlays from `ring_buffer`.
+- Overflow is pointer-based now: `BC >= _rx_line + RX_LINE_MAX` means discard bytes until LF, keep `_rx_overflow` set, and do not increment `BC`. On LF with overflow set, clear the flag, reset `BC` to `_rx_line`, and continue scanning for the next line.
 
 ## Applied In
 - `asm/spectalk_asm/20_rx_ring_uart.asm` `_rb_pop()`, `_rb_push()`, `_try_read_line_nodrain()`

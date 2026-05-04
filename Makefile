@@ -57,11 +57,6 @@ endif
 
 EXTRA_CFLAGS ?=
 BUILD_PROFILE ?= NORMAL
-SCROLL_PROFILE ?= 0
-ifeq ($(SCROLL_PROFILE),1)
-EXTRA_CFLAGS += -Ca-DSCROLL_PROFILE
-BUILD_PROFILE := SCROLL_PROFILE
-endif
 CFLAGS = -vn -SO3 -startup=31 -compiler=sdcc -clib=sdcc_iy \
          -zorg=$(ZORG) --opt-code-size --fomit-frame-pointer \
          -Cc--Werror \

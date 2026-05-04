@@ -908,17 +908,19 @@ static void h_numeric_353(void)
     if (st_stricmp(msg_chan, target) != 0) return;
 
     names_timeout_frames = 0;
-    names_pending = 1;
 
     // After Cancelled/incomplete, manual /names still owns the stream until
     // 366, but pagination_active is off. Keep consuming 353 without output.
-    if (show_names_list && !pagination_active) return;
+    if (show_names_list && !pagination_active) {
+        names_pending = 1;
+        return;
+    }
 
     // Accumulate user count in temp variable (only committed on 366)
     {
         uint8_t count = names_count_line(pkt_txt);
 
-        if (counting_new_users) {
+        if (counting_new_users || !names_pending) {
             names_count_acc = count;
             names_friend_pos = 0;
             counting_new_users = 0;
@@ -926,6 +928,7 @@ static void h_numeric_353(void)
             names_count_acc += count;
         }
     }
+    names_pending = 1;
 
     // Render /names
     if (show_names_list) {
@@ -1150,6 +1153,8 @@ static void h_numeric_322_352(void)
 
 static void h_numeric_1(void)
 {
+    if (connection_state >= STATE_IRC_READY) return;
+
     const char *confirmed_nick = irc_param(0);
     if (confirmed_nick && *confirmed_nick) {
         st_copy_n(irc_nick, confirmed_nick, sizeof(irc_nick));
@@ -1616,6 +1621,10 @@ void process_irc_data(void)
             // Solo debe borrarse al recibir PONG (se hace en handler de PONG)
             parse_irc_message(rx_line);
         }
+
+        // Resident-only cooperative drain: keep UART/ESP from backing up while
+        // handlers/rendering consume a burst. Do not move this into frame_wait().
+        uart_drain_to_buffer();
 
         lines_this_call++;
 

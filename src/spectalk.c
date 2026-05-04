@@ -2589,7 +2589,7 @@ void main(void)
     current_attr = ATTR_MAIN_BG;
 
     draw_status_bar();
-    redraw_input_full();
+    input_clear();
 
     {
         uint8_t prev_caps_mode = caps_lock_mode;

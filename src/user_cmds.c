@@ -315,7 +315,7 @@ do_connect:
     
     { uint16_t fl = use_ssl ? TIMEOUT_SSL : TIMEOUT_DNS; result = wait_for_connection_result(fl); }
     
-    if (result == 0) { main_newline(); goto connect_fail; }
+    if (result == 0) goto connect_fail;
     
     set_attr_priv(); main_print(S_OK); 
     

@@ -114,10 +114,19 @@ _rb_push_full:
 ; de forma segura sin escribir en memoria hasta encontrar el \n.
 ; -----------------------------------------------------------------------------
 _try_read_line_nodrain:
+    ; Cache tail and rx_line write pointer for this parser pass.  Head is
+    ; reloaded because UART drain may append between calls, but not inside this
+    ; routine.
+    ld de, (_rb_tail)       ; DE = ring tail offset
+    ld hl, (_rx_pos)
+    ld bc, _rx_line
+    add hl, bc
+    ld b, h
+    ld c, l                 ; BC = &rx_line[rx_pos]
+
 trln_loop:
     ; 1. Comprobar si hay datos (Head != Tail)
     ld hl, (_rb_head)
-    ld de, (_rb_tail)
     or a
     sbc hl, de
     jr z, trln_return_0
@@ -125,17 +134,13 @@ trln_loop:
     ; 2. Leer byte del anillo
     ld hl, _ring_buffer
     add hl, de
-    ld c, (hl)          ; C = byte le?do
+    ld a, (hl)          ; A = byte le?do
     
     ; 3. Avanzar Tail
     inc de
-    ld a, d
-    and RB_MASK_H       ; M?scara 0x07 solo en High
-    ld d, a
-    ld (_rb_tail), de
+    res 3, d            ; M?scara 0x07: tail is 0..7FF, inc can only set bit 3
     
     ; 4. Analyze character
-    ld a, c
     cp 0x0D             ; Ignorar \r
     jr z, trln_loop
     
@@ -143,37 +148,32 @@ trln_loop:
     jr z, trln_newline
     
     ; 5. CR?TICO: Chequear desbordamiento ANTES de escribir (HARDENED)
-    ld hl, (_rx_pos)
-    ld de, RX_LINE_MAX  ; == RX_LINE_SIZE - 2 (espacio para \0)
+    ; BC is the live write pointer; limit is &_rx_line[RX_LINE_MAX].
+    ld hl, _rx_line + RX_LINE_MAX
     or a
-    sbc hl, de
-    jr nc, trln_overflow_state ; Si rx_pos >= 510, descartar
+    sbc hl, bc
+    jr c, trln_overflow_state
+    jr z, trln_overflow_state ; Si rx_pos >= 510, descartar
     
     ; 6. Save character (no hay overflow)
-    ld de, _rx_line + RX_LINE_MAX
-    add hl, de          ; HL = &rx_line[rx_pos]
-    ld (hl), c
+    ld (bc), a
     
     ; 7. Incrementar posici?n
-    ld hl, (_rx_pos)
-    inc hl
-    ld (_rx_pos), hl
+    inc bc
     jr trln_loop
 
 trln_overflow_state:
     ; Marcar flag de overflow (ahora es uint8_t)
     ld a, 1
     ld (_rx_overflow), a
-    ; IMPORTANTE: NO escribir C en memoria, ni incrementar rx_pos.
+    ; IMPORTANTE: NO escribir A en memoria, ni incrementar rx_pos.
     ; Simply return to loop para consumir el siguiente byte.
     jr trln_loop
 
 trln_newline:
     ; Terminar string con NULL
-    ld hl, (_rx_pos)
-    ld de, _rx_line
-    add hl, de
-    ld (hl), 0          
+    xor a
+    ld (bc), a
     
     ; Check if line had overflow (ahora es uint8_t)
     ld hl, _rx_overflow
@@ -183,12 +183,18 @@ trln_newline:
     
     ; If overflow, DISCARD line completa y resetear
     ld (hl), 0
-    call _rx_pos_reset
+    ld bc, _rx_line
     jr trln_loop        ; Look for next line
 
 trln_check_valid:
     ; If length > 0, valid line
-    ld hl, (_rx_pos)
+    push de
+    ld h, b
+    ld l, c
+    ld de, _rx_line
+    or a
+    sbc hl, de
+    pop de
     ld a, l
     or h
     jr z, trln_loop     ; Ignore empty lines
@@ -197,11 +203,20 @@ trln_check_valid:
     ; Guardar longitud de la l?nea (rx_pos) para evitar strlen() en C
     ld (_rx_last_len), hl
 
-    call _rx_pos_reset
+    ld hl, 0
+    ld (_rx_pos), hl
+    ld (_rb_tail), de
     ld l, 1
     ret
 
 trln_return_0:
+    ld (_rb_tail), de
+    ld h, b
+    ld l, c
+    ld de, _rx_line
+    or a
+    sbc hl, de
+    ld (_rx_pos), hl
     ld l, 0
     ret
 
