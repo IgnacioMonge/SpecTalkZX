@@ -130,7 +130,6 @@ isc_space: defb ' ', 0
 ; frame pointer. Call ONLY through _irc_send_cmd1 / _irc_send_cmd2 wrappers
 ; in 80_ui_runtime.asm — they save/restore IX. Do NOT call from overlay code.
 ; IY is preserved (sdcc_iy clib reserves it).
-PUBLIC _irc_send_cmd_internal
 _irc_send_cmd_internal:
     ; Check connection state first
     ld a, (_connection_state)

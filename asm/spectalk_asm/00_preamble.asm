@@ -260,6 +260,8 @@ defc plf_y_val       = 0x5BD3  ; 1B  scratch print_line64_fast
 PUBLIC _plf_start_byte
 defc _plf_start_byte = 0x5BD4  ; 1B  wrap_indent/2 (seteado por callers ASM)
 defc bpe_rstack      = 0x5BD5  ; 16B BPE return stack (8 niveles x 2B)
+defc bpe_rstack_lo   = bpe_rstack & 0xFF
+defc bpe_rstack_top_lo = (bpe_rstack + 16) & 0xFF
 defc bpe_rsp         = 0x5BE5  ; 2B  BPE stack pointer
 ; $5BE7-$5BE8 2B  main_print_wrapped_ram() last-space scratch
 ; $5BE9-$5BF0 8B  C fmt_buf transient decimal/time scratch

@@ -3,7 +3,7 @@
 RTC is an opt-in time source. Detect and use it only when the user selects `tz=rtc`/`!tz rtc`; otherwise keep the numeric SNTP timezone path.
 
 ## Rules
-- Keep RTC detection cold. `SPCTLK5.OVL` entry 1 is called at startup only when loaded config set `tz=rtc`; entry 2 handles immediate `!tz rtc`; entry 3 handles numeric `!tz`. Numeric `tz=` configs must not probe/use RTC automatically.
+- Keep RTC detection cold. `SPCTLK5.OVL` entry 1 is called at startup only when loaded config set `tz=rtc` case-insensitively; entry 2 handles immediate `!tz rtc`; entry 3 handles numeric `!tz`. Numeric `tz=` configs must not probe/use RTC automatically.
 - Try documented esxDOS/Next `M_DRVAPI ($92)` first with `C=0`, `B=0` (driver API RTC query), then fall back to `M_GETDATE ($8e)`. Both calls use `IY=$5C3A` around `RST 8`.
 - Do not treat DivTIESUS `.ntpdate` as proof of a readable direct RTC ABI. Its source proves PCF8563 write access through ZX-Uno-style `FC3B/FD3B`, but it does not read the chip back.
 - Do not trust carry alone on classic esxDOS/divMMC hardware. z88dk's classic wrapper treats the `M_GETDATE` result registers as guessed `BCDE`, and DivIDE without RTC returns fixed `23/04/1982 00:00:00`.
@@ -12,10 +12,10 @@ RTC is an opt-in time source. Detect and use it only when the user selects `tz=r
 - DivTIESUS hardware confirmation: the direct PCF8563 route works with read mask `P80` after `.ntpdate +2` and a real power-cycle. If startup time appears offset, first refresh the RTC using `.ntpdate +<tz>` and power-cycle before changing Spectalk's timezone model.
 - Accept PCF8563 data only when the VL bit is clear and BCD seconds/minutes/hours/day/month/year are plausible (`year 24..35`).
 - Use `sntp_tz == TZ_RTC (127)` as the RTC mode sentinel. Do not add another resident state byte unless this contract breaks.
-- If RTC succeeds while in RTC mode, keep `sntp_tz == TZ_RTC`, seed `time_hour/time_minute/time_second`, reset `last_frames_lo/tick_accum`, mark the status bar dirty for immediate redraw, and make `sntp_init()` a no-op. If RTC seed fails, the seed overlay must clear RTC mode back to numeric `sntp_tz=1`; the `!tz rtc` wrapper then restores the previous numeric timezone and prints `No RTC`.
+- If RTC succeeds while in RTC mode, keep `sntp_tz == TZ_RTC`, seed `time_hour/time_minute/time_second`, reset `last_frames_lo/tick_accum`, mark the status bar dirty for immediate redraw, and make `sntp_init()` a no-op. If RTC seed fails, the seed overlay must clear RTC mode back to numeric `sntp_tz=1` and clear `sntp_init_sent/sntp_waiting/sntp_queried` so SNTP is retried. The `!tz rtc` wrapper restores the previous numeric timezone and prints `No RTC`; if the previous source was already RTC, leave the numeric fallback active and mark config dirty.
 - Entering RTC mode must clear `sntp_init_sent/sntp_waiting/sntp_queried` so no stale pending SNTP query can run after RTC becomes authoritative.
 - Do not apply a numeric timezone to RTC time. RTC is local system time once selected.
-- When leaving RTC with `!tz +N/-N/N`, switch `sntp_tz` to numeric and clear `sntp_init_sent/sntp_waiting/sntp_queried`, but do not adjust `time_hour`; keep the last RTC hour visible until NTP validates. Numeric-to-numeric TZ changes may adjust `time_hour` by delta immediately, as before.
+- When leaving RTC with `!tz +N/-N/N`, switch `sntp_tz` to numeric and clear `sntp_init_sent/sntp_waiting/sntp_queried`, but do not adjust `time_hour`; keep the last RTC hour visible until NTP validates. Numeric-to-numeric TZ changes may adjust `time_hour` by delta immediately, as before. Re-entering the same numeric `!tz +N` is an explicit resync request and must also clear the SNTP flags.
 - Keep feedback short: `tz=RTC`, `No RTC`, `tz=+N sync` when SNTP can be configured immediately in `STATE_WIFI_OK`, and `tz=+N later` when sync is pending until AT mode is available.
 - The resident `!tz` command gate must match `rtc` case-insensitively; the command parser lowercases the command token, not the argument bytes. Use a compact ASCII fold before dispatching to entry 2.
 - In RTC mode, `!config` should display `timezone= RTC`; otherwise show the numeric `+NN/-NN` value even if the machine has RTC hardware.
@@ -26,6 +26,6 @@ RTC is an opt-in time source. Detect and use it only when the user selects `tz=r
 - `overlay/rtc_seed_ovl.asm`: `SPCTLK5.OVL` entry 1 RTC reader, `M_DRVAPI` then `M_GETDATE`, plus direct DivTIESUS PCF8563 fallback.
 - `overlay/spectalk_ovl5.c`: config overlay and entry 2 for `!tz rtc`.
 - `overlay/overlay_entry5.asm`: entry 3 for numeric `!tz`, including short feedback and SNTP-pending flag reset.
-- `src/spectalk.c`: startup calls RTC only for `tz=rtc`; SNTP bypass only when RTC mode is selected.
+- `src/spectalk.c`: startup calls RTC only for case-insensitive `tz=rtc`; SNTP bypass only when RTC mode is selected.
 - `src/user_cmds.c`: dispatches case-insensitive `!tz rtc` to SPCTLK5 entry 2 and numeric `!tz` to SPCTLK5 entry 3.
 - `overlay/spectalk_ovl4.c`: saves `tz=rtc` when `sntp_tz == TZ_RTC`, otherwise saves numeric timezone.

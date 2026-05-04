@@ -87,9 +87,8 @@ ovl_read_ok:
     or a
     sbc hl, de          ; HL = entry - ring_buffer
     jr c, ovl_bad_entry
-    ld de, 2048
-    ; CF=0 guaranteed (jr c not taken, ld de preserves flags)
-    sbc hl, de          ; offset >= 2048?
+    ld a, h
+    cp 8                ; offset >= 2048?
     jr nc, ovl_bad_entry
     pop de
     push de             ; preserve entry address while RX cleanup uses DE
@@ -179,9 +178,8 @@ _overlay_call:
     or      a
     sbc     hl, de
     jr      c, ovl_call_bad
-    ld      de, 2048
-    ; CF=0 guaranteed (jr c not taken, ld de preserves flags)
-    sbc     hl, de
+    ld      a, h
+    cp      8
     jr      nc, ovl_call_bad
     pop     hl
     jp      (hl)             ; jump — overlay's ret returns to caller
@@ -194,6 +192,7 @@ ovl_call_bad:
 ; Same ABI as overlay_call, but enables IM1 interrupts while the overlay entry
 ; runs. Use only for ABOUT animation ticks: this lets ROM FRAMES advance during
 ; long DAT/draw work while keeping the normal mainline DI contract elsewhere.
+; Timed entries must not run SDCC/sdcc_iy overlay C; they enter with IY=$5C3A.
 PUBLIC _overlay_call_timed
 _overlay_call_timed:
     push    iy

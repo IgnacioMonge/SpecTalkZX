@@ -81,7 +81,6 @@ tz_new_ready:
     jr z, tz_changed_from_rtc
     ld a, c
     cp b
-    jr z, tz_store_new
 
     sub b
     add a, 24

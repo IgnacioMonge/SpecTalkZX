@@ -13,6 +13,7 @@ Use this when shaving resident bytes without touching RX scheduling or visible I
 - In `switcher_render()`, `print_line64_fast()` consumes a fixed 64 logical columns. A stack buffer of `SCREEN_COLS` filled with spaces is enough; do not add `buf[SCREEN_COLS] = 0`.
 - Cache `slot = sw_map[i]` when rendering a switcher tab. It shrinks repeated indexed loads and makes using `sw_tab_width(slot)` cheaper than duplicating the width formula.
 - CTCP VERSION should reuse `S_APPSHORT` for the response data. Do not carry a second local `"SpecTalkZX"` literal in `irc_handlers.c`.
+- `nav_history` lives in normal BSS and can move across page boundaries as resident code size changes. Do not use `add a,l / ld l,a` for `_nav_history + idx` unless carry is handled; the 2026-05-04 audit caught a real layout where `_nav_history=$EEFC` and idx 4/5 wrapped into channel data.
 
 ## Rejected Here
 
@@ -26,3 +27,4 @@ Use this when shaving resident bytes without touching RX scheduling or visible I
 
 - `src/spectalk.c` command history and `switcher_render()`
 - `src/irc_handlers.c` CTCP VERSION path
+- `asm/spectalk_asm/70_input_lookup.asm` `_nav_push()`
