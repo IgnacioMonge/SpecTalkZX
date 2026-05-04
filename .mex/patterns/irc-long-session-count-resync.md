@@ -17,9 +17,9 @@ the current channel, so investigate receive loss or skipped parser work:
   pagination path does;
 - `_uart_drain_to_buffer()` stops when `_rb_push()` reports full, but the normal
   chat path has no counter or visible flag for that loss;
-- `h_part()` currently still renders active-channel PART lines with
-  `show_traffic=0`, so `!traffic off` does not fully remove presence-message
-  render pressure.
+- `h_part()` must not render active-channel PART lines with `show_traffic=0`;
+  `!traffic off` should remove presence-message render pressure while keeping
+  counters and status redraws correct.
 
 Before changing count policy, prefer a temporary diagnostic build with small
 counters for JOIN increments, PART/KICK/QUIT decrements, QUIT skipped because of

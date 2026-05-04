@@ -179,6 +179,7 @@ PUBLIC _input_line_end
 ; EXTERNAL VARIABLES AND FUNCTIONS (defined in C or other .asm)
 ; =============================================================================
 EXTERN _caps_lock_mode
+EXTERN _cursor_shift_held
 EXTERN _caps_latch
 EXTERN _beep_enabled
 EXTERN _ui_usage
@@ -254,7 +255,6 @@ DEFC RB_MASK_H = 0x07   ; High byte mask for 2048 (0x0800)
 ; =============================================================================
 defc glyph_buffer    = 0x5BC0  ; 7B  scratch unpack_glyph
 defc plf_left_buf    = 0x5BC8  ; 8B  scratch print_line64_fast (nibbles izq)
-defc plf_str_ptr     = 0x5BD0  ; 2B  scratch print_line64_fast
 defc plf_attr_val    = 0x5BD2  ; 1B  scratch print_line64_fast
 defc plf_y_val       = 0x5BD3  ; 1B  scratch print_line64_fast
 PUBLIC _plf_start_byte

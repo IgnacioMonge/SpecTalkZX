@@ -757,7 +757,7 @@ plf_blank_loop:
 
 plf_left_blank_right_normal:
     inc hl                 ; right consumed; A still holds right char
-    ld (plf_str_ptr), hl
+    push hl                ; string pointer above saved screen addr
     call unpack_glyph
     ex de, hl              ; DE = right glyph
     ld ix, blank_glyph
@@ -766,13 +766,12 @@ plf_left_blank_right_normal:
 plf_left_normal:
     ; A = left char (33..127), HL = string pointer from the lookahead pass.
     inc hl                 ; consume left char
-    ld (plf_str_ptr), hl
+    push hl                ; string pointer above saved screen addr
     call unpack_glyph      ; A still has char; HL/DE don't matter (destroyed)
-    push hl                ; save left glyph pointer above saved screen addr
+    ex (sp), hl            ; stack top = left glyph, HL = string pointer
 
     ; --- Leer char derecho antes de copiar el izquierdo ---
     ; If the right side is blank, the write loop can use the left source directly.
-    ld hl, (plf_str_ptr)
     ld a, (hl)
     or a
     jr z, plf_right_blank_left_direct ; NUL: no avanzar puntero, usar espacio
@@ -782,14 +781,13 @@ plf_left_normal:
     cp 128
     jr c, plf_right_ok     ; char 33-127: OK
 plf_right_blank_left_direct:
-    ld (plf_str_ptr), hl
-    ld de, blank_glyph
     pop ix                 ; IX = left glyph; screen addr remains stacked
+    push hl                ; string pointer above saved screen addr
+    ld de, blank_glyph
     jr plf_write_pair
 plf_right_ok:
-    ld (plf_str_ptr), hl
+    ex (sp), hl            ; stack top = string pointer, HL = left glyph
     ; Copy the left glyph only when the right glyph must also be resolved.
-    pop hl                 ; HL = left glyph; screen addr remains stacked
     ld de, plf_left_buf
     ld bc, 6
     ldir
@@ -801,7 +799,9 @@ plf_write_pair:
     ; --- Combinar y escribir 8 scanlines ---
     ; Keep vertical alignment identical to _print_str64_char():
     ; blank top scanline, 6 glyph rows, then blank bottom scanline.
+    pop bc                 ; BC = string pointer for next pair
     pop hl                 ; HL = screen addr
+    push bc                ; save pointer while write loop uses BC
 
     xor a
     ld (hl), a             ; scanline 0 stays blank like per-char rendering
@@ -824,7 +824,7 @@ plf_write_loop:
     ld (hl), a             ; scanline 7 bottom padding
     inc h                  ; Keep pair-advance contract: HL is base + 8 scanlines
 
-    ld de, (plf_str_ptr)   ; DE = string pointer para siguiente iteraci?n
+    pop de                 ; DE = string pointer para siguiente iteraci?n
 plf_pair_advance:
     ; HL is one screen character cell below the byte just written (H += 8).
     ; Restore the row base without another stack round-trip.
@@ -1121,14 +1121,12 @@ dcu_masks:
     and b
     ld (hl), a
 
-    ; Effective caps = caps_lock_mode XOR key_shift_held().
-    push de                 ; save cursor mask
-    push hl                 ; save scanline 7 cell
-    call _key_shift_held
+    ; Effective caps = caps_lock_mode XOR cursor_shift_held.
+    ; The main loop clears cursor_shift_held for CAPS SHIFT+arrow navigation.
     ld a, (_caps_lock_mode)
-    xor l
-    pop hl                  ; HL = scanline 7 cell
-    pop de                  ; D = cursor mask
+    ld e, a
+    ld a, (_cursor_shift_held)
+    xor e
     or a
     jr z, dcu_draw
     ld a, h

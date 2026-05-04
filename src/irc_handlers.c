@@ -323,6 +323,7 @@ static void h_mode(void)
     }
 
     set_attr_sys();
+    main_print_time_prefix();
     main_puts(S_MODE_SP_SCR);
     main_print(pkt_par);
 }
@@ -466,7 +467,7 @@ static void h_privmsg_notice(void)
                 break;
 
             case 'V': // VERSION
-                if (ctcp_cmd[1] == 'E' && ctcp_cmd[2] == 'R') { send_ctcp_reply(pkt_usr, "VERSION", "SpecTalkZX"); return; }
+                if (ctcp_cmd[1] == 'E' && ctcp_cmd[2] == 'R') { send_ctcp_reply(pkt_usr, "VERSION", S_APPSHORT); return; }
                 break;
 
             case 'P': // PING
@@ -671,7 +672,7 @@ static void h_part(void)
             channel_dec_users(idx);
 
             if ((uint8_t)idx == current_channel_idx) {
-                print_departure(" left");
+                if (show_traffic) print_departure(" left");
                 draw_status_bar();
             } else {
                 mark_channel_activity((uint8_t)idx);
@@ -742,11 +743,17 @@ static void h_kick(void)
     } else {
         if (idx >= 0) {
             if ((uint8_t)idx == current_channel_idx) {
-                main_print_time_prefix();
-                set_attr_join();
-                main_puts2(S_ASTERISK, target);
-                main_puts2(" kicked by ", pkt_usr);
-                print_reason_and_newline();
+                nb_init(S_ASTERISK);
+                nb(target);
+                nb(" kicked by ");
+                nb(pkt_usr);
+                if (*pkt_txt) {
+                    nb(S_SP_PAREN);
+                    nb(pkt_txt);
+                    nb(")");
+                }
+                NB_END();
+                notify(temp_input, ATTR_MSG_SYS);
             } else {
                 mark_channel_activity((uint8_t)idx);
             }
@@ -865,11 +872,12 @@ static void h_numeric_324(void)
         st_copy_n(channels[idx].mode, modes, sizeof(channels[0].mode));
         if ((uint8_t)idx == current_channel_idx) draw_status_bar();
     }
-    set_attr_sys();
-    main_puts(S_MODE_SP_SCR);
-    main_puts(chan);
-    main_putc(' ');
-    main_print(modes);
+    nb_init(S_MODE_SP_SCR);
+    nb(chan);
+    nb(" ");
+    nb(modes);
+    NB_END();
+    notify(temp_input, ATTR_MSG_SYS);
 }
 
 static void print_topic_line(char *text) __z88dk_fastcall
@@ -1360,6 +1368,7 @@ static void h_default_cmd(void)
     if (pagination_active || post_cancel_quiet) return;
     
     set_attr_sys();
+    main_print_time_prefix();
     main_puts2(">< ", pkt_cmd);
     if (*pkt_par) { main_putc(' '); main_puts(pkt_par); }
     if (*pkt_txt) { main_puts2(S_SP_COLON, pkt_txt); }

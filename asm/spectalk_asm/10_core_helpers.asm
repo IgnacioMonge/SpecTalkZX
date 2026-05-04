@@ -315,7 +315,7 @@ _mention_beep:
     jr _beep_core
 
 ; -----------------------------------------------------------------------------
-; void key_click(void)  -- subtle key click (short single pulse)
+; void key_click(void)  -- micro-pulse keyclick (short blocking pulse)
 ; -----------------------------------------------------------------------------
 PUBLIC _key_click
 EXTERN _keyclick_enabled
@@ -323,9 +323,16 @@ _key_click:
     ld a, (_keyclick_enabled)
     or a
     ret z
-    ld hl, 40
-    ld c, 0x10              ; default tone mask for click
-    jr _beep_core
+    ld a, (_theme_attrs + TA_BORDER)
+    and 0x07                ; preserve theme border colour
+    or 0x18                 ; MIC + EAR on
+    out (0xFE), a
+    ld b, 30
+kclick_w:
+    djnz kclick_w
+    xor 0x10                ; EAR off, keep MIC + border
+    out (0xFE), a
+    ret
 
 ; -----------------------------------------------------------------------------
 ; void check_caps_toggle(void)
@@ -381,6 +388,14 @@ _key_shift_held:
     in a, (c)
     and 0x1F
     cp 0x1F
+    jr nz, shift_not_held
+
+    ; BREAK is CAPS SHIFT+SPACE and word navigation is CAPS SHIFT+SYMBOL SHIFT.
+    ; Neither should count as a clean typing shift for cursor/case state.
+    ld bc, 0x7FFE
+    in a, (c)
+    and 0x03
+    cp 0x03
     jr nz, shift_not_held
 
     ld hl, 1

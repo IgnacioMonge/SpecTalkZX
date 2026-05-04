@@ -481,7 +481,8 @@ smz_scanline_loop:
     ld d, a
     ld l, 0x80
     ld e, 0x60
-    call _scroll_stack_blit_128
+    ld b, 8
+    call _scroll_stack_blit_chunks
 
     ; BLOQUE 2: Fila 8 -> 7 (Src: 0x4800, Dest: 0x40E0, Len: 32)
     ld a, 0x48
@@ -494,7 +495,8 @@ smz_scanline_loop:
     ld d, a
     ld l, 0x20
     ld e, 0x00
-    call _scroll_stack_blit_224
+    ld b, 14
+    call _scroll_stack_blit_chunks
 
     ; BLOQUE 4: Fila 16 -> 15 (Src: 0x5000, Dest: 0x48E0, Len: 32)
     ld a, 0x50
@@ -507,7 +509,8 @@ smz_scanline_loop:
     ld d, a
     ld l, 0x20
     ld e, 0x00
-    call _scroll_stack_blit_96
+    ld b, 6
+    call _scroll_stack_blit_chunks
 
     ; Siguiente scanline (7..0, termina al pasar a 0xFF)
     dec iyl
@@ -524,16 +527,27 @@ smz_scanline_loop:
     ld (smz_clear_save_sp + 1), sp
     ld hl, 0x5080          ; SCREEN_ROW_ADDR(19) + 32
     ld de, 0
-    ld c, 8
+    ld b, 8
 smz_clear19_px:
     ld sp, hl
-    ld b, 16
-smz_clear19_push:
     push de
-    djnz smz_clear19_push
+    push de
+    push de
+    push de
+    push de
+    push de
+    push de
+    push de
+    push de
+    push de
+    push de
+    push de
+    push de
+    push de
+    push de
+    push de
     inc h
-    dec c
-    jr nz, smz_clear19_px
+    djnz smz_clear19_px
 smz_clear_save_sp:
     ld sp, 0x0000
 
@@ -559,27 +573,16 @@ smz_cross_block:
     ldir
     ret
 
-PUBLIC _scroll_stack_blit_224
-; Forward copy using SP as the transfer pointer.
-; Input: HL = source, DE = destination. Destroys all main/alternate regs.
+PUBLIC _scroll_stack_blit_chunks
+; B*16-byte forward copy using SP as the transfer pointer.
+; Input: HL = source, DE = destination, B = 16-byte chunk count.
+; Destroys all main/alternate regs.
 ; Destination low byte must not cross page before the final unused update.
 ; Leaves interrupts disabled: mainline IM1 is only enabled inside frame_wait()
 ; with IY set to ROM system variables.
-_scroll_stack_blit_128:
-    ld a, 8
-    jr ssb_entry
-
-_scroll_stack_blit_224:
-    ld a, 14
-    jr ssb_entry
-
-_scroll_stack_blit_96:
-    ld a, 6
-
-ssb_entry:
+_scroll_stack_blit_chunks:
     di
     push ix
-    ld ixl, a
     ld (ssb_save_sp + 1), sp
 
     ld (ssb_src + 1), hl
@@ -591,6 +594,9 @@ ssb_entry:
     ld a, l
     ld (ssb_dst_low + 1), a
     pop hl
+
+    ld a, b
+    ld ixl, a
 
 ssb_loop:
 ssb_src:

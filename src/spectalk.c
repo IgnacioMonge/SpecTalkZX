@@ -167,7 +167,7 @@ uint16_t names_timeout_frames;
 uint8_t beep_enabled = 1;   // 0 = silent mode
 uint8_t keyclick_enabled;   // 0 = off (default), 1 = key click sound
 uint8_t nick_color_mode = 1;  // 0 = theme fixed, 1 = per-nick hash color
-uint8_t show_traffic = 1;     // 0 = hide JOIN/QUIT messages
+uint8_t show_traffic = 1;     // 0 = hide JOIN/PART/QUIT messages
 uint8_t notif_enabled = 1;    // 1 = ikkle notifications, 0 = classic inline messages
 uint8_t show_timestamps = 2; // 0=off, 1=always, 2=on-change
 // big_status removed (big mode eliminated)
@@ -348,6 +348,7 @@ static uint8_t input_prev_len;  // for trailing char cleanup in redraw_input_fro
 
 // CAPS LOCK state (from BitStream)
 uint8_t caps_lock_mode;
+uint8_t cursor_shift_held;
 uint8_t caps_latch;
 
 // =============================================================================
@@ -638,7 +639,7 @@ static void switcher_rebuild_map(void)
 
 static void switcher_render(void)
 {
-    char buf[SCREEN_COLS + 1];
+    char buf[SCREEN_COLS];
     uint8_t i, j, pos;
     uint8_t last_shown;
     uint8_t tw;
@@ -660,19 +661,18 @@ static void switcher_render(void)
     }
 
     memset(buf, ' ', SCREEN_COLS);
-    buf[SCREEN_COLS] = 0;
 
     pos = (sw_first > 0) ? 2 : 0;  // "< " takes 2 cols (even)
     last_shown = sw_first;
 
     for (i = sw_first; i < sw_count; i++) {
-        const char *name = channels[sw_map[i]].name;
-        uint8_t is_q = (channels[sw_map[i]].flags & CH_FLAG_QUERY) ? 1 : 0;
+        uint8_t slot = sw_map[i];
+        const char *name = channels[slot].name;
+        uint8_t is_q = (channels[slot].flags & CH_FLAG_QUERY) ? 1 : 0;
         if (*name == '#' || *name == '&') name++;
         uint8_t nlen = st_strlen(name);
         uint8_t need;
-        tw = nlen + 4 + is_q;  // +1 for @ prefix on queries
-        if (tw & 1) tw++;
+        tw = sw_tab_width(slot);
         need = tw + ((i > sw_first) ? 2 : 0);
 
         if (pos + need > SCREEN_COLS) break;
@@ -685,7 +685,7 @@ static void switcher_render(void)
 
         // " N:name " or " N: @name " for queries
         buf[pos] = ' ';
-        buf[pos + 1] = '0' + sw_map[i];
+        buf[pos + 1] = '0' + slot;
         buf[pos + 2] = ':';
         if (is_q) buf[pos + 3] = '@';
         for (j = 0; j < nlen; j++) buf[pos + 3 + is_q + j] = name[j];
@@ -867,14 +867,14 @@ uint8_t current_attr;  // Initialized in apply_theme()
 
 // COMMAND HISTORY
 #define HISTORY_SIZE    4
-// E2: Reduced from 128 to 96 - saves 128 bytes BSS
-#define HISTORY_LEN     96
+// Reduced from 96 to 48; enough for command recall without burning BSS.
+#define HISTORY_LEN     48
 
 static char history[HISTORY_SIZE][HISTORY_LEN];
+static char history_draft[LINE_BUFFER_SIZE];
 static uint8_t hist_head;
 static uint8_t hist_count;
 static int8_t hist_pos = -1;
-// temp_input mapped to CHANS workspace 0x5D36 via ASM defc
 
 static void history_add(const char *cmd, uint8_t len) __z88dk_callee
 {
@@ -885,12 +885,6 @@ static void history_add(const char *cmd, uint8_t len) __z88dk_callee
     for (i = 0; i < len && cmd[i] == ' '; i++);
     if (i == len) return;
     
-    if (hist_count > 0) {
-        // OPTIMIZADO: % 4 -> & 3
-        uint8_t last = (hist_head + HISTORY_SIZE - 1) & 3;
-        // OPT M5: st_stricmp ya linkeado, strcmp no
-        if (st_stricmp(history[last], cmd) == 0) return;
-    }
     for (i = 0; i < len && i < HISTORY_LEN - 1; i++) {
         history[hist_head][i] = cmd[i];
     }
@@ -907,7 +901,7 @@ static void history_nav_up(void)
 {
     uint8_t idx;
     if (hist_count == 0) return;
-    if (hist_pos == -1) memcpy(temp_input, line_buffer, line_len + 1);
+    if (hist_pos == -1) st_copy_n(history_draft, line_buffer, sizeof(history_draft));
     if (hist_pos < (int8_t)(hist_count - 1)) hist_pos++;
     
     // OPTIMIZADO: % 4 -> & 3
@@ -924,9 +918,8 @@ static void history_nav_down(void)
     if (hist_pos < 0) return;
     hist_pos--;
     if (hist_pos < 0) {
-        uint8_t tlen = st_strlen(temp_input);
-        memcpy(line_buffer, temp_input, tlen + 1);
-        line_len = tlen;
+        st_copy_n(line_buffer, history_draft, sizeof(line_buffer));
+        line_len = st_strlen(line_buffer);
     } else {
         // OPTIMIZADO: % 4 -> & 3
         idx = (hist_head + HISTORY_SIZE - 1 - hist_pos) & 3;
@@ -2270,6 +2263,7 @@ void notify(const char *msg, uint8_t attr)
     } else {
         if (main_col) main_newline();
         current_attr = attr;
+        main_print_time_prefix();
         main_print(msg);
     }
 }
@@ -2821,11 +2815,6 @@ void main(void)
 
             // Sample SHIFT once per frame and reuse it
             shift_held = key_shift_held();
-            if ((prev_caps_mode != caps_lock_mode) || (prev_shift_held != shift_held)) {
-                prev_caps_mode = caps_lock_mode; 
-                prev_shift_held = shift_held;
-                cursor_show();
-            }
             
             c = read_key();
             if (c) key_click();
@@ -2850,6 +2839,22 @@ void main(void)
             if (shift_held && (uint8_t)(c - '5') <= 3) {
                 static const uint8_t shift_keys[] = {KEY_LEFT, KEY_DOWN, KEY_UP, KEY_RIGHT};
                 c = shift_keys[c - '5'];
+                shift_held = 0;  // arrow modifier must not move the caps cursor
+            }
+
+            {
+                uint8_t cursor_shift_now = cursor_shift_held;
+                if (!shift_held) {
+                    cursor_shift_now = 0;
+                } else if ((c | 32) >= 'a' && (c | 32) <= 'z') {
+                    cursor_shift_now = 1;
+                }
+                cursor_shift_held = cursor_shift_now;
+            }
+            if ((prev_caps_mode != caps_lock_mode) || (prev_shift_held != cursor_shift_held)) {
+                prev_caps_mode = caps_lock_mode;
+                prev_shift_held = cursor_shift_held;
+                cursor_show();
             }
 
             // Overlay system (state-based, non-blocking)

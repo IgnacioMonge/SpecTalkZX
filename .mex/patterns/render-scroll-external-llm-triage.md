@@ -56,9 +56,10 @@ Ordered by expected usefulness and applicability.
 3. **Stack-blit scroll blocks 1 and 5** (DeepSeek, Claude)
    - File/symbols: `asm/spectalk_asm/40_text_numeric_screen.asm`,
      `_scroll_main_zone`, `_scroll_stack_blit_224`.
-   - Implemented 2026-05-04: existing stack blit was generalized so block 1
-     uses 8 chunks (128 bytes), block 3 keeps 14 chunks (224 bytes), and block
-     5 uses 6 chunks (96 bytes). Cross-page 32-byte blocks stay on `LDIR`.
+   - Implemented 2026-05-04: existing stack blit was generalized into
+     `_scroll_stack_blit_chunks`; block 1 passes `B=8` (128 bytes), block 3
+     passes `B=14` (224 bytes), and block 5 passes `B=6` (96 bytes).
+     Cross-page 32-byte blocks stay on `LDIR`.
    - Expected gain: high in the red bitmap phase of scroll.
    - Risk: medium-low. Use `IXL`/`IYL` as the chunk counter; do not use `B` if
      the blit body pops into `BC`. Preserve DI-on-exit, SP restore, and IX.
@@ -67,20 +68,21 @@ Ordered by expected usefulness and applicability.
    - File/symbol: `asm/spectalk_asm/40_text_numeric_screen.asm`,
      `_scroll_main_zone`.
    - Implemented 2026-05-04: row-19 pixel clear uses `DE=0`, `LD SP,HL`, and
-     16 `PUSH DE` operations per scanline, with SP restored before attrs.
+     16 explicit `PUSH DE` operations per scanline, with SP restored before
+     attrs.
    - Expected gain: medium-low, but localized.
    - Correction: push a zeroed 16-bit register pair (`DE=0` in current code),
      not `PUSH AF`; `F` is not guaranteed zero and would write garbage bytes.
 
 5. **Space fast path in `_main_putc`** (DeepSeek, Claude)
    - File/symbol: `asm/spectalk_asm/50_main_output.asm`, `_main_putc`.
-   - Add or share a direct space/control clear path for isolated `main_putc(' ')`
-     callers.
-   - Expected gain: low-medium. The proposal overstated the current cost,
-     because `_print_str64_char` already has a space path and does not unpack a
-     glyph for spaces. The gain is avoiding the call/setup/cache overhead.
-   - Risk: medium. Prior generic space-path rewrites caused status/attribute
-     corruption; keep the change narrow and contract-identical.
+   - Implemented 2026-05-04: `main_space_inline` is shared with `_main_puts()`
+     and `_main_putc()` uses it only for literal space when `cache_row_y`
+     already matches `_g_ps64_y`.
+   - Gain: low-medium. It avoids `_print_str64_char` setup for isolated spaces
+     on cache hit; cache miss remains conservative and warms the normal path.
+   - Cost/risk: `+29B` in the current build step; hardware smoke should include
+     prompts, timestamps, wrapped output, and status/input redraws.
 
 6. **Remove temporary `dbg_*` counters after diagnostics** (DeepSeek)
    - Files/symbols: `src/spectalk.c`, `include/spectalk.h`, ASM increments,
@@ -89,14 +91,16 @@ Ordered by expected usefulness and applicability.
    - Risk: low once diagnostics are no longer needed. Do not remove while a
      hardware diagnostic run still depends on them.
 
-7. **Remove `plf_str_ptr` RAM scratch with alternate registers** (Gemini)
+7. **Remove `plf_str_ptr` RAM scratch with stack-held string pointer** (Gemini)
    - File/symbol: `asm/spectalk_asm/30_rendering.asm`, `_print_line64_fast`,
      `plf_str_ptr`.
-   - Use alternate registers or another register-lifetime shape to avoid
-     repeated RAM stores/loads of the string pointer.
-   - Expected gain: medium for bulk row text.
-   - Risk: medium. `_print_line64_fast` has many half-blank, NUL-padding, and
-     two-glyph paths; visual tests must be strong.
+   - Implemented 2026-05-04: the non-blank pair path now keeps the next string
+     pointer on the stack above the saved screen address, and the writer pops it
+     back after using `BC` inside the glyph combine loop.
+   - Gain: medium for bulk row text, plus resident shrink (`35864B -> 35851B`
+     TAP in the current build).
+   - Risk: still needs hardware text-screen smoke testing because
+     `_print_line64_fast` has many half-blank, NUL-padding, and two-glyph paths.
 
 8. **Direct 3-byte timestamp writer** (Claude)
    - File/symbol: `asm/spectalk_asm/50_main_output.asm`,
@@ -195,7 +199,7 @@ order unless newer hardware data changes the bottleneck:
 1. Start from the clean post-diagnostic baseline: no persistent `dbg_*`
    counters, normal `!status`, `DRAIN_NORMAL=32`, and
    `RX_TICK_PARSE_BYTE_BUDGET=512`.
-2. `_main_putc` space fast path.
-3. `plf_str_ptr` register-lifetime experiment.
+2. Stop for hardware smoke or fund bytes before adding more render features.
+3. Narrow timestamp direct writer only if accepting a much tighter BSS margin.
 4. Wrapped multi-scroll coalescing.
 10. Narrow timestamp direct writer.

@@ -209,20 +209,69 @@ _main_putc:
 mputc_no_wrap:
     ; Configurar variables globales para el driver de video (bypasea print_char64 de C)
     ld (_g_ps64_col), a
+    ld c, a
 
     ld a, (_main_line)
     ld (_g_ps64_y), a
     
+    ; Inline space fast path when row cache is already warm.
+    ld a, b
+    cp 32
+    jr nz, mputc_char
+    ld a, (_g_ps64_y)
+    ld hl, cache_row_y
+    cp (hl)
+    jr nz, mputc_char
+
+    ld a, (_current_attr)
+    ld b, c
+    ld c, a
+    call main_space_inline
+    jr mputc_inc_col
+
+mputc_char:
+    ; Llamar al driver (L = caracter)
     ld a, (_current_attr)
     ld (_g_ps64_attr), a
-    
-    ; Llamar al driver (L = caracter)
     ld l, b
     call _print_str64_char
     
+mputc_inc_col:
     ; Incrementar columna: main_col++
     ld hl, _main_col
     inc (hl)
+    ret
+
+; Shared cached-space renderer.
+; Input: B = col, C = attr, cache row must already match _g_ps64_y.
+; Destroys: AF, DE, HL. Preserves: BC.
+main_space_inline:
+    ld hl, (cache_scr_base)
+    ld a, b
+    srl a
+    add a, l
+    ld l, a
+
+    ld e, 0x0F
+    bit 0, b
+    jr z, msi_mask_set
+    ld e, 0xF0
+msi_mask_set:
+    ld d, 8
+msi_loop:
+    ld a, (hl)
+    and e
+    ld (hl), a
+    inc h
+    dec d
+    jr nz, msi_loop
+
+    ld hl, (cache_atr_base)
+    ld a, b
+    srl a
+    add a, l
+    ld l, a
+    ld (hl), c
     ret
 
 
@@ -579,37 +628,7 @@ puts_opt_emit:
     ; Cache hit ? render space inline
     ; B = col, C = attr, DE = string ptr
     push de              ; save string pointer
-
-    ; Screen address: cache_scr_base + col/2 (L múltiplo de 32, col/2 0..31 → no carry)
-    ld hl, (cache_scr_base)
-    ld a, b
-    srl a
-    add a, l
-    ld l, a              ; HL = screen byte for this column pair
-
-    ; Clear the selected nibble across 8 scanlines.
-    ld e, 0x0F
-    bit 0, b
-    jr z, puts_sp_mask_set
-    ld e, 0xF0
-puts_sp_mask_set:
-    ld d, 8
-puts_sp_loop:
-    ld a, (hl)
-    and e
-    ld (hl), a
-    inc h
-    dec d
-    jr nz, puts_sp_loop
-puts_sp_attr:
-    ; Attribute: cache_atr_base + col/2 (L múltiplo de 32, col/2 0..31 → no carry)
-    ld hl, (cache_atr_base)
-    ld a, b
-    srl a
-    add a, l
-    ld l, a
-    ld (hl), c           ; C = current_attr
-puts_sp_done:
+    call main_space_inline
     pop de               ; restore string pointer
     inc b                ; main_col++
     inc de               ; next char
