@@ -12,20 +12,21 @@ RTC is an opt-in time source. Detect and use it only when the user selects `tz=r
 - DivTIESUS hardware confirmation: the direct PCF8563 route works with read mask `P80` after `.ntpdate +2` and a real power-cycle. If startup time appears offset, first refresh the RTC using `.ntpdate +<tz>` and power-cycle before changing Spectalk's timezone model.
 - Accept PCF8563 data only when the VL bit is clear and BCD seconds/minutes/hours/day/month/year are plausible (`year 24..35`).
 - Use `sntp_tz == TZ_RTC (127)` as the RTC mode sentinel. Do not add another resident state byte unless this contract breaks.
-- If RTC succeeds while in RTC mode, keep `sntp_tz == TZ_RTC`, seed `time_hour/time_minute/time_second`, reset `last_frames_lo/tick_accum`, mark the status bar dirty for immediate redraw, and make `sntp_init()` a no-op. If RTC seed fails, the seed overlay must clear RTC mode back to numeric `sntp_tz=1`; the `!tz rtc` wrapper then restores the previous numeric timezone and prints `No RTC`.
+- Keep one resident numeric backup in `sntp_tz_last`. It starts at `+1`, is loaded/saved as `tzlast=`, and is refreshed by every numeric `!tz`. This is the fallback target when configured RTC is unavailable.
+- If RTC succeeds while in RTC mode, keep `sntp_tz == TZ_RTC`, seed `time_hour/time_minute/time_second`, reset `last_frames_lo/tick_accum`, mark the status bar dirty for immediate redraw, and make `sntp_init()` a no-op. If startup RTC seed fails, the seed overlay must clear RTC mode back to numeric `sntp_tz=sntp_tz_last`; the `!tz rtc` wrapper then restores the previous numeric timezone and prints `No RTC`.
 - Entering RTC mode must clear `sntp_init_sent/sntp_waiting/sntp_queried` so no stale pending SNTP query can run after RTC becomes authoritative.
 - Do not apply a numeric timezone to RTC time. RTC is local system time once selected.
 - When leaving RTC with `!tz +N/-N/N`, switch `sntp_tz` to numeric and clear `sntp_init_sent/sntp_waiting/sntp_queried`, but do not adjust `time_hour`; keep the last RTC hour visible until NTP validates. Numeric-to-numeric TZ changes may adjust `time_hour` by delta immediately, as before.
 - Keep feedback short: `tz=RTC`, `No RTC`, `tz=+N sync` when SNTP can be configured immediately in `STATE_WIFI_OK`, and `tz=+N later` when sync is pending until AT mode is available.
 - The resident `!tz` command gate must match `rtc` case-insensitively; the command parser lowercases the command token, not the argument bytes. Use a compact ASCII fold before dispatching to entry 2.
 - In RTC mode, `!config` should display `timezone= RTC`; otherwise show the numeric `+NN/-NN` value even if the machine has RTC hardware.
-- Save `tz=rtc` only when RTC mode is active. Save the numeric `tz=` value after `!tz +N/-N` so users can permanently opt out of bad/misconfigured RTC hardware.
+- Save `tz=rtc` only when RTC mode is active, and always save `tzlast=<numeric>` beside it. Save numeric `tz=` and matching `tzlast=` after `!tz +N/-N` so users can permanently opt out of bad/misconfigured RTC hardware.
 - The temporary diagnostic display and `rtc_diag[19]` buffer were removed after DivTIESUS confirmation. Reintroduce diagnostics only as a bounded temporary debug build, not as normal resident/overlay state.
 
 ## Current Implementation
 - `overlay/rtc_seed_ovl.asm`: `SPCTLK5.OVL` entry 1 RTC reader, `M_DRVAPI` then `M_GETDATE`, plus direct DivTIESUS PCF8563 fallback.
 - `overlay/spectalk_ovl5.c`: config overlay and entry 2 for `!tz rtc`.
 - `overlay/overlay_entry5.asm`: entry 3 for numeric `!tz`, including short feedback and SNTP-pending flag reset.
-- `src/spectalk.c`: startup calls RTC only for `tz=rtc`; SNTP bypass only when RTC mode is selected.
+- `src/spectalk.c`: startup calls RTC only for `tz=rtc`; SNTP bypass only when RTC mode is selected; config load applies `tz=` and `tzlast=`.
 - `src/user_cmds.c`: dispatches case-insensitive `!tz rtc` to SPCTLK5 entry 2 and numeric `!tz` to SPCTLK5 entry 3.
-- `overlay/spectalk_ovl4.c`: saves `tz=rtc` when `sntp_tz == TZ_RTC`, otherwise saves numeric timezone.
+- `overlay/spectalk_ovl4.c`: saves `tz=rtc` when `sntp_tz == TZ_RTC`, otherwise saves numeric timezone, and persists `tzlast=`.

@@ -174,6 +174,7 @@ uint8_t show_timestamps = 2; // 0=off, 1=always, 2=on-change
 uint8_t last_ts_hour = 0xFF;   // Last printed timestamp hour (0xFF = force print)
 uint8_t last_ts_minute = 0xFF; // Last printed timestamp minute
 int8_t sntp_tz = 1;         // SNTP timezone offset (-12..+12), or TZ_RTC
+int8_t sntp_tz_last = 1;    // Last numeric timezone for RTC fallback
 
 // Keep-alive system: detect silent disconnections
 // KEEPALIVE_SILENCE = 3 min = 9000 frames, KEEPALIVE_TIMEOUT = 30s = 1500 frames
@@ -1691,8 +1692,8 @@ static void sntp_query_time(void) ST_NAKED
 {
     __asm
     ld      a, (_sntp_init_sent)
-    or      a
-    ret     z
+    dec     a
+    ret     nz
     ld      a, (_sntp_waiting)
     or      a
     ret     nz
@@ -2347,6 +2348,78 @@ static void cfg_b(uint8_t *dst) __z88dk_fastcall {
     *dst = (uint8_t)str_to_u16(cfg_vp) & 1;
 }
 
+static void cfg_tz_apply(char *key) __z88dk_fastcall ST_NAKED {
+    (void)key;
+    __asm
+    inc hl
+    inc hl
+    ld a, (hl)
+    cp 'l'
+    jr z, cfg_tza_last
+
+    ld hl, (_cfg_vp)
+    ld a, (hl)
+    cp 'r'
+    jr nz, cfg_tza_num
+    inc hl
+    ld a, (hl)
+    cp 't'
+    jr nz, cfg_tza_num
+    ld a, TZ_RTC
+    ld (_sntp_tz), a
+    ret
+
+cfg_tza_num:
+    ld hl, (_cfg_vp)
+    call cfg_tza_parse
+    cp TZ_RTC
+    ret z
+    ld (_sntp_tz), a
+    ld (_sntp_tz_last), a
+    ret
+
+cfg_tza_last:
+    ld hl, (_cfg_vp)
+    call cfg_tza_parse
+    cp TZ_RTC
+    ret z
+    ld (_sntp_tz_last), a
+    ret
+
+cfg_tza_parse:
+    ld a, (hl)
+    cp '+'
+    jr nz, cfg_tza_sign
+    inc hl
+cfg_tza_sign:
+    ld a, (hl)
+    cp '-'
+    jr nz, cfg_tza_pos
+    inc hl
+    call _str_to_u16
+    ld a, h
+    or a
+    jr nz, cfg_tza_bad
+    ld a, l
+    cp 13
+    jr nc, cfg_tza_bad
+    neg
+    ret
+cfg_tza_pos:
+    call _str_to_u16
+    ld a, h
+    or a
+    jr nz, cfg_tza_bad
+    ld a, l
+    cp 13
+    jr nc, cfg_tza_bad
+    ret
+cfg_tza_bad:
+    ld a, TZ_RTC
+    ret
+    __endasm;
+}
+
 // Apply a key=value pair
 static void cfg_apply(char *key, char *val) __z88dk_callee {
     uint8_t k0 = key[0], k1 = key[1];
@@ -2392,12 +2465,7 @@ static void cfg_apply(char *key, char *val) __z88dk_callee {
         uint8_t v = (uint8_t)str_to_u16(val);
         show_timestamps = (v > 2) ? 1 : v;
     } else if (k0 == 't' && k1 == 'z') {
-        if (val[0] == 'r' && val[1] == 't') {
-            sntp_tz = TZ_RTC;
-        } else {
-            int8_t tz = (*val == '-') ? -(int8_t)str_to_u16(val + 1) : (int8_t)str_to_u16(val);
-            if (tz >= -12 && tz <= 12) sntp_tz = tz;
-        }
+        cfg_tz_apply(key);
     } else if (k0 == 'n' && k1 == 'o') cfg_b(&notif_enabled);
 }
 
@@ -2694,9 +2762,12 @@ void main(void)
             if (sntp_init_sent || names_pending) {
                 if (sntp_init_sent && !sntp_queried) {
                     if (!sntp_waiting) {
-                        if (++sntp_timer >= 100) {
-                            sntp_query_time();
+                        if (sntp_init_sent == 2 && overlay_mode == OVERLAY_NONE) {
+                            sntp_udp_fallback();
                             sntp_timer = 25;  // Retry after ~1.5 sec
+                        } else if (++sntp_timer >= 100) {
+                            sntp_query_time();
+                            sntp_timer = 25;
                         }
                     }
                 }

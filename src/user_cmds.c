@@ -21,6 +21,7 @@
 #include "../include/spectalk.h"
 void cmd_quit(const char *args) __z88dk_fastcall;
 static void sntp_init(void);  // forward decl — defined in spectalk.c (SCU order)
+extern void sntp_udp_fallback(void);
 
 // OPT H3: extern para constantes compartidas (definidas en spectalk.c)
 extern const char S_ON[];
@@ -303,6 +304,11 @@ do_connect:
     esp_at_cmd("AT+CIPDINFO=0");
     if (use_ssl) { esp_at_cmd("AT+CIPSSLSIZE=4096"); }
 
+    // If the WiFi-idle SNTP path has not produced a clock yet, use raw UDP NTP
+    // before opening the IRC TCP link. This also covers old AT firmwares that
+    // lack CIPSNTPTIME.
+    sntp_udp_fallback();
+
     // Settle ESP and clear any tail OK/ERROR lines before CIPSTART. Without
     // this, a stale terminal status from the prior AT cmd can be misread by
     // wait_for_connection_result as the CIPSTART verdict → spurious failure.
@@ -312,45 +318,15 @@ do_connect:
     uart_send_string("AT+CIPSTART=\"");
     uart_send_string(use_ssl ? "SSL" : S_TCP);
     uart_send_string("\",\""); uart_send_string(irc_server); uart_send_string("\","); uart_send_line(irc_port);
-    
+
     { uint16_t fl = use_ssl ? TIMEOUT_SSL : TIMEOUT_DNS; result = wait_for_connection_result(fl); }
-    
+
     if (result == 0) goto connect_fail;
-    
-    set_attr_priv(); main_print(S_OK); 
-    
+
+    set_attr_priv(); main_print(S_OK);
+
     wait_drain(20);
     rb_tail = rb_head; rx_pos = 0;
-    
-    // Query SNTP time while still in AT command mode (before CIPMODE=1)
-    // sntp_init() was called at startup — config persists in ESP8266
-    // Retry up to 3x: ESP may return "1970" on first query if NTP not yet synced.
-    if (sntp_init_sent) {
-        uint8_t sntp_wait;
-        uint8_t sntp_try;
-        for (sntp_try = 0; sntp_try < 3 && !sntp_queried; sntp_try++) {
-            if (sntp_try) {
-                // Delay ~1s between retries so ESP can sync NTP in background
-                for (sntp_wait = 50; sntp_wait; sntp_wait--) frame_wait();
-                if (in_inkey() == KEY_BREAK) break;
-            }
-            uart_send_line(S_AT_SNTPTIME);
-            for (sntp_wait = 0; sntp_wait < 100; sntp_wait++) {
-                frame_wait(); uart_drain_to_buffer();
-                if (in_inkey() == KEY_BREAK) { sntp_try = 99; break; }  // BREAK cancel all
-                if (try_read_line_nodrain()) {
-                    if (rx_last_len >= 2) {
-                        if (rx_line[0] == '+' && rx_line[1] == 'C') {
-                            sntp_process_response(rx_line);
-                        }
-                        if (rx_line[0] == 'O' && rx_line[1] == 'K') { rx_pos = 0; break; }
-                    }
-                    rx_pos = 0;
-                }
-            }
-        }
-        rx_pos = 0;
-    }
 
     uart_send_line("AT+CIPMODE=1");
     if (!wait_for_response(S_OK, 100)) { ui_err("CIPMODE FAIL"); goto connect_fail; }
@@ -522,7 +498,8 @@ join_fail:
 static void cmd_connect_retry(const char *args) __z88dk_fastcall
 {
     cmd_connect(args);
-    while (connection_state < STATE_TCP_CONNECTED && irc_server[0]
+    while (connection_state >= STATE_WIFI_OK && connection_state < STATE_TCP_CONNECTED
+           && irc_server[0] && irc_nick[0]
            && prompt_yn("Retry (y/n)?")) {
         main_newline();
         cmd_connect(NULL);

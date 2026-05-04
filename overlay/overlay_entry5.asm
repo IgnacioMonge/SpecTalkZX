@@ -9,6 +9,7 @@ EXTERN _rb_head
 EXTERN _rb_tail
 EXTERN _rx_pos
 EXTERN _sntp_tz
+EXTERN _sntp_tz_last
 EXTERN _sntp_init_sent
 EXTERN _sntp_waiting
 EXTERN _sntp_queried
@@ -101,6 +102,7 @@ tz_changed_from_rtc:
 
 tz_store_new:
     ld a, c
+    ld (_sntp_tz_last), a
     ld (_sntp_tz), a
     ld a, d
     or a

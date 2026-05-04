@@ -253,6 +253,7 @@ extern uint8_t has_esxdos;
 extern uint8_t nick_color_mode;
 extern uint8_t show_traffic;
 extern int8_t sntp_tz;
+extern int8_t sntp_tz_last;
 extern char irc_pass[IRC_PASS_SIZE];
 extern char nickserv_pass[IRC_PASS_SIZE];
 extern char nickserv_nick[IRC_NICK_SIZE];

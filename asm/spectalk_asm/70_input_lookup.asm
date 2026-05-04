@@ -344,6 +344,28 @@ spr_parse2:
     inc hl
     ret
 
+; void sntp_udp_fallback(void)
+; Calls SPCTLK6 entry 0 only when numeric SNTP was initialized and no valid
+; CIPSNTPTIME/UDP response has been accepted. State 3 suppresses automatic
+; idle retries, but direct /server calls may try again before opening TCP.
+PUBLIC _sntp_udp_fallback
+EXTERN _overlay_exec
+EXTERN _sntp_init_sent
+
+_sntp_udp_fallback:
+    ld a, (_sntp_init_sent)
+    or a
+    ret z
+    ld a, (_sntp_queried)
+    or a
+    ret nz
+    ld a, 3
+    ld (_sntp_init_sent), a
+    ld hl, 5              ; ovl_id=5, entry_id=0
+    push hl
+    call _overlay_exec
+    ret
+
 ; =============================================================================
 ; uint8_t read_key(void)
 ; Keyboard handler with debounce and auto-repeat.

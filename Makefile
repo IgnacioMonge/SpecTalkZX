@@ -400,14 +400,26 @@ overlay: $(MAP)
 		exit 1; \
 	fi; \
 	printf "$(C_GRN)[OK]$(C_RESET) SPCTLK5.OVL: $$ovl5_size bytes (max 2048)\n"; \
+	echo "  Building SPCTLK6.OVL..."; \
+	z80asm -I$(BUILD_DIR) overlay/overlay_entry6.asm 2>&1 || exit 1; \
+	z80asm -b -r0x$$SLOT -o=$(BUILD_DIR)/SPCTLK6.OVL \
+		overlay/overlay_entry6.o \
+		$(BUILD_DIR)/overlay_defs.o 2>&1 || exit 1; \
+	ovl6_size=$$(wc -c < $(BUILD_DIR)/SPCTLK6.OVL); \
+	if [ "$$ovl6_size" -gt 2048 ]; then \
+		printf "$(C_RED)[ERR]$(C_RESET) SPCTLK6.OVL too large: $$ovl6_size bytes (max 2048)\n"; \
+		exit 1; \
+	fi; \
+	printf "$(C_GRN)[OK]$(C_RESET) SPCTLK6.OVL: $$ovl6_size bytes (max 2048)\n"; \
 	echo "  Packing SPECTALK.OVL..."; \
 	dd if=$(BUILD_DIR)/SPCTLK1.OVL of=$(BUILD_DIR)/SPECTALK.OVL bs=2048 conv=sync 2>/dev/null; \
 	dd if=$(BUILD_DIR)/SPCTLK2.OVL of=$(BUILD_DIR)/SPECTALK.OVL bs=2048 conv=sync seek=1 2>/dev/null; \
 	dd if=$(BUILD_DIR)/SPCTLK3.OVL of=$(BUILD_DIR)/SPECTALK.OVL bs=2048 conv=sync seek=2 2>/dev/null; \
 	dd if=$(BUILD_DIR)/SPCTLK4.OVL of=$(BUILD_DIR)/SPECTALK.OVL bs=2048 conv=sync seek=3 2>/dev/null; \
 	dd if=$(BUILD_DIR)/SPCTLK5.OVL of=$(BUILD_DIR)/SPECTALK.OVL bs=2048 conv=sync seek=4 2>/dev/null; \
-	printf "$(C_GRN)[OK]$(C_RESET) SPECTALK.OVL: $$(wc -c < $(BUILD_DIR)/SPECTALK.OVL) bytes (5 x 2048)\n"; \
-	rm -f $(BUILD_DIR)/SPCTLK[1-5].OVL; \
+	dd if=$(BUILD_DIR)/SPCTLK6.OVL of=$(BUILD_DIR)/SPECTALK.OVL bs=2048 conv=sync seek=5 2>/dev/null; \
+	printf "$(C_GRN)[OK]$(C_RESET) SPECTALK.OVL: $$(wc -c < $(BUILD_DIR)/SPECTALK.OVL) bytes (6 x 2048)\n"; \
+	rm -f $(BUILD_DIR)/SPCTLK[1-6].OVL; \
 	echo "  Cleaning build intermediates..."; \
 	rm -f $(BUILD_DIR)/*.o $(BUILD_DIR)/*.asm $(BUILD_DIR)/*.bin \
 		$(BUILD_DIR)/SPECTALK $(BUILD_DIR)/SP2.OVL \

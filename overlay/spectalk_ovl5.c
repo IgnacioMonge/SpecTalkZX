@@ -29,7 +29,8 @@ extern void rtc_seed_ovl(void);
 
 void rtc_enable_ovl(void)
 {
-    int8_t old_tz = sntp_tz;
+    int8_t old_tz = (sntp_tz == TZ_RTC) ? sntp_tz_last : sntp_tz;
+    sntp_tz_last = old_tz;
     sntp_tz = TZ_RTC;
     rtc_seed_ovl();
     if (sntp_tz == TZ_RTC) {

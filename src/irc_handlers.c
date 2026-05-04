@@ -1577,6 +1577,7 @@ void process_irc_data(void)
         while (try_read_line_nodrain()) {
             if (rx_last_len >= 1 && rx_line[0] == '+') sntp_process_response(rx_line);
             // Clear waiting on terminal AT response (OK/ERROR)
+            if (rx_line[0] == 'E') sntp_init_sent = 2;  // old AT: use UDP fallback
             if (rx_line[0] == 'O' || rx_line[0] == 'E') sntp_waiting = 0;
         }
         return;

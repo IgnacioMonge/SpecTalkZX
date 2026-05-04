@@ -38,6 +38,11 @@ REQUIRED_FUNCTIONS = [
     # Input / frame sync used by overlays
     "_in_inkey",
     "_frame_wait",
+    "_draw_status_bar",
+    "_uart_send_string",
+    "_uart_send_line",
+    "_ay_uart_send",
+    "uartRead",
     # Screen output (for save status messages and cold local commands)
     "_main_putc",
     "_main_puts",
@@ -130,6 +135,7 @@ REQUIRED_VARIABLES = [
     "_autoaway_counter",
     "_autoaway_active",
     "_sntp_tz",
+    "_sntp_tz_last",
     "_sntp_init_sent",
     "_sntp_waiting",
     "_sntp_queried",

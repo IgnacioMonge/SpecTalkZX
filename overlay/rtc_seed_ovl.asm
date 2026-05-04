@@ -8,6 +8,7 @@ PUBLIC _rtc_seed_ovl
 
 EXTERN _overlay_slot
 EXTERN _sntp_tz
+EXTERN _sntp_tz_last
 EXTERN _time_hour
 EXTERN _time_minute
 EXTERN _time_second
@@ -56,7 +57,7 @@ rtc_seed_ok:
     ret
 
 rtc_seed_fail:
-    ld a, 1
+    ld a, (_sntp_tz_last)
     ld (_sntp_tz), a
     ret
 

@@ -136,6 +136,7 @@ extern void ui_err(const char *s) __z88dk_fastcall;
 static const char CK_HDR[]  = "; SpecTalkZX config\r\n";
 static const char CK_NKS[]  = "nickserv=";
 static const char CK_AJOIN[] = "autojoin=";
+static const char CK_TZLAST[] = "tzlast=";
 #define CFG_END       ((char *)overlay_slot + OVERLAY_SLOT_SIZE)
 #define CFG_TOO_LARGE (CFG_END + 1)
 extern char *cfg_put_autojoin(char *p) __z88dk_fastcall;
@@ -184,6 +185,19 @@ void save_config_ovl(void)
         tmp[2] = 0;
     }
     p = cfg_kv(p, K_TZ, tmp);
+
+    {
+        int8_t tz = (sntp_tz == TZ_RTC) ? sntp_tz_last : sntp_tz;
+        if (tz < 0) {
+            tmp[0] = '-';
+            fast_u8_to_str(tmp + 1, (uint8_t)(-tz));
+            tmp[3] = 0;
+        } else {
+            fast_u8_to_str(tmp, (uint8_t)tz);
+            tmp[2] = 0;
+        }
+        p = cfg_kv(p, CK_TZLAST, tmp);
+    }
 
     p = cfg_put_autojoin(p);
 

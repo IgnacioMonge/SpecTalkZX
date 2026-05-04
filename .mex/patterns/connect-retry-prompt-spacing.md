@@ -8,3 +8,7 @@ the next line. When a connection helper prints an error and returns to
 Keep the retry wrapper's newline before a new retry attempt. That separates the
 accepted `y` response from the next `Connecting...` line without adding a blank
 line between the original error and the prompt.
+
+The retry prompt is only for real connection attempts, not missing prerequisites.
+Require WiFi-ready state, a saved server, and a non-empty nick before showing it;
+otherwise `/server host` with no prior `/nick` prints only `Set /nick first`.

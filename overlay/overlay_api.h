@@ -116,6 +116,7 @@ extern uint16_t autoaway_counter;
 extern uint8_t  autoaway_active;
 extern uint8_t  connection_state;
 extern int8_t   sntp_tz;
+extern int8_t   sntp_tz_last;
 extern uint8_t  sntp_init_sent;
 extern uint8_t  sntp_waiting;
 extern uint8_t  sntp_queried;

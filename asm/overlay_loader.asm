@@ -1,5 +1,5 @@
 ;; overlay_loader.asm — Load and execute overlays from esxDOS
-;; All overlays packed in SPECTALK.OVL (5 x 2048B blocks).
+;; All overlays packed in SPECTALK.OVL (2048B blocks).
 ;; OVL code loaded into ring_buffer (2048B) for execution.
 ;; overlay_slot (512B, aliased to rx_line) available as scratch data buffer for overlays.
 
