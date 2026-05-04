@@ -259,10 +259,6 @@ spr_scan:
     inc de
     inc de              ; DE = &line[i+9]
     ld a, (de)
-    cp ' '
-    jr nz, spr_found
-    inc de              ; skip space before year
-    ld a, (de)
     cp '1'
     jr nz, spr_found
     inc de
@@ -530,10 +526,7 @@ _nav_push:
     ; Dup check: history[ptr-1] == idx?
     dec a
     ld hl, _nav_history
-    add a, l
-    jr nc, np_dup_addr_ready
-    inc h
-np_dup_addr_ready:
+    add a, l                    ; NAV_HIST_SZ=6, _nav_history+$05 cannot carry
     ld l, a                     ; HL = &history[ptr-1]
     ld a, (hl)
     cp c
@@ -559,10 +552,7 @@ np_append:
     ; history[ptr] = idx; ptr++
     ld a, b
     ld hl, _nav_history
-    add a, l
-    jr nc, np_append_addr_ready
-    inc h
-np_append_addr_ready:
+    add a, l                    ; B is clamped to 0..5 by NAV_HIST_SZ
     ld l, a
     ld (hl), c                  ; history[ptr] = idx
     ld hl, _nav_hist_ptr

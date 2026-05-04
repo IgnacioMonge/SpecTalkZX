@@ -11,7 +11,7 @@ The status-bar clock is part of the always-visible chrome, not overlay content.
 - For the `ABOUT` Earth animation, use `overlay_call_timed()` for the animation tick only. It preserves caller `IY`, sets `IY=0x5C3A`, enables IM1 interrupts while the overlay entry runs, disables interrupts again, then restores `IY`. That lets ROM `FRAMES` advance during long DAT/draw work without changing the normal mainline `DI` contract.
 - esxDOS calls can still hide interrupt time internally. For long-running animated overlays, minimize `F_READ` frequency and avoid close/open/skip loops in cyclic streams; use `F_SEEK` on the already-open DAT handle when rewinding is needed.
 - If the asset has temporal dithering, ticking every other main-loop frame can both cut SD I/O and reduce perceived shimmer; keep the status clock itself driven by elapsed `FRAMES`, not by animation ticks.
-- Do not replace generic `overlay_call()` with the timed variant without auditing the target overlay entry: it must not rely on `IY`, must not borrow `SP`, must not run SDCC/sdcc_iy overlay C while entered with `IY=$5C3A`, and must tolerate ROM ISR register preservation while it runs.
+- Do not replace generic `overlay_call()` with the timed variant without auditing the target overlay entry: it must not rely on `IY`, must not borrow `SP`, and must tolerate ROM ISR register preservation while it runs.
 
 ## Applied In
 - `src/spectalk.c` main loop one-second tick

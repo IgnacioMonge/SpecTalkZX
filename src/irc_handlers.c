@@ -1572,7 +1572,7 @@ void process_irc_data(void)
     uint8_t max_lines;
     uint16_t backlog;
 
-    if (connection_state == STATE_WIFI_OK && sntp_init_sent) {
+    if (connection_state == STATE_WIFI_OK && sntp_waiting) {
         uart_drain_to_buffer();
         while (try_read_line_nodrain()) {
             if (rx_last_len >= 1 && rx_line[0] == '+') sntp_process_response(rx_line);

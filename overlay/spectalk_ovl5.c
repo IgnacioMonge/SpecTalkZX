@@ -40,14 +40,7 @@ void rtc_enable_ovl(void)
         status_bar_dirty = 1;
         config_dirty = 1;
     } else {
-        if (old_tz != TZ_RTC) {
-            sntp_tz = old_tz;
-        } else {
-            sntp_init_sent = 0;
-            sntp_waiting = 0;
-            sntp_queried = 0;
-            config_dirty = 1;
-        }
+        sntp_tz = old_tz;
         ui_err("No RTC");
     }
     rb_head = 0; rb_tail = 0; rx_pos = 0;

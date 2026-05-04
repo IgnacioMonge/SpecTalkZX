@@ -13,9 +13,6 @@ EXTERN _time_minute
 EXTERN _time_second
 EXTERN _last_frames_lo
 EXTERN _tick_accum
-EXTERN _sntp_init_sent
-EXTERN _sntp_waiting
-EXTERN _sntp_queried
 
 DEFC ZXUNOADDR  = $FC3B
 DEFC M_GETDATE  = $8E
@@ -59,11 +56,7 @@ rtc_seed_ok:
     ret
 
 rtc_seed_fail:
-    xor a
-    ld (_sntp_init_sent), a
-    ld (_sntp_waiting), a
-    ld (_sntp_queried), a
-    inc a
+    ld a, 1
     ld (_sntp_tz), a
     ret
 

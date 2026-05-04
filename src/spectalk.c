@@ -1980,6 +1980,9 @@ void force_disconnect(void)
 // OPTIMIZED SENDING HELPERS (STREAMING)
 // =============================================================================
 
+// Internal: envía comando IRC con 0, 1 o 2 parámetros (implementada en ASM)
+extern void irc_send_cmd_internal(const char *cmd, const char *p1, const char *p2);
+
 // Envía "CMD param\r\n"
 // Unified PONG: "PONG <server> :<token>\r\n"
 void irc_send_pong(const char *token) __z88dk_fastcall
@@ -2389,7 +2392,7 @@ static void cfg_apply(char *key, char *val) __z88dk_callee {
         uint8_t v = (uint8_t)str_to_u16(val);
         show_timestamps = (v > 2) ? 1 : v;
     } else if (k0 == 't' && k1 == 'z') {
-        if ((val[0] | 0x20) == 'r' && (val[1] | 0x20) == 't') {
+        if (val[0] == 'r' && val[1] == 't') {
             sntp_tz = TZ_RTC;
         } else {
             int8_t tz = (*val == '-') ? -(int8_t)str_to_u16(val + 1) : (int8_t)str_to_u16(val);

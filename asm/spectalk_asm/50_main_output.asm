@@ -698,7 +698,7 @@ puts_bpe_expand:
     ld c, a                 ; save token while comparing fixed-page rsp low byte
     ld hl, (bpe_rsp)
     ld a, l
-    cp bpe_rstack_top_lo
+    cp 0xE5                 ; low byte of bpe_rstack + 16
     jr nc, puts_bpe_overflow
     ld a, c                 ; restore token
     ; Push continuation address (DE) onto BPE return stack
@@ -731,7 +731,7 @@ puts_bpe_pop:
     ; Check if BPE stack has entries
     ld hl, (bpe_rsp)
     ld a, l
-    cp bpe_rstack_lo
+    cp 0xD5                 ; low byte of bpe_rstack
     jr z, puts_opt_done     ; stack empty -> real end of string
     ; Pop continuation address from BPE stack
     dec hl
