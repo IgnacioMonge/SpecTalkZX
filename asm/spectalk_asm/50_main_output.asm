@@ -546,15 +546,15 @@ _names_count_line:
     or a
     jr z, ncl_done
     inc e
+    dec hl
 ncl_loop:
+    inc hl
     ld a, (hl)
     or a
     jr z, ncl_done
     cp ' '
-    jr nz, ncl_next
+    jr nz, ncl_loop
     inc e
-ncl_next:
-    inc hl
     jr ncl_loop
 ncl_done:
     ld l, e

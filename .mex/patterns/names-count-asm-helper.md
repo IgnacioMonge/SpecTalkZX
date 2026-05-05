@@ -4,6 +4,15 @@
 pass. The helper preserves the old C behavior exactly: an empty line counts as
 `0`; any non-empty line counts as `1 + number of spaces`.
 
+Fast-loop experiment, 2026-05-05: the accepted test form pre-decrements `HL`
+after proving the line is non-empty, then increments `HL` at loop entry. This
+makes the common non-space byte a direct back-edge while preserving a leading
+space if malformed input ever starts with one. Do not use the shorter-looking
+`ret z` empty fast exit unless `L` is explicitly set to zero; otherwise it
+returns the low byte of the input pointer, not count zero. Measured build cost
+on branch `codex/names-count-line-fast`: TAP/resident `+1B`, BSS unchanged in
+meaning (`0xF00B < 0xF500`, `1269B` free).
+
 Do not silently switch this to token counting. Token counting is probably more
 correct for malformed multiple-space input, but it changes the old semantics and
 must be treated as a behavior change for `/names` and JOIN user totals.
