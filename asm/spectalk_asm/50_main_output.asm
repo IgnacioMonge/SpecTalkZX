@@ -6,6 +6,9 @@ EXTERN _ignore_list
 EXTERN _show_timestamps
 EXTERN _wrap_indent
 EXTERN _current_attr
+EXTERN _deferred_wrap_active
+EXTERN _deferred_wrap_attr
+EXTERN _deferred_wrap_p
 EXTERN _main_clear_indent6
 EXTERN _time_hour
 EXTERN _time_minute
@@ -559,6 +562,140 @@ ncl_loop:
 ncl_done:
     ld l, e
     ret
+
+; -----------------------------------------------------------------------------
+; void deferred_wrap_step(void)
+; ASM version of the C line-step wrapper. Same contract:
+; - render one wrapped segment from deferred_wrap_p
+; - preserve visible text and word-cut behavior
+; - even main_col uses print_line64_fast, odd main_col falls back to main_puts
+; - always finishes the step with main_newline()
+; -----------------------------------------------------------------------------
+PUBLIC _deferred_wrap_step
+_deferred_wrap_step:
+    ld a, (_deferred_wrap_active)
+    or a
+    ret z
+    ld a, (_overlay_mode)
+    or a
+    ret nz
+
+    ld a, (_deferred_wrap_attr)
+    ld (_current_attr), a
+
+    ld hl, (_deferred_wrap_p)
+    ld d, h
+    ld e, l                      ; DE = start
+    ld (mpwr_last_space), hl     ; start sentinel
+
+    ld a, (_main_col)
+    cpl
+    add a, 65                    ; B = SCREEN_COLS - main_col
+    ld b, a
+
+dws_scan:
+    ld a, b
+    or a
+    jr z, dws_scan_done
+    ld a, (hl)
+    or a
+    jr z, dws_scan_done
+    cp ' '
+    jr nz, dws_scan_next
+    ld (mpwr_last_space), hl
+dws_scan_next:
+    inc hl
+    djnz dws_scan
+
+dws_scan_done:
+    ld a, (hl)
+    or a
+    jr z, dws_cut_end
+
+    ld bc, (mpwr_last_space)
+    ld a, b
+    cp d
+    jr nz, dws_use_space
+    ld a, c
+    cp e
+    jr nz, dws_use_space
+
+    ; No usable space: cut at current HL, next is the same pointer.
+    ld b, h
+    ld c, l
+    jr dws_cut_common
+
+dws_use_space:
+    ; Cut at last usable space, continue at last_space + 1.
+    ld h, b
+    ld l, c
+    inc bc
+    jr dws_cut_common
+
+dws_cut_end:
+    ; End of string: cut at NUL and clear pending pointer after render.
+    ld bc, 0
+
+dws_cut_common:
+    ld a, (hl)
+    push af                      ; saved cut byte
+    xor a
+    ld (hl), a
+    push hl                      ; cutpoint
+    push bc                      ; next_start
+
+    ld a, (_main_col)
+    bit 0, a
+    jr nz, dws_print_puts
+
+    srl a
+    ld (_plf_start_byte), a
+
+    ; segment length = cut - start (low byte is enough, max 64)
+    ld a, l
+    sub e
+    push af
+
+    ; call print_line64_fast(main_line, start, current_attr)
+    ld a, (_current_attr)
+    ld b, a
+    ld c, d                      ; C = start_hi
+    push bc                      ; [start_hi][attr]
+    ld a, (_main_line)
+    ld c, a                      ; C = y
+    ld b, e                      ; B = start_lo
+    push bc                      ; [y][start_lo]
+    call _print_line64_fast
+    pop bc
+    pop bc
+
+    pop af                       ; A = segment length
+    ld hl, _main_col
+    add a, (hl)
+    ld (hl), a
+    jr dws_render_done
+
+dws_print_puts:
+    ld h, d
+    ld l, e
+    call _main_puts
+
+dws_render_done:
+    pop hl                       ; HL = next_start
+    pop de                       ; DE = cutpoint
+    pop af
+    ld (de), a
+
+    ld (_deferred_wrap_p), hl
+    ld a, h
+    or l
+    jr nz, dws_newline
+    xor a
+    ld (_deferred_wrap_active), a
+    ld (_wrap_indent), a
+
+dws_newline:
+    jp _main_newline
     
 ; -----------------------------------------------------------------------------
 ; void main_puts(const char *s) __z88dk_fastcall

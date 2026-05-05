@@ -469,7 +469,7 @@ drain_exit_pop:
 ; until measured on the target emulator/hardware.
 ; =============================================================================
 _scroll_main_zone:
-    push iy
+    di
 
     ld iyl, 7              ; IYL = scanline offset (7..0)
 
@@ -516,14 +516,16 @@ smz_scanline_loop:
     dec iyl
     jp p, smz_scanline_loop
 
-    ; Scroll atributos (16 filas: 4->3 ... 19->18)
+    ; Scroll atributos (16 filas: 4->3 ... 19->18).
+    ; The stack blitter copies forward in 16-byte chunks. With dst = src - 32,
+    ; each write lands two chunks behind the next unread source, so overlap is
+    ; safe while avoiding LDIR/LDI byte-loop overhead.
     ld de, 0x5860
     ld hl, 0x5880
-    ld bc, 512
-    ldir
+    ld b, 32
+    call _scroll_stack_blit_chunks
 
     ; Clear last chat row (19) directly; avoids general clear_line setup.
-    di
     ld (smz_clear_save_sp + 1), sp
     ld hl, 0x5080          ; SCREEN_ROW_ADDR(19) + 32
     ld de, 0
@@ -548,20 +550,34 @@ smz_clear19_px:
     push de
     inc h
     djnz smz_clear19_px
-smz_clear_save_sp:
-    ld sp, 0x0000
 
     ld a, (_current_attr)
-    ld hl, 0x5A60          ; ATTR row 19
-    ld bc, 32
-    call _fast_fill_attr
-
-    pop iy
+    ld d, a
+    ld e, a
+    ld sp, 0x5A80          ; ATTR row 19 end + 1
+    push de
+    push de
+    push de
+    push de
+    push de
+    push de
+    push de
+    push de
+    push de
+    push de
+    push de
+    push de
+    push de
+    push de
+    push de
+    push de
+smz_clear_save_sp:
+    ld sp, 0x0000
     ret
 
 ; Cross-page scroll helper: copies 32 bytes from page A to page A-8
 ; A = src_page, IYL = scanline offset
-; Used by blocks 2 and 4 (page boundary crossings: row 8?7, row 16?15)
+; Used by blocks 2 and 4 (page boundary crossings: row 8->7, row 16->15)
 smz_cross_block:
     add a, iyl          ; src_page + scanline offset
     ld h, a
@@ -569,31 +585,27 @@ smz_cross_block:
     ld d, a
     ld l, 0x00
     ld e, 0xE0
-    ld bc, 32
-    ldir
-    ret
 
-PUBLIC _scroll_stack_blit_chunks
+    ld b, 2
+    jp _scroll_stack_blit_chunks
+
 ; B*16-byte forward copy using SP as the transfer pointer.
 ; Input: HL = source, DE = destination, B = 16-byte chunk count.
-; Destroys all main/alternate regs.
-; Destination low byte must not cross page before the final unused update.
-; Leaves interrupts disabled: mainline IM1 is only enabled inside frame_wait()
+; Destroys all main/alternate regs and IX. _main_newline preserves IX/IY.
+; Destination may cross a page: next destination is recomputed from SP + 32.
+; Caller must have DI active. Mainline IM1 is only enabled inside frame_wait()
 ; with IY set to ROM system variables.
 _scroll_stack_blit_chunks:
-    di
-    push ix
     ld (ssb_save_sp + 1), sp
 
     ld (ssb_src + 1), hl
 
-    push hl
-    ld hl, 16
-    add hl, de
-    ld (ssb_dst + 1), hl
-    ld a, l
-    ld (ssb_dst_low + 1), a
-    pop hl
+    ld a, e
+    add a, 16
+    ld (ssb_dst + 1), a
+    ld a, d
+    adc a, 0
+    ld (ssb_dst + 2), a
 
     ld a, b
     ld ixl, a
@@ -626,18 +638,15 @@ ssb_dst:
     push de
     push bc
 
-ssb_dst_low:
-    ld a, 0x00
-    add a, 16
-    ld (ssb_dst + 1), a
-    ld (ssb_dst_low + 1), a
+    ld hl, 32
+    add hl, sp
+    ld (ssb_dst + 1), hl
 
     dec ixl
     jr nz, ssb_loop
 
 ssb_save_sp:
     ld sp, 0x0000
-    pop ix
     ret
 
 ; =============================================================================

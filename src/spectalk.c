@@ -640,6 +640,7 @@ static void switcher_rebuild_map(void)
 
 static void switcher_render(void)
 {
+    if (deferred_wrap_active) return;
     overlay_exec(5, 1); /* SPCTLK6 entry 1 */
 }
 
@@ -757,7 +758,10 @@ uint16_t tick_accum;             // Frame accumulator (0-49 -> 1 second)
 uint8_t main_line = MAIN_START;
 uint8_t main_col;
 uint8_t wrap_indent;             // Indentación para líneas que continúan (wrap)
+uint8_t deferred_wrap_active;
 uint8_t current_attr;  // Initialized in apply_theme()
+uint8_t deferred_wrap_attr;
+char *deferred_wrap_p;
 
 // Shared scratch buffer for u16-to-string conversions (8 bytes).
 // Lives in the free Printer Buffer tail; $5BE7-$5BE8 is mpwr_last_space.
@@ -940,6 +944,16 @@ uint8_t pagination_pause(void)
 extern void main_newline(void);
 
 // main_print: resident ASM in 50_main_output.asm
+
+void deferred_wrap_step(void);
+
+void deferred_wrap_start(char *s) __z88dk_fastcall
+{
+    if (overlay_mode) return;
+    deferred_wrap_p = s;
+    deferred_wrap_attr = current_attr;
+    deferred_wrap_active = 1;
+}
 
 // =============================================================================
 // SEARCH SYSTEM — Lógica simplificada
@@ -3013,6 +3027,9 @@ void main(void)
                         history_add(temp_input, line_len); 
                         input_clear();
                         cursor_hide();
+                        while (deferred_wrap_active) {
+                            deferred_wrap_step();
+                        }
                         parse_user_input(temp_input);
                         cursor_show();
                      }
@@ -3043,7 +3060,12 @@ void main(void)
             // All other overlays: process_irc_data runs normally — output suppressed
             // by main_print's overlay_mode early-return, data consumed silently.
             if (overlay_mode != OVERLAY_ABOUT) {
-                process_irc_data();
+                if (deferred_wrap_active) {
+                    deferred_wrap_step();
+                    uart_drain_to_buffer();
+                } else {
+                    process_irc_data();
+                }
             }
         }
     }

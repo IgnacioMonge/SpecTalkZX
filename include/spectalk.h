@@ -187,6 +187,7 @@ extern uint8_t key_shift_held(void);
 extern void input_cache_invalidate(void);
 extern void print_str64_char(uint8_t ch) __z88dk_fastcall;
 extern void print_line64_fast(uint8_t y, const char *s, uint8_t attr);
+extern uint8_t plf_start_byte;
 extern void print_status_left54_fast(const char *s) __z88dk_fastcall;
 extern void notif_draw(uint8_t start_col, const char *str, uint8_t attr);
 extern void notif_clear(void);
@@ -277,6 +278,7 @@ extern uint8_t disconnecting_in_progress;  // FIX: Prevent reentrant disconnecti
 extern uint8_t main_line;
 extern uint8_t main_col;
 extern uint8_t wrap_indent;  // Indentación para líneas que continúan
+extern uint8_t deferred_wrap_active;
 
 // Channels
 extern ChannelInfo channels[];
@@ -522,6 +524,7 @@ void switch_or_notify(uint8_t idx) __z88dk_fastcall;
 void main_print(const char *s) __z88dk_fastcall;
 void main_print_wrapped_ram(char *s) __z88dk_fastcall;
 void main_print_wrapped_clean(char *s) __z88dk_fastcall;
+void deferred_wrap_start(char *s) __z88dk_fastcall;
 void main_puts(const char *s) __z88dk_fastcall;
 void main_puts2(const char *a, const char *b) __z88dk_callee;
 // OPT-P2-A: main_puts3 eliminated (single call site inlined)

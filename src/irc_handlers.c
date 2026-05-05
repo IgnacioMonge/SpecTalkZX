@@ -461,7 +461,7 @@ static void h_privmsg_notice(void)
                     main_print_time_prefix();
                     main_puts2(S_ASTERISK, pkt_usr);
                     main_putc(' ');
-                    main_print_wrapped_clean(act);
+                    deferred_wrap_start(act);
                     return;
                 }
                 break;
@@ -499,8 +499,12 @@ static void h_privmsg_notice(void)
             current_attr = ATTR_MSG_NICK;
             main_puts2(pkt_usr, S_COLON_SP);
             current_attr = ATTR_MSG_TOPIC;
-            main_print_wrapped_clean(pkt_txt);
-            if (ident_ok) session_autoidentify_done();
+            if (ident_ok) {
+                main_print_wrapped_clean(pkt_txt);
+                session_autoidentify_done();
+            } else {
+                deferred_wrap_start(pkt_txt);
+            }
             return;
         }
     }
@@ -511,7 +515,8 @@ static void h_privmsg_notice(void)
             main_print_time_prefix();
             current_attr = ATTR_MSG_SERVER;
             main_puts("*** ");
-            main_print_wrapped_clean(pkt_txt);
+            if (ident_ok) main_print_wrapped_clean(pkt_txt);
+            else deferred_wrap_start(pkt_txt);
         } else {
             current_attr = ATTR_MSG_SERVER;
             main_print(pkt_txt);
@@ -535,7 +540,7 @@ static void h_privmsg_notice(void)
             current_attr |= 0x40;
             mention_beep();
         }
-        main_print_wrapped_clean(pkt_txt);
+        deferred_wrap_start(pkt_txt);
     } else {
         int8_t query_idx = find_query(pkt_usr);
         if (query_idx < 0) {
@@ -550,7 +555,7 @@ static void h_privmsg_notice(void)
             set_nick_color(pkt_usr);
             main_puts2(pkt_usr, S_PROMPT);
             set_attr_priv();
-            main_print_wrapped_clean(pkt_txt);
+            deferred_wrap_start(pkt_txt);
         } else {
             // PM not in active window
             mention_beep();
@@ -568,7 +573,7 @@ static void h_privmsg_notice(void)
                 main_puts2(S_ARROW_IN, pkt_usr);
                 main_puts(S_COLON_SP);
                 set_attr_priv();
-                main_print_wrapped_clean(pkt_txt);
+                deferred_wrap_start(pkt_txt);
             }
         }
         
@@ -886,7 +891,7 @@ static void print_topic_line(char *text) __z88dk_fastcall
       main_print_time_prefix();
       show_timestamps = sv; }
     main_puts(S_TOPIC_PFX);
-    main_print_wrapped_clean(text);
+    deferred_wrap_start(text);
 }
 
 static void h_numeric_332(void)
@@ -1654,6 +1659,8 @@ void process_irc_data(void)
         // Resident-only cooperative drain: keep UART/ESP from backing up while
         // handlers/rendering consume a burst. Do not move this into frame_wait().
         uart_drain_to_buffer();
+
+        if (deferred_wrap_active) break;
 
         lines_this_call++;
 

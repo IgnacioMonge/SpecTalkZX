@@ -27,6 +27,81 @@ stack-clear row 19, and one resident cooperative drain in `process_irc_data()`
 after each handled IRC line. Keep profiling/telemetry removable; do not add
 generic drains in `_frame_wait()` or manual `/names`.
 
+2026-05-05 follow-up in `codex/scroll-hotpath`: reject Gemini P1. The stack
+blitter destination advance via `SP + 32` assembled and the build shrank, but
+HW showed corrupted/repeated `Connecting...` text during scroll. The attribute
+copy `src=0x5880`, `dst=0x5860`, `len=512` is overlapping; a 16-byte forward
+stack blitter writes into bytes that later chunks still need as source. Keep the
+attribute copy on `LDIR` unless a replacement proves overlap safety, such as a
+reverse copy or a row-wise algorithm that never overwrites unread source.
+
+Corrected accepted shape: `SP + 32` destination advance is valid for bitmap
+scroll blocks, which are non-overlapping. Keep the attribute copy on `LDIR`, use
+the generic SP blitter for cross-page bitmap blocks 2/4 with `B=2`, and preserve
+`IX` once in `_scroll_main_zone` instead of inside every private blitter call.
+This builds at TAP `34920B` and should be HW-tested for row 7/15 boundary
+copies before promotion.
+
+Same branch follow-up: pure scroll micro-optimization was not perceptible enough
+on HW. The useful prior responsiveness change is deferred wrapped output: normal
+IRC wrapped text starts after its exact prefix but the body is rendered one
+wrapped line per main-loop pass, with UART drained between passes and
+`process_irc_data()` breaking immediately so `rx_line` is not reused while the
+pending text pointer still points inside it. Do not defer auto-identify success
+NOTICEs that release autojoin; keep them synchronous to preserve visible order
+and the existing gate. Current measured build with deferred line-step plus the
+corrected scroll cleanup: TAP `35145B`, BSS free `1048B`.
+
+Next scroll-only pickup: replacing the attribute `LDIR` with 32 byte-forward
+`LDI` instructions looped over 16 rows is overlap-safe and avoids retrying the
+rejected SP attribute blit. It preserves the exact byte copy order but costs
+resident bytes. Measured build: TAP `35212B`, BSS free `981B`; expected win is
+only about 2.3k T-states per scroll before contention.
+
+The same scroll-only pass can also safely hoist `DI` to `_scroll_main_zone`
+entry, remove the unused `BC=512` setup before the `LDI` row loop, and compute
+the stack-blitter initial `dest+16` from `DE` with `A`/carry rather than
+`push hl / ld hl,16 / add hl,de / pop hl`. Do not hoist the helper's saved SP
+blindly: each `CALL` has its own return address on the stack, so the helper
+still needs a per-call call-frame restore unless its return mechanism is
+redesigned.
+
+Corrected attr SP-blit retry: with the fixed helper shape (`IX` preserved once
+by `_scroll_main_zone`, `DI` hoisted, initial `dest+16` from `DE`, next dest via
+`SP+32`), the attribute copy can be retried as `HL=0x5880`, `DE=0x5860`,
+`B=32`. This is still overlap-safe because each 16-byte destination chunk is
+two chunks behind the next unread source. Measured build drops back near the
+deferred baseline: TAP `35147B`, BSS free `1046B`. Keep the earlier HW failure
+in mind; this variant needs a focused hardware test before trust.
+
+Gemini fast-row deferred path: after line-step deferred output is active, using
+`print_line64_fast()` for even `main_col` segments reduces wrapped text render
+time before each newline/scroll. Odd columns must fall back to `main_puts()` to
+preserve half-cell behavior. Measured cost is large but buys general wrapped
+output speed, not only server NOTICE: TAP `35308B`, BSS free `885B`.
+HW test reported OK and smoother key repeat under incoming channel text.
+
+Smaller accepted successor: move the deferred line-step body to ASM in
+`50_main_output.asm` while preserving the same visible contract and the same
+even/odd column split. Export `deferred_wrap_attr` and `deferred_wrap_p` as
+resident globals for the ASM helper; keep `deferred_wrap_start()` in C. Measured
+build: TAP `35152B`, BSS free `1041B`. This recovers `156B` versus the C
+fast-row build while keeping the same responsiveness design. HW feedback:
+better.
+
+Next tiny scroll-only pickup: because `_scroll_main_zone()` is only called by
+`_main_newline()`, and `_main_newline()` already preserves IX/IY for C callers,
+do not preserve IX/IY again inside `_scroll_main_zone()`. Also fill last-row
+attributes with 16 `push de` writes from `SP=0x5A80`, sharing the pixel-clear
+saved-SP window instead of restoring SP and calling `_fast_fill_attr()`. Measured
+build: TAP `35156B`, BSS free `1037B`; output should be pixel/attribute
+identical. HW test reported all good.
+
+Rejected SAFE micro after measurement: inlining `smz_cross_block` at the two
+cross-page bitmap sites removes one trampoline but duplicates setup. It built
+at TAP `35165B` (`+9B`) for only a tiny per-scroll timing win, so keep the
+shared helper.
+
 ## Apply Now Candidates
 
 Ordered by expected usefulness and applicability.
@@ -182,8 +257,9 @@ Do not spend more time on these unless the target or product decision changes.
   128 and likely no net win.
 - **Separate status dirty flags** (Claude): redundant if status diff redraw is
   ever implemented.
-- **Stack-blit cross-page 32-byte blocks 2/4** (Claude): low payoff with higher
-  SMC/range risk; keep `LDIR`.
+- **Old low-byte-SMC cross-page SP blit** (Claude): rejected. The corrected
+  shape recomputes next destination from `SP + 32`; do not revive the older
+  low-byte-only destination update for blocks that cross a page.
 - **Drain interleaved in scroll with `EI`** (Claude): risky around IM1/IY and is
   not a render speedup. If RX proof demands it, only consider polling drains
   between safe phases with interrupts still controlled.
