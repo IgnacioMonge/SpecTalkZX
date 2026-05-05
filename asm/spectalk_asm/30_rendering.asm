@@ -468,19 +468,33 @@ DEFC NOTIF_ATTR     = 0x5A80
 
 ; void notif_clear(void)
 _notif_clear:
-    ld hl, NOTIF_ROW_BASE
-    xor a
+    di
+    ld (nc_save_sp + 1), sp
+    ld hl, NOTIF_ROW_BASE + 32
+    ld de, 0
     ld b, 8
 nc_clear_loop:
-    ld c, 32
-nc_clear_inner:
-    ld (hl), a
-    inc l               ; L goes 0x80..0x9F, no wrap
-    dec c
-    jr nz, nc_clear_inner
-    ld l, 0x80
+    ld sp, hl
+    push de
+    push de
+    push de
+    push de
+    push de
+    push de
+    push de
+    push de
+    push de
+    push de
+    push de
+    push de
+    push de
+    push de
+    push de
+    push de
     inc h
     djnz nc_clear_loop
+nc_save_sp:
+    ld sp, 0x0000
     ld hl, NOTIF_ATTR
     ld a, (_theme_attrs + TA_MAIN_BG)
     ld bc, 32

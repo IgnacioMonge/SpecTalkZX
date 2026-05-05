@@ -2629,7 +2629,7 @@ void main(void)
             // Skip during overlays: overlay footer is static, must persist until exit.
             if (notif_timeout && !overlay_mode) {
                 if (notif_slide_pos < notif_slide_len) {
-                    notif_slide_pos += 3;
+                    notif_slide_pos += 6;
                     if (notif_slide_pos > notif_slide_len) notif_slide_pos = notif_slide_len;
                     notif_draw(64 - notif_slide_pos,
                                notif_buf + notif_slide_len - notif_slide_pos,
