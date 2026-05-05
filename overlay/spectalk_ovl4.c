@@ -143,7 +143,6 @@ extern char *cfg_put_autojoin(char *p) __z88dk_fastcall;
 
 void save_config_ovl(void)
 {
-    uint16_t old_rx_pos = rx_pos;
     char *p = (char *)overlay_slot;
     char tmp[4];
 
@@ -236,10 +235,6 @@ void save_config_ovl(void)
     }
 
 done:
-    /* overlay_slot aliases rx_line: if save returns mid-IRC line, discard the
-     * remaining tail up to the next '\n' instead of parsing a fragmented line. */
+    /* overlay_slot aliases rx_line; cmd_save() owns the post-call discard gate. */
     rb_head = 0; rb_tail = 0; rx_pos = 0;
-    if (old_rx_pos != 0) {
-        rx_overflow = 1;
-    }
 }

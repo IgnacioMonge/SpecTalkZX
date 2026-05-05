@@ -1325,12 +1325,16 @@ static void cmd_friend(const char *args) __z88dk_fastcall
 }
 
 // cmd_save — moved to overlay (SPCTLK4.OVL entry 1)
-// RX discard gate lives inside save_config_ovl now (captures old_rx_pos at entry).
+// After the overlay returns, drain any bytes that arrived during SD I/O and
+// discard through the next LF; those bytes may be a tail fragment.
 void cmd_save(const char *args) __z88dk_fastcall
 {
+    uint8_t discard = (rx_pos != 0) || rx_overflow;
     (void)args;
     snapshot_autojoin_channels();
     overlay_exec(3, 1);
+    uart_drain_to_buffer();
+    if (discard || rb_head != rb_tail) rx_overflow = 1;
 }
 
 // OPT-C14: cmd_clear eliminated — command table points directly to clear_main
