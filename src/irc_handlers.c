@@ -271,18 +271,18 @@ static void h_mode(void)
 {
     const char *target = irc_param(0);
     const char *mode_text = pkt_txt;
-    if (!target || !*target) target = pkt_par;
+    if (!*target) target = pkt_par;
 
-    if (!target || !*target) return;
+    if (!*target) return;
 
     // --- MODE de usuario ---
     if (irc_nick[0] && st_stricmp(target, irc_nick) == 0) {
         // FIX: pkt_txt puede apuntar al target (troceado por tokenize_params)
         // cuando no hay ':' trailing. Usar irc_param(1) primero.
         const char *modes = irc_param(1);
-        if (!modes || !*modes) modes = pkt_txt;
+        if (!*modes) modes = pkt_txt;
 
-        if (modes && *modes) {
+        if (*modes) {
             if (*modes == ':') modes++;
             st_copy_n(user_mode, modes, sizeof(user_mode));
             draw_status_bar();
@@ -295,13 +295,13 @@ static void h_mode(void)
         int8_t idx = find_channel(target);
         if (idx >= 0) {
             const char *modes = irc_param(1);
-            if (modes && *modes) {
+            if (*modes) {
                 st_copy_n(channels[idx].mode, modes, sizeof(channels[0].mode));
                 mode_text = modes;
             }
         }
 
-        if (!mode_text || !*mode_text) mode_text = "(unknown)";
+        if (!*mode_text) mode_text = "(unknown)";
 
         /* Human-readable for +b/-b (ban/unban), notify() for the rest */
         if (mode_text[0] && mode_text[1] == 'b' && (mode_text[0] == '+' || mode_text[0] == '-')) {
@@ -461,7 +461,7 @@ static void h_privmsg_notice(void)
                     main_print_time_prefix();
                     main_puts2(S_ASTERISK, pkt_usr);
                     main_putc(' ');
-                    main_print_wrapped_ram(act);
+                    main_print_wrapped_clean(act);
                     return;
                 }
                 break;
@@ -499,7 +499,7 @@ static void h_privmsg_notice(void)
             current_attr = ATTR_MSG_NICK;
             main_puts2(pkt_usr, S_COLON_SP);
             current_attr = ATTR_MSG_TOPIC;
-            main_print_wrapped_ram(pkt_txt);
+            main_print_wrapped_clean(pkt_txt);
             if (ident_ok) session_autoidentify_done();
             return;
         }
@@ -535,7 +535,7 @@ static void h_privmsg_notice(void)
             current_attr |= 0x40;
             mention_beep();
         }
-        main_print_wrapped_ram(pkt_txt);
+        main_print_wrapped_clean(pkt_txt);
     } else {
         int8_t query_idx = find_query(pkt_usr);
         if (query_idx < 0) {
@@ -550,7 +550,7 @@ static void h_privmsg_notice(void)
             set_nick_color(pkt_usr);
             main_puts2(pkt_usr, S_PROMPT);
             set_attr_priv();
-            main_print_wrapped_ram(pkt_txt);
+            main_print_wrapped_clean(pkt_txt);
         } else {
             // PM not in active window
             mention_beep();
@@ -568,7 +568,7 @@ static void h_privmsg_notice(void)
                 main_puts2(S_ARROW_IN, pkt_usr);
                 main_puts(S_COLON_SP);
                 set_attr_priv();
-                main_print_wrapped_ram(pkt_txt);
+                main_print_wrapped_clean(pkt_txt);
             }
         }
         
@@ -600,7 +600,7 @@ static void h_join(void)
         int8_t idx = find_channel(chan);
         if (idx < 0) idx = add_channel(chan);
         
-        if (idx < 0) { ui_err("Max channels reached"); return; }
+        if (idx < 0) { ui_err(S_MAXWIN); return; }
         
         if ((uint8_t)idx != current_channel_idx) switch_to_channel((uint8_t)idx);
 
@@ -609,6 +609,7 @@ static void h_join(void)
         st_copy_n(channels[idx].name, chan, sizeof(channels[0].name));
         
         channels[idx].user_count = 0;
+        channels[idx].flags |= CH_FLAG_NAMING;
         counting_new_users = 1;
         st_copy_n(names_target_channel, chan, sizeof(names_target_channel));
         names_pending = 1;
@@ -660,7 +661,7 @@ static void h_part(void)
 {
     const char *p0 = irc_param(0);
     char *chan = (*p0) ? (char *)p0 : pkt_par;  // audit L05: const-safe
-    if (chan && *chan == ':') chan++;
+    if (*chan == ':') chan++;
 
     int8_t idx = find_channel(chan);
     if (idx >= 0) {
@@ -727,8 +728,7 @@ static void h_kick(void)
     const char *channel = irc_param(0);
     const char *target  = irc_param(1);
 
-    if (!channel || !*channel) return;
-    if (!target  || !*target)  return;
+    if (!*channel || !*target) return;
 
     int8_t idx = find_channel(channel);
 
@@ -767,9 +767,7 @@ static void h_kick(void)
 
 static void h_kill(void)
 {
-    char *target = pkt_par;
-
-    if (target && st_stricmp(target, irc_nick) == 0) {
+    if (st_stricmp(pkt_par, irc_nick) == 0) {
         nb_init("Killed by "); nb(pkt_usr);
         if (*pkt_txt) { nb(S_COLON_SP); nb(pkt_txt); } NB_END();
         notify(temp_input, ATTR_ERROR);
@@ -778,7 +776,7 @@ static void h_kill(void)
         main_print_time_prefix();
         set_attr_join();
         main_puts(S_ASTERISK);
-        if (target) main_puts(target);
+        main_puts(pkt_par);
         main_puts2(" killed by ", pkt_usr);
         print_reason_and_newline();  // FIX BUG-03: faltaba newline
     }
@@ -790,7 +788,7 @@ static void h_error(void)
 {
     set_attr_err();
     main_puts("*** Server: ");
-    if (*pkt_txt) main_print(pkt_txt); else main_print("Connection terminated");
+    main_print(*pkt_txt ? (const char *)pkt_txt : S_DISCONN);
     handle_connection_drop();
 }
 
@@ -805,7 +803,7 @@ static void h_numeric_401(void)
 
     if (*bad_nick) {
         int8_t idx = find_query(bad_nick);
-        if (idx > 0 && (channels[idx].flags & CH_FLAG_QUERY)) {
+        if (idx > 0) {
             // remove_channel() YA llama a draw_status_bar()
             remove_channel((uint8_t)idx);
         }
@@ -866,7 +864,7 @@ static void h_numeric_324(void)
 {
     const char *chan = irc_param(1);
     const char *modes = irc_param(2);
-    if (!chan || !modes || !*modes) return;
+    if (!*chan || !*modes) return;
     int8_t idx = find_channel(chan);
     if (idx >= 0) {
         st_copy_n(channels[idx].mode, modes, sizeof(channels[0].mode));
@@ -888,7 +886,7 @@ static void print_topic_line(char *text) __z88dk_fastcall
       main_print_time_prefix();
       show_timestamps = sv; }
     main_puts(S_TOPIC_PFX);
-    main_print_wrapped_ram(text);
+    main_print_wrapped_clean(text);
 }
 
 static void h_numeric_332(void)
@@ -898,14 +896,30 @@ static void h_numeric_332(void)
 
 // Helper: incrementa pagination_count con check de overflow
 // Retorna 0 si OK, 1 si overflow (y cancela búsqueda)
-static uint8_t pagination_inc(void) {
-    if (pagination_count < PAGINATION_MAX_COUNT) {
-        pagination_count++;
-        return 0;
-    }
-    cancel_search_state();
-    ui_err("Result limit");
-    return 1;
+static uint8_t pagination_inc(void) ST_NAKED {
+    __asm
+    ld hl, (_pagination_count)
+    ld de, PAGINATION_MAX_COUNT
+    or a
+    sbc hl, de
+    jr nc, paginc_limit
+    add hl, de
+    inc hl
+    ld (_pagination_count), hl
+    ld l, 0
+    ret
+
+paginc_limit:
+    call _cancel_search_state
+    ld hl, paginc_limit_msg
+    call _ui_err
+    ld l, 1
+    ret
+
+paginc_limit_msg:
+    DEFM "Result limit"
+    DEFB 0
+    __endasm;
 }
 
 static void h_numeric_353(void)
@@ -913,7 +927,13 @@ static void h_numeric_353(void)
     const char *msg_chan = irc_param(2);
     const char *target = names_target_channel[0] ? names_target_channel : irc_channel;
     if (!target[0]) return;
-    if (st_stricmp(msg_chan, target) != 0) return;
+    if (st_stricmp(msg_chan, target) != 0) {
+        int8_t ci = find_channel(msg_chan);
+        if (ci >= 0 && (channels[ci].flags & CH_FLAG_NAMING)) {
+            channels[ci].user_count += names_count_line(pkt_txt);
+        }
+        return;
+    }
 
     names_timeout_frames = 0;
 
@@ -984,12 +1004,18 @@ static void h_numeric_353(void)
 static void h_numeric_366(void)
 {
     const char *msg_chan = irc_param(1);
+    int8_t ci = find_channel(msg_chan);
+
+    if (ci >= 0) {
+        channels[ci].flags &= (uint8_t)~CH_FLAG_NAMING;
+    }
+
     const char *target = names_target_channel[0] ? names_target_channel : irc_channel;
 
     if (!target[0]) return;
     if (st_stricmp(msg_chan, target) != 0) return;
 
-    names_pending = 0; names_timeout_frames = 0;
+    names_pending = 0;
     names_target_channel[0] = '\0';
     
     // Commit user count to status bar:
@@ -998,7 +1024,6 @@ static void h_numeric_366(void)
     // FIX BUG-10: write user_count to the channel named in 366, not current channel
     // PD1: collapse update flag — direct condition equivalent
     if (names_count_acc > 0 && (!names_was_manual || !search_data_lost)) {
-        int8_t ci = find_channel(msg_chan);
         if (ci >= 0) channels[ci].user_count = names_count_acc;
     }
     
@@ -1082,7 +1107,7 @@ static void search_render_index(void) {
 static void h_numeric_322_352(void)
 {
     const char *chan, *users, *nick, *user, *host, *t;
-    uint8_t len, nick_idx, host_idx;
+    uint8_t len;
 
     if (!pagination_active) return;
     if (search_mode == SEARCH_NONE) return;
@@ -1114,8 +1139,8 @@ static void h_numeric_322_352(void)
         if (*pkt_txt) {
             set_attr_chan();
             main_putc(' ');
-            len = 0;
             t = pkt_txt;
+            len = 0;
             while (*t && len < 20) { main_putc(*t++); len++; }
             if (*t) main_puts(S_DOTS3);
         }
@@ -1127,12 +1152,9 @@ static void h_numeric_322_352(void)
 
     if (search_mode == SEARCH_USER) { // 352
         // RFC 1459: nick=param[5], host=param[3]
-        nick_idx = 5;
-        host_idx = 3;
-
         user = irc_param(2);
-        host = irc_param(host_idx);
-        nick = irc_param(nick_idx);
+        host = irc_param(3);
+        nick = irc_param(5);
 
         if (!nick || !nick[0]) nick = "?";
         if (!host || !host[0]) host = "?";
@@ -1239,7 +1261,7 @@ static void h_numeric_5(void)
 static void h_cannotsend(void)
 {
     const char *chan = irc_param(1);
-    notify2("Cannot send to ", (chan && *chan) ? chan : S_CHANNEL_WORD, ATTR_ERROR);
+    notify2("Cannot send to ", *chan ? chan : S_CHANNEL_WORD, ATTR_ERROR);
 }
 
 static void h_join_error(void)
@@ -1248,19 +1270,16 @@ static void h_join_error(void)
 
     set_attr_err();
     main_puts("Cannot join ");
-    if (bad_chan && *bad_chan) main_print(bad_chan);
-    else main_print(S_CHANNEL_WORD);
+    main_print(*bad_chan ? bad_chan : (const char *)S_CHANNEL_WORD);
     main_puts(S_COLON_SP);
-    if (*pkt_txt) main_print(pkt_txt);
-    else main_print("Access denied");
+    main_print(*pkt_txt ? (const char *)pkt_txt : "Access denied");
 
     // SEGURIDAD: Si la ventana existe (estado zombie), forzar su cierre inmediato.
     // Esto corrige el bug visual de la barra de estado.
-    if (bad_chan && *bad_chan) {
+    if (*bad_chan) {
         int8_t idx = find_channel(bad_chan);
         if (idx > 0) {
             remove_channel((uint8_t)idx);
-            draw_status_bar();
         }
     }
 }
@@ -1276,18 +1295,18 @@ static void h_numeric_default(void)
         const char *host = irc_param(3);
 
         set_attr_nick();
-        if (nick && *nick) main_puts(nick); else main_putc('?');
+        main_puts(*nick ? nick : "?");
         set_attr_chan();
         main_puts(S_SP_LBRACKET);
-        if (user && *user) main_puts(user); else main_putc('?');
+        main_puts(*user ? user : "?");
         main_putc('@');
-        if (host && *host) main_puts(host); else main_putc('?');
+        main_puts(*host ? host : "?");
         main_putc(']');
 
         if (*pkt_txt) {
             set_attr_sys();
             main_puts(S_COLON_SP);
-            main_print_wrapped_ram(pkt_txt);
+            main_print_wrapped_clean(pkt_txt);
         } else {
             main_newline();
         }
@@ -1297,7 +1316,7 @@ static void h_numeric_default(void)
     if (num == 319) {
         set_attr_sys();
         main_puts("Channels: ");
-        main_print_wrapped_ram(pkt_txt);
+        main_print_wrapped_clean(pkt_txt);
         return;
     }
 
@@ -1482,10 +1501,10 @@ void parse_irc_message(char *line) __z88dk_fastcall
     
     if (!line || !*line) return;
 
-    if (line[0] == '@') {
-        line = split_next_param(line);
-        if (!*line) return;
-    }
+    if ((uint8_t)line[0] <= 32) line = split_next_param(line);
+    if (line[0] == '>') line = split_next_param(line);
+    if (line[0] == '@') line = split_next_param(line);
+    if (!*line) return;
 
     char *cmd_start;
     if (line[0] == ':') {

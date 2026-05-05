@@ -401,9 +401,12 @@ overlay: $(MAP)
 	fi; \
 	printf "$(C_GRN)[OK]$(C_RESET) SPCTLK5.OVL: $$ovl5_size bytes (max 2048)\n"; \
 	echo "  Building SPCTLK6.OVL..."; \
+	zcc +z80 -clib=sdcc_iy --no-crt --opt-code-size \
+		-Ioverlay -c overlay/switcher_ovl.c -o $(BUILD_DIR)/switcher_ovl.o 2>&1 || exit 1; \
 	z80asm -I$(BUILD_DIR) overlay/overlay_entry6.asm 2>&1 || exit 1; \
 	z80asm -b -r0x$$SLOT -o=$(BUILD_DIR)/SPCTLK6.OVL \
 		overlay/overlay_entry6.o \
+		$(BUILD_DIR)/switcher_ovl.o \
 		$(BUILD_DIR)/overlay_defs.o 2>&1 || exit 1; \
 	ovl6_size=$$(wc -c < $(BUILD_DIR)/SPCTLK6.OVL); \
 	if [ "$$ovl6_size" -gt 2048 ]; then \

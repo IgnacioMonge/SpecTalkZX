@@ -97,7 +97,7 @@ u8a_color:
     ld a, (hl)
     sub '0'
     cp 10
-    jp nc, u8a_loop
+    jr nc, u8a_color_end
     inc hl
     ld a, (hl)
     sub '0'
@@ -107,18 +107,19 @@ u8a_color:
 u8a_check_bg:
     ld a, (hl)
     cp ','
-    jp nz, u8a_loop
+    jr nz, u8a_color_end
     inc hl
     ld a, (hl)
     sub '0'
     cp 10
-    jp nc, u8a_loop
+    jr nc, u8a_color_end
     inc hl
     ld a, (hl)
     sub '0'
     cp 10
-    jp nc, u8a_loop
+    jr nc, u8a_color_end
     inc hl
+u8a_color_end:
     jp u8a_loop
 
 u8a_latin1:
@@ -293,13 +294,13 @@ spr_found:
     ; Validate ranges: hour < 24, minute < 60, second < 60
     ld a, (_time_hour)
     cp 24
-    jr nc, spr_invalid      ; invalid hour
+    ret nc                  ; invalid hour
     ld a, (_time_minute)
     cp 60
-    jr nc, spr_invalid      ; invalid minute
+    ret nc                  ; invalid minute
     ld a, (_time_second)
     cp 60
-    jr nc, spr_invalid      ; invalid second
+    ret nc                  ; invalid second
 
     ; Sync frame ticker to current FRAMES, sntp_waiting = 0, sntp_queried = 1
     ld a, (23672)           ; FRAMES low byte
@@ -320,9 +321,6 @@ spr_notfound:
     xor a
     ld (_sntp_waiting), a
     ret
-
-spr_invalid:
-    ret                 ; keep sntp_waiting=1 so it retries
 
 ; --- subroutine: parse 2-digit decimal at (HL) ---
 ; Input:  HL = pointer to first digit
@@ -612,8 +610,7 @@ fecs_loop:
     add hl, de
     inc c
     djnz fecs_loop
-    ld l, 0xFF                   ; return -1
-    ret
+    ld c, 0xFF                   ; return -1
 fecs_found:
     ld l, c                      ; return index
     ret
@@ -707,7 +704,7 @@ sac_put_a:
     cp (hl)
     jr z, sac_put_same
     ex af, af'
-    ld a, 1
+    inc a
     ex af, af'
 sac_put_same:
     ld (hl), a
@@ -743,8 +740,7 @@ _find_query:
     jr z, fq_bail_neg1
     ld a, (hl)
     or a
-    jr z, fq_bail_neg1
-    jr fq_valid
+    jr nz, fq_valid
 
 fq_bail_neg1:
     ld l, 0xFF
@@ -764,7 +760,7 @@ fq_valid:
     jr nz, fq_not_c
     ld hl, _S_CHANSERV
     call fq_check_service
-    jr z, fq_ret_0
+    jr z, fq_ret_a_iy
     jr fq_check_server
 
 fq_not_c:
@@ -772,7 +768,7 @@ fq_not_c:
     jr nz, fq_not_n
     ld hl, _S_NICKSERV
     call fq_check_service
-    jr z, fq_ret_0
+    jr z, fq_ret_a_iy
     jr fq_check_server
 
 fq_not_n:
@@ -780,14 +776,14 @@ fq_not_n:
     jr nz, fq_check_server
     ld hl, _S_GLOBAL
     call fq_check_service
-    jr z, fq_ret_0
+    jr z, fq_ret_a_iy
 
 fq_check_server:
     ; if (st_stricmp(nick, irc_server) == 0) return 0
     ; Empty irc_server cannot match because nick was checked non-empty above.
     ld hl, _irc_server
     call fq_check_service
-    jr z, fq_ret_0
+    jr z, fq_ret_a_iy
 
 fq_loop_init:
     ; Loop: for i=1; i < channel_count; i++
@@ -815,12 +811,8 @@ fq_loop:
     ; st_stricmp(ch->name, nick) ? name at offset 0, so DE = &ch->name
     push de             ; save ch base
     push bc             ; save i
-    push iy             ; arg1: nick
-    push de             ; arg2: ch->name
-    call _st_stricmp_cleanup
-    ; HL = result (0 if equal)
-    ld a, l
-    or h
+    ex de, hl           ; HL = ch->name
+    call fq_check_service
     pop bc              ; restore i
     pop de              ; restore ch base
     jr z, fq_found      ; match!
@@ -835,18 +827,16 @@ fq_next:
 
 fq_found:
     ; Return B (= i)
-    pop iy
-    ld l, b
-    ret
+    ld a, b
 
-fq_ret_0:
+fq_ret_a_iy:
     pop iy
-    ld l, a                     ; callers branch here only after stricmp == 0
+    ld l, a
     ret
 
 fq_ret_neg1_iy:
-    pop iy
-    jr fq_bail_neg1
+    ld a, 0xFF
+    jr fq_ret_a_iy
 
 ; --- subroutine: compare IY (nick) with HL (service string) ---
 ; Input:  HL = string to compare, IY = nick

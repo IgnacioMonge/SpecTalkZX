@@ -95,8 +95,8 @@ static uint8_t prompt_yn(const char *q) __z88dk_fastcall
         frame_wait();
         uart_drain_to_buffer();
         while (try_read_line_nodrain());
-        if (k == 'y' || k == 'Y') return 1;
-        if (k == 'n' || k == 'N') return 0;
+        if ((k | 32) == 'y') return 1;
+        if ((k | 32) == 'n') return 0;
     }
     return 0;
 }
@@ -260,17 +260,16 @@ static void cmd_connect(const char *args) __z88dk_fastcall
     
     if (sep) {
         server_len = (uint8_t)(sep - args);
+        if (server_len > sizeof(irc_server) - 1) server_len = sizeof(irc_server) - 1;
+        memcpy(irc_server, args, server_len);
+        irc_server[server_len] = '\0';
         port = sep + 1;
         port = (const char *)skip_spaces((char *)port);
     } else {
-        server_len = st_strlen(args);
+        st_copy_n(irc_server, args, sizeof(irc_server));
         port = NULL;
     }
     if (!port || !*port) port = S_DEFAULT_PORT;
-    
-    if (server_len > sizeof(irc_server) - 1) server_len = sizeof(irc_server) - 1;
-    memcpy(irc_server, args, server_len);
-    irc_server[server_len] = '\0';
     if (strchr(irc_server, '"')) { ui_err("Bad server name"); return; }  // audit L04
 
     st_copy_n(irc_port, port, sizeof(irc_port));
@@ -515,7 +514,7 @@ static void cmd_nick(const char *args) __z88dk_fastcall
     if (!args || !*args) {
         set_attr_sys();
         main_puts("Current nick: ");
-        if (irc_nick[0]) main_print(irc_nick); else main_print(S_NOTSET);
+        main_print(irc_nick[0] ? (const char *)irc_nick : S_NOTSET);
         return;
     }
 
@@ -593,7 +592,7 @@ static void cmd_join(const char *args) __z88dk_fastcall
         return;
     }
 
-    if (find_empty_channel_slot() == -1) { ui_err(S_MAXWIN); main_print("Use /close or /part first."); return; }
+    if (find_empty_channel_slot() == -1) { ui_err(S_MAXWIN); main_print("Use /close first."); return; }
 
     irc_send_cmd1(S_JOIN_CMD, lookup);
     notify2("Joining ", lookup, ATTR_MSG_JOIN);
@@ -610,7 +609,7 @@ static void cmd_part(const char *args) __z88dk_fastcall
     int8_t idx = current_channel_idx;
 
     if (input && *input) {
-        if (*input == '#' || *input == '&') {
+        if (IS_CHAN_PREFIX(*input)) {
             chan_name = input;
             reason = split_at_space(input);
             idx = find_channel(chan_name);
@@ -621,7 +620,7 @@ static void cmd_part(const char *args) __z88dk_fastcall
 
     if (idx <= 0 || idx >= MAX_CHANNELS || !(channels[idx].flags & CH_FLAG_ACTIVE)) {
         set_attr_err();
-        main_print(idx == 0 ? "Cannot part Status" : "Not in that channel");
+        main_print(idx == 0 ? "Cannot part Status" : "Not in a channel");
         return;
     }
 
@@ -798,15 +797,11 @@ static void cmd_away(const char *args) __z88dk_fastcall
     } else {
         away_message[0] = '\0';
         irc_is_away = 0;
+        autoaway_counter = 0;
     }
     
     // En cualquier caso (manual o quitar), desactivamos el flag de auto-away
     autoaway_active = 0;
-    
-    // Si quitamos el away, reseteamos el contador
-    if (!irc_is_away) {
-        autoaway_counter = 0;
-    }
 
     draw_status_bar();
 }
@@ -892,7 +887,7 @@ static void cmd_names(const char *args) __z88dk_fastcall
     if (!check_status(LVL_IRC)) return; // Nivel 2
 
     const char *target = (args && *args) ? args : irc_channel;
-    if (!target[0] || (target[0] != '#' && target[0] != '&')) { ui_err(S_MUST_CHAN); return; }
+    if (!target[0] || !IS_CHAN_PREFIX(target[0])) { ui_err(S_MUST_CHAN); return; }
     
     counting_new_users = 1;
     show_names_list = 1;
@@ -1069,13 +1064,12 @@ static void cmd_kick(const char *args) __z88dk_fastcall
     nick = (char *)args;
 
     reason = split_at_space(nick);
-    if (reason && !*reason) reason = NULL;   // evita tratar "" como razón
 
     uart_send_string("KICK ");
     uart_send_string(irc_channel);
     ay_uart_send(' ');
     uart_send_string(nick);
-    if (reason) {
+    if (reason && *reason) {
         uart_send_string(S_SP_COLON);
         uart_send_string(reason);
     }

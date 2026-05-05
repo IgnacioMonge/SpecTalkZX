@@ -82,6 +82,7 @@
 #define CH_FLAG_QUERY      0x02
 #define CH_FLAG_UNREAD     0x04
 #define CH_FLAG_MENTION    0x08
+#define CH_FLAG_NAMING     0x10
 
 // =============================================================================
 // buffer SIZES
@@ -96,7 +97,7 @@
 #define IRC_NICK_SIZE     18
 #define IRC_PASS_SIZE     24
 #define USER_MODE_SIZE     6
-#define NETWORK_NAME_SIZE 16
+#define NETWORK_NAME_SIZE 12
 
 // Cross-module buffers (must match definitions in spectalk.c)
 #define NAMES_TARGET_CHANNEL_SIZE 32
@@ -119,7 +120,7 @@ typedef struct {
     char name[22];           // Channel name "#retro" or query nick or "Server"
     char mode[6];            // Channel mode (e.g. "+nt") - only for channels
     uint16_t user_count;     // Number of users - only for channels
-    uint8_t flags;           // CH_FLAG_ACTIVE | CH_FLAG_QUERY | CH_FLAG_UNREAD
+    uint8_t flags;           // CH_FLAG_ACTIVE | CH_FLAG_QUERY | CH_FLAG_UNREAD | ...
     uint8_t _pad;            // Padding para alinear a 32 bytes (i*32 = shift)
 } ChannelInfo;               // TOTAL: 32 bytes (potencia de 2)
 
@@ -199,7 +200,7 @@ extern uint8_t overlay_slot[];
 extern uint8_t help_page;
 extern uint8_t config_dirty;
 extern uint8_t notif_enabled;
-void notify(const char *msg, uint8_t attr);
+void notify(const char *msg, uint8_t attr) __z88dk_callee;
 void overlay_exec(uint8_t ovl_id, uint8_t entry_id) __z88dk_callee;
 void overlay_call(uint8_t entry_id) __z88dk_fastcall;
 void overlay_call_timed(uint8_t entry_id) __z88dk_fastcall;

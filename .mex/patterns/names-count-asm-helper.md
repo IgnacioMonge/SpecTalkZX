@@ -15,3 +15,9 @@ manual `/names` cancel/render ordering.
 
 T10-style mode-prefix fast-fail in C measured larger in the current layout. Keep
 the existing prefix loop unless an ASM form proves a net win.
+
+Background automatic JOIN/NAMES counting uses `_names_count_line` only for
+off-target `353` chunks where `CH_FLAG_NAMING` is set for `msg_chan`. The
+current/manual target keeps the old single accumulator scan. Avoid a full
+"always count first, then reuse" shape: it measured smaller than the first C
+version but still larger than the off-target-only fix.

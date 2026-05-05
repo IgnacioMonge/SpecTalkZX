@@ -299,7 +299,7 @@ _main_print_wrapped_ram:
 mpwr_loop:
     ld a, (hl)
     or a
-    jr z, mpwr_finalize
+    jp z, mp_wrap_reset
 
     ; Si estamos al final de l?nea, pasar a la siguiente SIN perder HL
     ld a, (_main_col)
@@ -421,7 +421,7 @@ mpwr_print_done:
     ; Si termin? cadena, salir al finalize
     ld a, (hl)
     or a
-    jr z, mpwr_finalize          ; OPT: jp?jr (16 bytes)
+    jp z, mp_wrap_reset
 
     ; Nueva l?nea para continuar SIN perder HL
     push hl
@@ -434,10 +434,6 @@ mpwr_print_done:
     ret z
 
     jp mpwr_loop                 ; <-- era jr mpwr_loop
-
-mpwr_finalize:
-    ; Igual que main_print: reset indent antes del newline final
-    jp mp_wrap_reset
 
 ; -----------------------------------------------------------------------------
 ; uint8_t names_render_grid(char *p) __z88dk_fastcall
@@ -480,11 +476,10 @@ nrg_copy:
     ld (de), a
     inc de
 nrg_consume_long:
+    inc hl
     ld a, (hl)
     cp 33
-    jr c, nrg_fill_tail
-    inc hl
-    jr nrg_consume_long
+    jr nc, nrg_consume_long
 
 nrg_fill_tail:
     inc b                           ; remaining chars plus cell separator
@@ -630,9 +625,7 @@ puts_opt_emit:
     push de              ; save string pointer
     call main_space_inline
     pop de               ; restore string pointer
-    inc b                ; main_col++
-    inc de               ; next char
-    jr puts_opt_loop
+    jr puts_opt_next
 
 puts_opt_char:
     ; Emitir caracter normal sin re-cargar globals
@@ -644,8 +637,10 @@ puts_opt_char:
     call _print_str64_char
     pop de
     pop bc
-    inc b               ; main_col++
-    inc de              ; siguiente caracter
+
+puts_opt_next:
+    inc b                ; main_col++
+    inc de               ; next char
     jr puts_opt_loop
 
 puts_opt_wrap:
@@ -790,7 +785,9 @@ ign_loop:
     pop hl              ; nick
     pop de              ; list_ptr actual
     pop bc              ; contador
-    jr z, ign_match
+    jr nz, ign_skip
+    ld l, 1
+    ret
     
 ign_skip:
     ; Avanzar DE + 16 (tama?o fijo de cada entrada en ignore_list)
@@ -805,10 +802,6 @@ ign_next:
     
 ign_fail:
     ld l, 0
-    ret
-    
-ign_match:
-    ld l, 1
     ret
 
 

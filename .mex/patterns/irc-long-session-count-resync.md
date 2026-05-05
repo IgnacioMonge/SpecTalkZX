@@ -90,6 +90,30 @@ for `names_count_acc`, even if the batch was not pre-armed by JOIN or manual
 `/names`. Otherwise repeated server or automatic NAMES batches accumulate over
 the prior total.
 
+For rapid self-joins, a single global `names_target_channel` is not enough:
+server `353/366` chunks may interleave between channels. The compact accepted
+fix uses the spare `ChannelInfo.flags` bit `CH_FLAG_NAMING` only for automatic
+JOIN/NAMES bursts: self-`JOIN` sets the bit and zeroes that channel's count;
+the current/manual target keeps the old accumulator and commit-on-clean-`366`
+path; only off-target `353` chunks for flagged channels add directly to
+`channels[ci].user_count`; off-target `366` clears the bit for its own
+`msg_chan`. This covers the real rapid-join interleave without rewriting the
+manual `/names` path or paying for a full pending-channel scanner.
+
+Do not "fix" manual zero counts by blindly removing the `names_count_acc > 0`
+guard. `366` without a preceding visible `353` means "no count data reached the
+client"; for manual refresh that should preserve the previous known count, not
+overwrite it with zero. Automatic self-join is different because `h_join()` has
+already reset the count and `CH_FLAG_NAMING` is the authoritative in-progress
+state.
+
+The full "keep `names_pending` alive while any channel has `CH_FLAG_NAMING` and
+clear all flags on timeout" variant measured too expensive for this resident
+budget. The compact variant relies on late `366`, `remove_channel()`, or full
+channel reset to clear stale flags. This leaves a narrow edge case if a
+non-target `366` is permanently lost, but avoids spending nearly the whole BSS
+slack on a rare cleanup path.
+
 Late or malformed numerics after registration must not update identity state:
 `001` is a handshake event only. Once `connection_state >= STATE_IRC_READY`,
 ignore additional `001` lines so fragmentary command tokens cannot clobber

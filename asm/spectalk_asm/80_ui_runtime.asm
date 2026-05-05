@@ -710,26 +710,23 @@ EXTERN _channels
 _has_other_mention:
     ld hl, _channels + 30       ; flags field, ChannelInfo stride is 32
     ld a, (_current_channel_idx)
-    ld e, a                     ; E = current index
-    ld b, 10
+    ld b, a                     ; B = current index
     ld c, 0                     ; C = slot index
+    ld de, 32
 homm_loop:
     ld a, c
-    cp e
+    cp b
     jr z, homm_next
     ld a, (hl)
     and 0x09                    ; CH_FLAG_ACTIVE | CH_FLAG_MENTION
     cp 0x09
     jr z, homm_yes
 homm_next:
-    ld a, l
-    add a, 32
-    ld l, a
-    jr nc, homm_next_ok
-    inc h
-homm_next_ok:
+    add hl, de
     inc c
-    djnz homm_loop
+    ld a, c
+    cp 10
+    jr nz, homm_loop
     ld l, 0
     ret
 homm_yes:

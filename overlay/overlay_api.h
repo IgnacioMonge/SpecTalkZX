@@ -26,6 +26,7 @@ extern void print_char64(uint8_t y, uint8_t col, uint8_t c, uint8_t attr)
 extern void clear_line(uint8_t y, uint8_t attr);
 extern void print_big_str(uint8_t y, uint8_t col, const char *s, uint8_t attr)
     __z88dk_callee;
+extern void print_line64_fast(uint8_t y, const char *s, uint8_t attr);
 extern void draw_badge_dither(uint8_t count) __z88dk_fastcall;
 extern void notif_draw(uint8_t start_col, const char *str, uint8_t attr);
 extern void notif_center(const char *str, uint8_t attr);

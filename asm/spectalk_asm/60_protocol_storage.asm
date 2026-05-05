@@ -377,9 +377,7 @@ esx_open_common:
     xor a               ; error ? handle = 0
 esx_open_ok:
     ld (_esx_handle), a
-    pop ix
-    pop iy
-    ret
+    jr esx_pop_ix_iy_ret
 
 ; -----------------------------------------------------------------------------
 ; void esx_fread(void)
@@ -410,9 +408,7 @@ _esx_fclose:
     ld a, (_esx_handle)
     rst 8
     defb 0x9B           ; F_CLOSE
-    pop ix
-    pop iy
-    ret
+    jr esx_pop_ix_iy_ret
 
 ; esx_fcreate: now merged with esx_fopen above (esx_open_common)
 
@@ -437,6 +433,7 @@ esx_io_epilogue:
     ld bc, 0            ; Error: 0 bytes read/written
 esx_io_ok:
     ld (_esx_result), bc ; Save bytes actually read/written
+esx_pop_ix_iy_ret:
     pop ix
     pop iy
     ret

@@ -44,9 +44,7 @@ _rb_pop:
     ; 3. Avanzar Tail: tail = (tail + 1) & MASK
     inc de                  ; Incrementamos Tail
     ; NOTA: No hacemos AND E, 0xFF porque es redundante
-    ld a, d
-    and RB_MASK_H           ; Aplicamos m?scara solo a la parte alta (0x07)
-    ld d, a
+    res 3, d                ; Tail is 0..7FF, inc can only set bit 3
     ld (_rb_tail), de       ; Guardamos nuevo Tail
     
     ret
@@ -70,10 +68,8 @@ _rb_push:
     ld e, l
     inc hl
     
-    ; Aplicar m?scara solo a la parte alta (la baja hace overflow natural a 0)
-    ld a, h
-    and RB_MASK_H       
-    ld h, a
+    ; Aplicar mascara solo a la parte alta (la baja hace overflow natural a 0)
+    res 3, h                ; Head is 0..7FF, inc can only set bit 3
     
     ; HL contiene ahora el "Futuro Head"
     ; DE contiene el "Head Actual" (donde escribiremos)
@@ -188,13 +184,12 @@ trln_newline:
 
 trln_check_valid:
     ; If length > 0, valid line
-    push de
-    ld h, b
-    ld l, c
-    ld de, _rx_line
-    or a
-    sbc hl, de
-    pop de
+    ld a, c
+    sub _rx_line & 0xFF
+    ld l, a
+    ld a, b
+    sbc a, _rx_line >> 8
+    ld h, a
     ld a, l
     or h
     jr z, trln_loop     ; Ignore empty lines

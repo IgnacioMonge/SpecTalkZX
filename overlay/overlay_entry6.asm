@@ -1,9 +1,10 @@
 ;; overlay_entry6.asm -- Raw UDP NTP fallback for old ESP AT firmwares.
-;; Entry 0 in SPCTLK6.OVL. Runs before IRC TCP is opened.
+;; Entry 0: raw UDP NTP fallback. Entry 1: channel switcher render.
 
 SECTION code_user
 
 PUBLIC _sntp_udp_ovl
+EXTERN _switcher_render_ovl
 
 EXTERN _uart_send_string
 EXTERN _uart_send_line
@@ -28,8 +29,9 @@ EXTERN _status_bar_dirty
 
 DEFC TZ_RTC = 127
 
-    dw 1
+    dw 2
     dw _sntp_udp_ovl
+    dw _switcher_render_ovl
 
 _sntp_udp_ovl:
     ld a, (_sntp_tz)

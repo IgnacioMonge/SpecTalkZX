@@ -640,109 +640,7 @@ static void switcher_rebuild_map(void)
 
 static void switcher_render(void)
 {
-    char buf[SCREEN_COLS];
-    uint8_t i, j, pos;
-    uint8_t last_shown;
-    uint8_t tw;
-
-    // Rebuild map to pick up any added/removed channels
-    switcher_rebuild_map();
-    if (sw_count < 2) { switcher_close(); return; }
-
-    // Adjust sw_first so selected tab is visible
-    if (sw_first > sw_sel) sw_first = sw_sel;
-    while (sw_first < sw_sel) {
-        pos = (sw_first > 0) ? 2 : 0;
-        for (i = sw_first; i <= sw_sel; i++) {
-            if (i > sw_first) pos += 2;
-            pos += sw_tab_width(sw_map[i]);
-        }
-        if (pos <= SCREEN_COLS) break;
-        sw_first++;
-    }
-
-    memset(buf, ' ', SCREEN_COLS);
-
-    pos = (sw_first > 0) ? 2 : 0;  // "< " takes 2 cols (even)
-    last_shown = sw_first;
-
-    for (i = sw_first; i < sw_count; i++) {
-        uint8_t slot = sw_map[i];
-        const char *name = channels[slot].name;
-        uint8_t is_q = (channels[slot].flags & CH_FLAG_QUERY) ? 1 : 0;
-        if (*name == '#' || *name == '&') name++;
-        uint8_t nlen = st_strlen(name);
-        uint8_t need;
-        tw = sw_tab_width(slot);
-        need = tw + ((i > sw_first) ? 2 : 0);
-
-        if (pos + need > SCREEN_COLS) break;
-
-        if (i > sw_first) {
-            buf[pos] = ' ';
-            buf[pos + 1] = '|';
-            pos += 2;
-        }
-
-        // " N:name " or " N: @name " for queries
-        buf[pos] = ' ';
-        buf[pos + 1] = '0' + slot;
-        buf[pos + 2] = ':';
-        if (is_q) buf[pos + 3] = '@';
-        for (j = 0; j < nlen; j++) buf[pos + 3 + is_q + j] = name[j];
-        // trailing spaces already present from memset
-        pos += tw;
-        last_shown = i;
-    }
-
-    if (sw_first > 0) buf[0] = '<';
-    if (last_shown < sw_count - 1) buf[SCREEN_COLS - 1] = '>';
-
-    print_line64_fast(2, buf, ATTR_STATUS);
-
-    // Patch attributes: inverse=selected, BRIGHT=unread, FLASH=mention
-    {
-        uint8_t sel_attr = (ATTR_STATUS & 0xC0)
-                         | ((ATTR_STATUS & 0x07) << 3)
-                         | ((ATTR_STATUS >> 3) & 0x07);
-        uint8_t *attr_base = (uint8_t *)0x5840;  // row 2 attrs
-        uint8_t x0, attr, px, flags;
-
-        pos = (sw_first > 0) ? 2 : 0;
-        for (i = sw_first; i <= last_shown; i++) {
-            uint8_t slot = sw_map[i];
-            tw = sw_tab_width(slot);
-
-            if (i > sw_first) pos += 2;
-            x0 = pos;
-            pos += tw;
-
-            flags = channels[slot].flags;
-
-            if (i == sw_sel) {
-                attr = sel_attr;
-            } else if (flags & CH_FLAG_MENTION) {
-                attr = ATTR_STATUS | 0x80;       // FLASH
-            } else if (flags & CH_FLAG_UNREAD) {
-                attr = ATTR_STATUS | 0x40;       // BRIGHT
-            } else {
-                continue;
-            }
-
-            // x0 and pos are both even → clean attr cell boundaries
-            for (px = x0 >> 1; px < pos >> 1; px++)
-                attr_base[px] = attr;
-        }
-    }
-
-    // Save flags snapshot for change detection
-    {
-        uint8_t k;
-        for (k = 0; k < sw_count; k++)
-            sw_flags_snap[k] = channels[sw_map[k]].flags;
-    }
-
-    sw_dirty = 0;
+    overlay_exec(5, 1); /* SPCTLK6 entry 1 */
 }
 
 static void switcher_open(void)
@@ -868,11 +766,14 @@ uint8_t current_attr;  // Initialized in apply_theme()
 
 // COMMAND HISTORY
 #define HISTORY_SIZE    4
-// Reduced from 96 to 48; enough for command recall without burning BSS.
-#define HISTORY_LEN     48
+// Reduced 96 -> 48 -> 32; recall capped at 31 chars. line_buffer stays 128.
+#define HISTORY_LEN     32
 
 static char history[HISTORY_SIZE][HISTORY_LEN];
-static char history_draft[LINE_BUFFER_SIZE];
+// Draft restore is cold and mutually exclusive with search/switcher scratch.
+// Aliasing saves 128B BSS; drafts longer than SEARCH_PATTERN_SIZE-1 truncate
+// when returning from history navigation.
+#define history_draft search_pattern
 static uint8_t hist_head;
 static uint8_t hist_count;
 static int8_t hist_pos = -1;
@@ -919,7 +820,7 @@ static void history_nav_down(void)
     if (hist_pos < 0) return;
     hist_pos--;
     if (hist_pos < 0) {
-        st_copy_n(line_buffer, history_draft, sizeof(line_buffer));
+        st_copy_n(line_buffer, history_draft, sizeof(history_draft));
         line_len = st_strlen(line_buffer);
     } else {
         // OPTIMIZADO: % 4 -> & 3
@@ -1205,20 +1106,57 @@ static char sb_left_part[57];  // Buffer estático (ahorra stack frame)
 // copies net_short into sb_left_part[~25] (dest < source, no overlap corruption),
 // and extract_network_short is only called during draw_status_bar_real.
 #define net_short (sb_left_part + 45)
-static char *extract_network_short(char *hostname) __z88dk_fastcall
+static char *extract_network_short(char *hostname) __z88dk_fastcall ST_NAKED
 {
-    char *first_dot = strchr(hostname, '.');
-    if (!first_dot) return hostname;
+    (void)hostname;
+    __asm
+    push hl                         ; original hostname for no-short fallback
+ens_find_first:
+    ld a, (hl)
+    or a
+    jr z, ens_return_original
+    cp '.'
+    jr z, ens_have_first
+    inc hl
+    jr ens_find_first
 
-    char *src = first_dot + 1;
-    char *second_dot = strchr(src, '.');
-    if (!second_dot) return hostname;
+ens_have_first:
+    inc hl                          ; src = first_dot + 1
+    ld d, h
+    ld e, l                         ; DE = src
+ens_find_second:
+    ld a, (hl)
+    or a
+    jr z, ens_return_original
+    cp '.'
+    jr z, ens_copy_short
+    inc hl
+    jr ens_find_second
 
-    uint8_t len = (uint8_t)(second_dot - src);
-    if (len > 11) len = 11;
-    memcpy(net_short, src, len);
-    net_short[len] = '\0';
-    return net_short;
+ens_copy_short:
+    ld h, d
+    ld l, e                         ; HL = src
+    ld de, _sb_left_part + 45       ; net_short
+    ld b, 11
+ens_copy_loop:
+    ld a, (hl)
+    cp '.'
+    jr z, ens_copy_done
+    ld (de), a
+    inc hl
+    inc de
+    djnz ens_copy_loop
+ens_copy_done:
+    xor a
+    ld (de), a
+    pop bc                          ; discard original hostname
+    ld hl, _sb_left_part + 45
+    ret
+
+ens_return_original:
+    pop hl
+    ret
+    __endasm;
 }
 uint8_t force_status_redraw = 1;
 
@@ -1465,16 +1403,6 @@ void refresh_cursor_char(uint8_t idx, uint8_t show_cursor) __z88dk_callee
 void cursor_show(void) { refresh_cursor_char(cursor_pos, 1); }
 void cursor_hide(void) { refresh_cursor_char(cursor_pos, 0); }
 
-static void input_put_char_at(uint8_t abs_pos, char c) __z88dk_callee
-{
-    // OPTIMIZADO: Divisiones por 64 -> Shifts/Masks
-    uint8_t row = INPUT_START + (abs_pos >> 6);
-    uint8_t col = abs_pos & 63;
-    
-    if (row > INPUT_END) return;
-    put_char64_input_cached(row, col, c, ATTR_INPUT);
-}
-
 void redraw_input_from(uint8_t start_pos) __z88dk_fastcall
 {
     uint8_t i;
@@ -1563,7 +1491,9 @@ static void input_add_char(char c) __z88dk_fastcall
         // PD5: cursor_pos already incremented, so screen_abs = (cursor_pos-1)+2 = cursor_pos+1
         if (cursor_pos == line_len) {
             // Append rápido
-            input_put_char_at(cursor_pos + 1, c);
+            uint8_t abs_pos = cursor_pos + 1;
+            uint8_t row = INPUT_START + (abs_pos >> 6);
+            if (row <= INPUT_END) put_char64_input_cached(row, abs_pos & 63, c, ATTR_INPUT);
             input_prev_len = line_len;
             cursor_show();
         } else {
@@ -1588,25 +1518,6 @@ static void input_backspace(void)
         line_len = (uint8_t)(old_len - 1);
 
         redraw_input_from(cursor_pos);
-    }
-}
-
-
-static void input_left(void)
-{
-    if (cursor_pos > 0) {
-        cursor_hide();
-        cursor_pos--;
-        cursor_show();
-    }
-}
-
-static void input_right(void)
-{
-    if (cursor_pos < line_len) {
-        cursor_hide();
-        cursor_pos++;
-        cursor_show();
     }
 }
 
@@ -1780,7 +1691,6 @@ uint8_t esp_at_cmd(const char *cmd) __z88dk_fastcall
     return wait_for_response(S_OK, 30);
 }
 
-
 // ESP/WIFI INITIALIZATION
 // OPT L1: rx_drop_buffered eliminada (no usada)
 
@@ -1805,9 +1715,9 @@ uint8_t esp_init(void)
     flush_all_rx_buffers();
     
     // 1. Intentar salir del modo transparente (+++)
-    for (i = 0; i < 55; i++) frame_wait();  // 1.1s silencio
+    wait_drain(55);  // 1.1s silencio
     uart_send_string("+++");
-    for (i = 0; i < 55; i++) frame_wait();  // 1.1s silencio
+    wait_drain(55);  // 1.1s silencio
     flush_all_rx_buffers();
     
     // 2. Initialization commands (sequential — mixed extern/literal array
@@ -2231,7 +2141,7 @@ static uint8_t notif_slide_pos;  // chars currently visible
 static uint8_t notif_attr;       // render attribute
 
 // Unified notification dispatcher: ikkle (row 20) or classic (chat area)
-void notify(const char *msg, uint8_t attr)
+void notify(const char *msg, uint8_t attr) __z88dk_callee
 {
     if (notif_enabled) {
         if (notif_timeout && notif_buf[0]) {
@@ -3109,7 +3019,19 @@ void main(void)
                 }
                 else if (c == KEY_BACKSPACE) input_backspace();
                 else if ((c & 0xFE) == KEY_LEFT) {
-                    if (c == KEY_LEFT) input_left(); else input_right();
+                    if (c == KEY_LEFT) {
+                        if (cursor_pos > 0) {
+                            cursor_hide();
+                            cursor_pos--;
+                            cursor_show();
+                        }
+                    } else {
+                        if (cursor_pos < line_len) {
+                            cursor_hide();
+                            cursor_pos++;
+                            cursor_show();
+                        }
+                    }
                 }
                 else if ((c & 0xFE) == KEY_DOWN) {
                     if (c == KEY_UP) history_nav_up(); else history_nav_down();
