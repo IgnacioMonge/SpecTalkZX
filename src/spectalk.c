@@ -722,14 +722,24 @@ void reset_all_channels(void)
 // =============================================================================
 char *irc_params[IRC_MAX_PARAMS];
 uint8_t irc_param_count;
+uint8_t irc_params_dirty;
 
 // tokenize_params está implementada en ASM (spectalk_asm.asm)
-extern void tokenize_params(char *par, uint8_t max_params);
+extern void tokenize_params(char *par) __z88dk_fastcall;
+
+void irc_params_ensure(void)
+{
+    if (irc_params_dirty) {
+        irc_params_dirty = 0;
+        tokenize_params(pkt_par);
+    }
+}
 
 // Safe param accessor - returns empty string if out of bounds
 const char* irc_param(uint8_t idx) __z88dk_fastcall
 {
-    if (idx >= irc_param_count || !irc_params[idx]) return "";
+    irc_params_ensure();
+    if (idx >= irc_param_count) return "";
     return irc_params[idx];
 }
 

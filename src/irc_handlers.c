@@ -62,21 +62,23 @@ static void nb_init(const char *s) __z88dk_fastcall
     nb(s);
 }
 
-static void isolate_nick(char *prefix) __z88dk_fastcall ST_NAKED
+static char *split_prefix_nick(char *prefix) __z88dk_fastcall ST_NAKED
 {
     (void)prefix;
     __asm
-isolate_nick_loop:
+spn_prefix_loop:
     ld a,(hl)
     or a
     ret z
-    cp '!'
-    jr z,isolate_nick_found
+    cp 33
+    jr c,split_next_param_found
+    jr z,spn_bang
     inc hl
-    jr isolate_nick_loop
-isolate_nick_found:
+    jr spn_prefix_loop
+spn_bang:
     ld (hl),0
-    ret
+    inc hl
+    jr spn_prefix_loop
     __endasm;
 }
 
@@ -594,7 +596,8 @@ static void h_join(void)
     // Channel is first param; fallback to pkt_txt only if pkt_par is empty
     // (some servers send ":nick JOIN :#chan" where chan goes to trailing)
     // IRCv3 extended-join: ":nick JOIN #chan account :realname" — pkt_txt is realname
-    char *chan = (pkt_par[0] == '#' || pkt_par[0] == '&') ? pkt_par : pkt_txt;
+    const char *p0 = irc_param(0);
+    char *chan = (char *)((p0[0] == '#' || p0[0] == '&') ? p0 : pkt_txt);
     if (*chan == ':') chan++;
     if (!*chan) return;  // audit W09: reject malformed JOIN
 
@@ -1242,6 +1245,7 @@ static void h_numeric_5(void)
     // Busca "NETWORK=" en los params tokenizados (no en pkt_par raw)
     uint8_t pi;
     const char *net = NULL;
+    irc_params_ensure();
     for (pi = 1; pi < irc_param_count; pi++) {
         const char *p = irc_param(pi);
         if (p[0] == 'N' && p[1] == 'E' && p[2] == 'T' && p[3] == 'W' &&
@@ -1355,6 +1359,7 @@ print_tail:
     // H9: bypass irc_param() accessor — loop already bounds-checks vs irc_param_count
     {
         uint8_t i;
+        irc_params_ensure();
         for (i = 1; i < irc_param_count; i++) {
             const char *p = irc_params[i];
             if (p && *p) {
@@ -1403,11 +1408,6 @@ static void h_default_cmd(void)
 // DISPATCH TABLES
 // =============================================================================
 
-typedef struct {
-    uint16_t id;
-    void (*fn)(void);
-} CmdEntry;
-
 static void h_ignore(void) { /* Intentional no-op: suppress numerics 2,3,4 */ }
 
 static void h_pong(void)
@@ -1437,6 +1437,11 @@ static void h_kick_kill(void)
     if (pkt_cmd[2] == 'C') h_kick();
     else if (pkt_cmd[2] == 'L') h_kill();
 }
+
+typedef struct {
+    uint16_t id;
+    void (*fn)(void);
+} CmdEntry;
 
 static const CmdEntry CMD_TABLE[] = {
     // PERF-01: Hot path primero (>80% del tráfico IRC)
@@ -1514,9 +1519,8 @@ void parse_irc_message(char *line) __z88dk_fastcall
     char *cmd_start;
     if (line[0] == ':') {
         pkt_usr = line + 1;
-        cmd_start = split_next_param(pkt_usr);
+        cmd_start = split_prefix_nick(pkt_usr);
         if (*cmd_start == 0) return;
-        isolate_nick(pkt_usr);
     } else {
         cmd_start = line;
     }
@@ -1537,8 +1541,7 @@ void parse_irc_message(char *line) __z88dk_fastcall
         p++;
     }
 
-    // Tokenize params (modifies pkt_par in place)
-    tokenize_params(pkt_par, 0);
+    irc_params_dirty = 1;
 
     const char *c = pkt_cmd;
 

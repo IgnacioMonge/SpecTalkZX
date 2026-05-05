@@ -762,79 +762,34 @@ mci6_scan:
 
 
 ; =============================================================================
-; void tokenize_params(char *par, uint8_t max_params)
+; void tokenize_params(char *par) __z88dk_fastcall
 ; Trocea un string IRC separando por espacios y rellenando el array global irc_params
 ; Modifica el string 'par' in-situ (reemplaza espacios por NULLs)
-; cdecl stack is restored after extracting par/max_params.
+; HL = par. The only caller uses the default IRC_MAX_PARAMS=10 budget.
 ; =============================================================================
 _tokenize_params:
-    pop de                  ; return
-    pop hl                  ; par
-    pop bc                  ; C = max_params
-    push bc
-    push hl
-    push de                 ; restore cdecl stack
-    push iy
+    ld b, 10                ; B = slots restantes (IRC_MAX_PARAMS)
 
-    ; Inicializar contador a 0
-    xor a
-    ld (_irc_param_count), a
-
-    ; Comprobar string nulo
-    ld a, h
-    or l
-    jr z, tp_exit               ; OPT: jp?jr
+    ; Comprobar string vacio
     ld a, (hl)
     or a
     jr z, tp_exit               ; OPT: jp?jr
 
-    ; B = max_params (0 => 10 por defecto, resto clamp a 1..10)
-    ld a, c
-    dec a
-    cp 10
-    jr c, tp_max_ok
-    ld a, 9
-tp_max_ok:
-    inc a
-    ld b, a                 ; B = slots restantes (1..10)
-
-    ; IY = puntero al array de punteros (_irc_params)
-    ld iy, _irc_params
-
-    ; --- Saltar espacios/colons iniciales ---
-tp_skip_leading:
-    ld a, (hl)
-    or a
-    jr z, tp_exit           ; OPT: jp?jr
-    cp ' '
-    jr z, tp_skip_lead_next
-    cp ':'
-    jr nz, tp_main_loop     ; encontrado inicio de token
-
-tp_skip_lead_next:
-    inc hl
-    jr tp_skip_leading
+    ; DE = puntero al array de punteros (_irc_params)
+    ld de, _irc_params
 
     ; --- BUCLE PRINCIPAL DE TOKENIZADO ---
     ; HL = puntero actual en el string
-    ; IY = puntero actual en el array irc_params
+    ; DE = puntero actual en el array irc_params
     ; B  = slots restantes
 tp_main_loop:
-    ; Guard estricto: si no hay slots, NO escribir en _irc_params.
-    ld a, b
-    or a
-    jr z, tp_exit
-
     ; Guardar inicio del token en irc_params[count]
-    ld (iy+0), l
-    ld (iy+1), h
-    inc iy
-    inc iy                  ; avanzar al siguiente slot (2 bytes por puntero)
-
-    ; Incrementar cuenta
-    ld a, (_irc_param_count)
-    inc a
-    ld (_irc_param_count), a
+    ld a, l
+    ld (de), a
+    inc de
+    ld a, h
+    ld (de), a
+    inc de                  ; avanzar al siguiente slot (2 bytes por puntero)
 
     ; Decrementar cupo max
     dec b
@@ -865,7 +820,9 @@ tp_skip_spaces:
     jr tp_skip_spaces
 
 tp_exit:
-    pop iy
+    ld a, 10
+    sub b
+    ld (_irc_param_count), a
     ret
 
 

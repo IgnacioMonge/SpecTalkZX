@@ -585,8 +585,10 @@ uint8_t remove_ignore(const char *nick) __z88dk_fastcall;
 // =============================================================================
 // FUNCTION DECLARATIONS - IRC PARAMS (spectalk.c)
 // =============================================================================
-void tokenize_params(char *par, uint8_t max_params);
+void tokenize_params(char *par) __z88dk_fastcall;
 const char* irc_param(uint8_t idx) __z88dk_fastcall;
+void irc_params_ensure(void);
+extern uint8_t irc_params_dirty;
 
 // =============================================================================
 // FUNCTION DECLARATIONS - UART/TRANSPORT (spectalk.c)
