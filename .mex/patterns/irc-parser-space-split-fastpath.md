@@ -17,14 +17,22 @@
 ## Current Example
 
 - `parse_irc_message()` uses local `ST_NAKED` ASM `split_next_param()` for IRCv3 tag removal, prefix-to-command split, and command-to-params split. The helper now treats `1..32` as separators and skips following `<=32` bytes so a polluted `002` still reaches the numeric table.
-- `parse_irc_message()` deliberately reuses `split_next_param()` sequentially
-  at line start instead of keeping a separate normalization helper: first skip
-  a leading control/space token, then a raw `>` marker token, then an IRCv3
-  `@tags` token. This recovered 32B from the first tagged-message fix while
-  still making tagged `PRIVMSG`/`NOTICE` dispatch normally instead of leaking
-  through fallback rendering. Note the raw `>` marker tolerance is broader than
-  the first helper, so if future hardware shows false positives from fragmented
-  text, tighten that guard before patching `h_default_cmd()`.
+- `parse_irc_message()` deliberately reuses `split_next_param()` at line start
+  instead of keeping a separate normalization helper. The cleanup is now a loop:
+  repeatedly skip leading control/space tokens, raw ESP/debug `>` marker tokens,
+  and IRCv3 `@tags` tokens until the real prefix/command starts. This preserves
+  tagged `PRIVMSG`/`NOTICE` dispatch even when hardware feeds repeated markers
+  such as `> > @time=...` or `>> @time=...`. Do not hide these leaks in
+  `h_default_cmd()` first.
+- Channel-targeted `PRIVMSG` must not fall through to the current window when
+  the target starts with `#` but `find_channel(target)` fails. Return instead;
+  otherwise a malformed tagged line or transient channel-state mismatch can
+  display `PRIVMSG #other ...` in the active channel. Keep `h_privmsg_notice()`
+  on the optimized direct `pkt_par` path for valid `PRIVMSG #target :text` /
+  `NOTICE target :text`; trailing isolation has already NUL-terminated `pkt_par`
+  at the target. Do not force `irc_param(0)` here unless hardware proves
+  direct `pkt_par` still leaks, because that reintroduces full param
+  tokenization on the hottest IRC command path.
 - `tokenize_params()` is a single-callsite parser helper. Keep its ABI as
   `void tokenize_params(char *par) __z88dk_fastcall`: `parse_irc_message()`
   always uses the default 10 IRC params, `split_next_param()` already removes

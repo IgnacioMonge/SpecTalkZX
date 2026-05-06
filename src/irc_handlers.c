@@ -422,19 +422,18 @@ static void h_privmsg_notice(void)
 
     if (target[0] == '#') {
         int8_t idx = find_channel(target);
-        if (idx >= 0) {
-            mark_channel_activity((uint8_t)idx);
+        if (idx < 0) return;
+        mark_channel_activity((uint8_t)idx);
 
-            // Mención en canal NO activo: marcar flag y salir
-            if (!overlay_mode && (uint8_t)idx != current_channel_idx && irc_nick[0] && st_stristr(pkt_txt, irc_nick)) {
-                channels[(uint8_t)idx].flags |= CH_FLAG_MENTION;
-                status_bar_dirty = 1;
-                mention_beep();
-                notify3(pkt_usr, " mentioned you in ", target, ATTR_MSG_NICK);
-            }
-
-            if ((uint8_t)idx != current_channel_idx) return;
+        // Mención en canal NO activo: marcar flag y salir
+        if (!overlay_mode && (uint8_t)idx != current_channel_idx && irc_nick[0] && st_stristr(pkt_txt, irc_nick)) {
+            channels[(uint8_t)idx].flags |= CH_FLAG_MENTION;
+            status_bar_dirty = 1;
+            mention_beep();
+            notify3(pkt_usr, " mentioned you in ", target, ATTR_MSG_NICK);
         }
+
+        if ((uint8_t)idx != current_channel_idx) return;
     }
 
     // --- CTCP HANDLING ---
@@ -1511,9 +1510,11 @@ void parse_irc_message(char *line) __z88dk_fastcall
     
     if (!line || !*line) return;
 
-    if ((uint8_t)line[0] <= 32) line = split_next_param(line);
-    if (line[0] == '>') line = split_next_param(line);
-    if (line[0] == '@') line = split_next_param(line);
+    while (*line) {
+        uint8_t c = line[0];
+        if ((uint8_t)c > 32 && c != '>' && c != '@') break;
+        line = split_next_param(line);
+    }
     if (!*line) return;
 
     char *cmd_start;
