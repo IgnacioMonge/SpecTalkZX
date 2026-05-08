@@ -53,11 +53,13 @@ u8a_2byte_ext:
 u8a_first_cont_or_latin1:
     ld c, a                 ; save lead for Latin-1 fallback
     inc hl
-    ld a, (hl) : or a : jp z, u8a_c3
+    ld a, (hl) : or a : jr z, u8a_first_cont_fallback
     and 0xC0
     cp 0x80
-    jp nz, u8a_c3
-    ret
+    ret z
+u8a_first_cont_fallback:
+    pop af                  ; discard helper return before non-local fallback
+    jp u8a_c3
 
 u8a_done:
     xor a
