@@ -1,22 +1,17 @@
 # Traffic And Notification Routing
 
-`!traffic` controls visible user-presence movement (`JOIN`, `PART`, and
-`QUIT`). Administrative channel events are visible only for the current channel.
+`!traffic` controls only visible user-presence movement in a channel:
+`JOIN`, `PART`, and `QUIT`. It must not decide whether administrative channel
+events are shown.
 
 ## Rule
 
-- Gate active-channel `JOIN`/`PART`/`QUIT` render with `show_traffic`.
+- Gate only active-channel `JOIN`/`PART`/`QUIT` render with `show_traffic`.
   Counter changes, status redraws, friend notifications, and query cleanup still
   happen even when traffic display is off.
-- `QUIT` is channel-independent for state: still close matching query windows
-  and keep the accepted single-channel user-count decrement even when hidden.
-- Route current-channel administrative events through `notify()`: `KICK`,
-  channel `MODE`, ban/unban (`MODE +b/-b`), and numeric channel mode replies
-  such as `324`.
-- Hide the same administrative events for non-current channels after applying
-  their state change. Do not mark unread/activity for suppressed `PART`,
-  non-self `KICK`, `MODE`, or `324`.
-- `notify()` is the single user preference for visible admin events:
+- Route channel administrative events through `notify()`: `KICK`, channel `MODE`,
+  ban/unban (`MODE +b/-b`), and numeric channel mode replies such as `324`.
+- `notify()` is the single user preference for those admin events:
   `!notif 1` uses the footer notification, while `!notif 0` renders classic
   inline output in the main area.
 - Classic inline `notify()` output must call `main_print_time_prefix()` so it

@@ -629,7 +629,7 @@ static void cmd_part(const char *args) __z88dk_fastcall
     char *cname_ptr = channels[idx].name;
 
     // FIX: si es query/privado, NO enviar PART (evita 403 -> "Cannot join ... No such channel")
-    if (!(channels[idx].flags & CH_FLAG_QUERY)) {
+    if (!(channels[idx].flags & CH_FLAG_QUERY) && (cname_ptr[0] == '#' || cname_ptr[0] == '&')) {
         // OPT: unificar envío (irc_send_cmd2 ignora p2 si es NULL/vacío)
         irc_send_cmd2(S_PART_CMD, cname_ptr, reason);
     }
