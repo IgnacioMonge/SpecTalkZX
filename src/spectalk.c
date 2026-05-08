@@ -2199,7 +2199,8 @@ void notify(const char *msg, uint8_t attr) __z88dk_callee
         if (main_col) main_newline();
         current_attr = attr;
         main_print_time_prefix();
-        main_print(msg);
+        if (msg == temp_input) main_print_wrapped_clean((char *)msg);
+        else main_print(msg);
     }
 }
 

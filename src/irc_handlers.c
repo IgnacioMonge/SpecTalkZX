@@ -51,7 +51,7 @@ static char *nb_p;
 
 static void nb(const char *s) __z88dk_fastcall
 {
-    char *end = temp_input + 56;
+    char *end = temp_input + (notif_enabled ? 56 : LINE_BUFFER_SIZE - 1);
     while (*s && nb_p < end) *nb_p++ = *s++;
 }
 
@@ -295,18 +295,19 @@ static void h_mode(void)
     // --- MODE de canal ---
     if (target[0] == '#') {
         int8_t idx = find_channel(target);
-        if (idx >= 0) {
-            const char *modes = irc_param(1);
-            if (*modes) {
-                st_copy_n(channels[idx].mode, modes, sizeof(channels[0].mode));
-                mode_text = modes;
-            }
+        const char *modes;
+        if (idx < 0) return;
+        modes = irc_param(1);
+        if (*modes) {
+            st_copy_n(channels[idx].mode, modes, sizeof(channels[0].mode));
+            mode_text = modes;
         }
+        if ((uint8_t)idx != current_channel_idx) return;
 
         if (!*mode_text) mode_text = "(unknown)";
 
         /* Human-readable for +b/-b (ban/unban), notify() for the rest */
-        if (mode_text[0] && mode_text[1] == 'b' && (mode_text[0] == '+' || mode_text[0] == '-')) {
+        if ((mode_text[0] == '+' || mode_text[0] == '-') && mode_text[1] == 'b') {
             { const char *mask = irc_param(2);
               notify3(pkt_usr,
                       mode_text[0] == '+' ? " sets ban on " : " removes ban on ",
@@ -682,8 +683,6 @@ static void h_part(void)
             if ((uint8_t)idx == current_channel_idx) {
                 if (show_traffic) print_departure(" left");
                 draw_status_bar();
-            } else {
-                mark_channel_activity((uint8_t)idx);
             }
         }
     }
@@ -695,7 +694,7 @@ static void h_quit(void)
     if (!overlay_mode && is_tracked_friend(pkt_usr))
         notify2(pkt_usr, S_QUIT_SUFFIX, ATTR_MSG_NICK);
 
-    if (show_traffic && current_channel_idx > 0) {
+    if (show_traffic && current_channel_idx) {
         print_departure(S_QUIT_SUFFIX);
     }
 
@@ -718,10 +717,9 @@ static void h_quit(void)
         ChannelInfo *ch = &channels[1];
         uint8_t i;
         for (i = 1; i < MAX_CHANNELS && joined_cnt < 2; i++, ch++) {
-            uint8_t f = ch->flags;
-            if ((f & CH_FLAG_ACTIVE) && !(f & CH_FLAG_QUERY)) {
-                char c = ch->name[0];
-                if (c == '#' || c == '&') { joined_cnt++; target_idx = i; }
+            if ((ch->flags & (CH_FLAG_ACTIVE | CH_FLAG_QUERY)) == CH_FLAG_ACTIVE) {
+                joined_cnt++;
+                target_idx = i;
             }
         }
         if (joined_cnt == 1) channel_dec_users(target_idx);
@@ -749,6 +747,7 @@ static void h_kick(void)
         if (idx > 0) remove_channel((uint8_t)idx);
     } else {
         if (idx >= 0) {
+            channel_dec_users(idx);
             if ((uint8_t)idx == current_channel_idx) {
                 nb_init(S_ASTERISK);
                 nb(target);
@@ -761,11 +760,8 @@ static void h_kick(void)
                 }
                 NB_END();
                 notify(temp_input, ATTR_MSG_SYS);
-            } else {
-                mark_channel_activity((uint8_t)idx);
+                draw_status_bar();
             }
-            channel_dec_users(idx);
-            if ((uint8_t)idx == current_channel_idx) draw_status_bar();
         }
     }
 }
@@ -873,10 +869,10 @@ static void h_numeric_324(void)
     const char *modes = irc_param(2);
     if (!*chan || !*modes) return;
     int8_t idx = find_channel(chan);
-    if (idx >= 0) {
-        st_copy_n(channels[idx].mode, modes, sizeof(channels[0].mode));
-        if ((uint8_t)idx == current_channel_idx) draw_status_bar();
-    }
+    if (idx < 0) return;
+    st_copy_n(channels[idx].mode, modes, sizeof(channels[0].mode));
+    if ((uint8_t)idx != current_channel_idx) return;
+    draw_status_bar();
     nb_init(S_MODE_SP_SCR);
     nb(chan);
     nb(" ");

@@ -32,6 +32,14 @@ rather than hand-written ASM.
   deliberately desired.
 - `remove_channel()` already calls `draw_status_bar()` before returning; do not
   add a second redraw after it unless the caller has changed state again.
+- Active non-query slots above index 0 are real joined channels in the current
+  slot model (`add_channel()` uses `CH_FLAG_ACTIVE`; `add_query()` adds
+  `CH_FLAG_QUERY`; server/status is slot 0). In count scans and `/part` send
+  gating, checking `CH_FLAG_ACTIVE | CH_FLAG_QUERY` can replace redundant
+  `#`/`&` name-prefix probes when the code already excludes slot 0.
+- In `h_mode()`, testing the sign first in the ban/unban path is smaller than
+  a separate non-empty guard: `(mode_text[0] == '+' || mode_text[0] == '-') &&
+  mode_text[1] == 'b'`. The empty-string case is still false by short-circuit.
 
 ## Guardrails
 
@@ -58,13 +66,29 @@ rather than hand-written ASM.
 - `find_query()` already returns only query slots or `-1`, so rechecking
   `channels[idx].flags & CH_FLAG_QUERY` after `idx > 0` is redundant and
   measured smaller when removed.
+- Do not apply the active-non-query shortcut to display formatting. Prefix
+  checks in tab width/switcher labels intentionally strip `#`/`&` from visible
+  names and are not slot-type tests.
+- Do not replace `REQUIRE_CHAN()` or the current-channel `cmd_topic()` fallback
+  with `current_channel_idx`/`chan_flags` unless re-measured on a new layout.
+  On 2026-05-08, the macro probe grew TAP by `+41B`; the topic fallback alone
+  grew by `+6B`. The existing `IS_CHAN_PREFIX(irc_channel[0])` shape is smaller
+  in this SDCC layout.
 - Treat scheduler arithmetic rewrites as behavioral changes, not pure shrink,
   if they alter maximum parse work per main-loop pass. The measured
   `max_lines = 6 + ((uint8_t)(backlog >> 8) << 3)` rewrite was rejected and
   reverted because it raised the high-backlog cap from 32 to about 62 lines.
+- Do not cache `rx_line[0]` into a local inside `process_irc_data()`'s SNTP wait
+  loop without re-measuring. In the 2026-05-08 inline-wrap layout it grew the
+  build instead of shrinking it.
+- Do not simplify the trailing-text parser guard from `p > pkt_txt && p[-1] ==
+  ' '` to `p > pkt_txt` without re-measuring. It is logically redundant, but in
+  the 2026-05-08 inline-wrap layout the emitted code grew.
 
 ## Applied In
 
 - `src/irc_handlers.c` search result and WHOIS numeric handlers
+- `src/irc_handlers.c` `h_quit()` one-channel count scan
 - `src/user_cmds.c` `cmd_nick()`
+- `src/user_cmds.c` `cmd_part()`
 - `src/spectalk.c` `esp_init()`
