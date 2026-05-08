@@ -1,6 +1,7 @@
 ; =============================================================================
 ; UTF-8 to ASCII + IRC control cleanup.
 ; Cubre Latin-1 Supplement (C2 80-BF, C3 80-BF) = codepoints 0080-00FF
+; and falls back for single-byte Latin-1/CP1252 accents from old IRC clients.
 ; =============================================================================
 PUBLIC _utf8_to_ascii
 
@@ -15,25 +16,48 @@ u8a_loop:
     jr z, u8a_done
     
     cp 0x80
-    jr c, u8a_copy          ; OPT: jp?jr (00-7F: ASCII)
+    jp c, u8a_copy          ; 00-7F: ASCII
+
+    cp 0xC0
+    jp c, u8a_skip1         ; 80-BF: orphan continuation/C1 controls
 
     cp 0xC2
-    jr c, u8a_skip1         ; OPT: jp?jr (80-C1: inv?lido)
+    jr c, u8a_latin1_single ; C0-C1: single-byte Latin-1 fallback
 
     cp 0xC4
     jp c, u8a_latin1
 
     cp 0xE0
-    jr c, u8a_skip2         ; OPT: jp?jr (C4-DF: Latin Extended)
+    jr c, u8a_2byte_ext     ; C4-DF: UTF-8 2-byte or Latin-1 fallback
 
     cp 0xF0
     jr c, u8a_3byte         ; E0-EF: 3-byte handler (smart quotes)
     
     ; F0+: 4 bytes
-u8a_skip4:
+u8a_4byte:
+    call u8a_first_cont_or_latin1
     inc hl
-    ld a, (hl) : or a : jr z, u8a_done
-    jr u8a_skip3
+    ld a, (hl) : or a : jr z, u8a_store_q
+    jr u8a_3byte_have_second
+
+u8a_latin1_single:
+    ld c, a
+    inc hl
+    jp u8a_c3
+
+u8a_2byte_ext:
+    call u8a_first_cont_or_latin1
+    inc hl
+    jr u8a_store_q
+
+u8a_first_cont_or_latin1:
+    ld c, a                 ; save lead for Latin-1 fallback
+    inc hl
+    ld a, (hl) : or a : jp z, u8a_c3
+    and 0xC0
+    cp 0x80
+    jp nz, u8a_c3
+    ret
 
 u8a_done:
     xor a
@@ -41,16 +65,25 @@ u8a_done:
     pop hl
     ret
 
+u8a_store_q:
+    ld a, '?'
+    jp u8a_store
+
 ; Smart quotes: E2 80 98/99 ? apostrophe (39), E2 80 9C/9D ? double quote (34)
 u8a_3byte:
     cp 0xE2
-    jr nz, u8a_skip3
-    inc hl
-    ld a, (hl) : or a : jr z, u8a_done
+    jr nz, u8a_3byte_generic
+    call u8a_first_cont_or_latin1
+    ld a, (hl)
     cp 0x80
-    jr nz, u8a_skip1        ; not E2 80 xx ? skip byte 3 ? '?'
+    jr nz, u8a_3byte_have_second
     inc hl
-    ld a, (hl) : or a : jr z, u8a_done
+    ld a, (hl) : or a : jr z, u8a_store_q
+    ld b, a
+    and 0xC0
+    cp 0x80
+    jr nz, u8a_store_q
+    ld a, b
     inc hl
     or 0x01                  ; pair 98/99?99, 9C/9D?9D
     ld c, a                  ; save OR'd byte3 (fix: A clobbered by ld)
@@ -64,16 +97,17 @@ u8a_3byte:
     ld a, '?'                ; audit L11: unknown E2 80 XX ? '?' not '"'
     jp u8a_store
 
-u8a_skip3:
+u8a_3byte_generic:
+    call u8a_first_cont_or_latin1
+u8a_3byte_have_second:
     inc hl
-    ld a, (hl) : or a : jr z, u8a_done
-u8a_skip2:
+    ld a, (hl) : or a : jr z, u8a_store_q
     inc hl
-    ld a, (hl) : or a : jr z, u8a_done
+    jr u8a_store_q
+
 u8a_skip1:
     inc hl
-    ld a, '?'
-    jp u8a_store
+    jr u8a_store_q
 
 u8a_copy:
     cp 0x02                 ; IRC bold
@@ -90,7 +124,7 @@ u8a_copy:
     inc de
 u8a_ascii_skip:
     inc hl
-    jr u8a_loop
+    jp u8a_loop
 
 u8a_color:
     inc hl
@@ -128,15 +162,14 @@ u8a_latin1:
     inc hl
     ld a, (hl)
     or a
-    jp z, u8a_done
+    jp z, u8a_store_q
     ld c, a                 ; C = segundo byte (80-BF)
     inc hl
 
     ; Verificar que C es continuation (80-BF)
-    ld a, c
     and 0xC0
     cp 0x80
-    jr nz, u8a_invalid      ; OPT: jp?jr
+    jr nz, u8a_invalid_utf8_latin1
 
     ; B=C2: codepoint = 80 + (C & 3F) = 80-BF
     ; B=C3: codepoint = C0 + (C & 3F) = C0-FF
@@ -178,8 +211,9 @@ u8a_c3:
     pop hl              ; FIX-C2: restaurar puntero de lectura
     jr u8a_store            ; OPT: jp?jr (5 bytes)
 
-u8a_invalid:
-    ld a, '?'
+u8a_invalid_utf8_latin1:
+    dec hl                  ; keep the non-continuation byte for next pass
+    jp u8a_store_q
     
 u8a_store:
     ld (de), a
@@ -279,28 +313,23 @@ spr_scan:
 spr_found:
     ; Parse hour
     call spr_parse2
+    cp 24
+    ret nc                  ; invalid hour
     ld (_time_hour), a
     inc hl              ; HL past ':'
 
     ; Parse minute
     call spr_parse2
+    cp 60
+    ret nc                  ; invalid minute
     ld (_time_minute), a
     inc hl              ; HL past ':'
 
     ; Parse second
     call spr_parse2
-    ld (_time_second), a
-
-    ; Validate ranges: hour < 24, minute < 60, second < 60
-    ld a, (_time_hour)
-    cp 24
-    ret nc                  ; invalid hour
-    ld a, (_time_minute)
-    cp 60
-    ret nc                  ; invalid minute
-    ld a, (_time_second)
     cp 60
     ret nc                  ; invalid second
+    ld (_time_second), a
 
     ; Sync frame ticker to current FRAMES, sntp_waiting = 0, sntp_queried = 1
     ld a, (23672)           ; FRAMES low byte
