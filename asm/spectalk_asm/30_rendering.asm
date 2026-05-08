@@ -616,6 +616,124 @@ nd_done:
     pop ix
     ret
 
+; void ikkle_draw(uint8_t y, uint8_t start_col, const char *str, uint8_t attr)
+; Stack: [IX+4]=y, [IX+5]=start_col, [IX+6,7]=str, [IX+8]=attr.
+; Draws Ikkle-4 glyphs at scanlines 2..5 of the chosen 8px text row.
+_ikkle_draw:
+    call ___sdcc_enter_ix
+
+    ld l, (ix+6)
+    ld h, (ix+7)                ; HL = str
+    ld c, (ix+5)                ; C = current 64-col column
+
+id_char_loop:
+    ld a, c
+    cp 64
+    jp nc, id_done
+
+    ld a, (hl)
+    or a
+    jp z, id_done
+
+    push hl
+
+    ld a, c
+    srl a
+    ld b, a                     ; B = physical x byte
+
+    ld a, (hl)
+    cp 33
+    jr c, id_set_attr_space
+    cp 128
+    jr nc, id_set_attr_space
+    cp 96
+    jr c, id_no_fold
+    sub 32                      ; lowercase -> uppercase
+id_no_fold:
+    sub 32
+    add a, a
+    ld e, a
+    ld d, 0
+    push hl
+    ld hl, ikkle_packed
+    add hl, de
+    ld d, (hl)
+    inc hl
+    ld e, (hl)
+    pop hl
+
+    ld a, (ix+4)
+    call _compute_screen_base
+    inc h
+    inc h                       ; scanline 2
+    ld a, b
+    add a, l
+    ld l, a
+
+    bit 0, c
+    jr nz, id_odd_col
+
+    ld a, d
+    and 0xF0
+    ld (hl), a
+    ld a, d
+    and 0x0F
+    rlca \ rlca \ rlca \ rlca
+    inc h
+    ld (hl), a
+    ld a, e
+    and 0xF0
+    inc h
+    ld (hl), a
+    ld a, e
+    and 0x0F
+    rlca \ rlca \ rlca \ rlca
+    inc h
+    ld (hl), a
+    jr id_set_attr_drawn
+
+id_odd_col:
+    ld a, d
+    rrca \ rrca \ rrca \ rrca
+    and 0x0F
+    or (hl)
+    ld (hl), a
+    ld a, d
+    and 0x0F
+    inc h
+    or (hl)
+    ld (hl), a
+    ld a, e
+    rrca \ rrca \ rrca \ rrca
+    and 0x0F
+    inc h
+    or (hl)
+    ld (hl), a
+    ld a, e
+    and 0x0F
+    inc h
+    or (hl)
+    ld (hl), a
+
+id_set_attr_space:
+id_set_attr_drawn:
+    ld a, (ix+4)
+    call _compute_attr_base
+    ld a, b
+    add a, l
+    ld l, a
+    ld a, (ix+8)
+    ld (hl), a
+
+    pop hl
+    inc hl
+    inc c
+    jp id_char_loop
+
+id_done:
+    pop ix
+    ret
+
 ; -----------------------------------------------------------------------------
 ; void put_char64_input_cached(uint8_t y, uint8_t col, char ch, uint8_t attr)
 ; __z88dk_callee. Preserves the C helper contract, but specializes the hot

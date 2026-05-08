@@ -884,10 +884,7 @@ static void h_numeric_324(void)
 static void print_topic_line(char *text) __z88dk_fastcall
 {
     current_attr = ATTR_MSG_TOPIC;
-    { uint8_t sv = show_timestamps;
-      if (counting_new_users && sv != 1) show_timestamps = 1;
-      main_print_time_prefix();
-      show_timestamps = sv; }
+    main_print_time_prefix();
     main_puts(S_TOPIC_PFX);
     deferred_wrap_start(text);
 }

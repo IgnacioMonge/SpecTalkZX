@@ -491,6 +491,7 @@ int8_t add_query(const char *nick) __z88dk_fastcall
     // CRÍTICO: Limitar queries privados para reservar slots para canales
     uint8_t query_count = 0;
     uint8_t i;
+
     for (i = 1; i < MAX_CHANNELS; i++) {
         if ((channels[i].flags & (CH_FLAG_ACTIVE | CH_FLAG_QUERY)) == (CH_FLAG_ACTIVE | CH_FLAG_QUERY)) {
             query_count++;
@@ -553,11 +554,119 @@ void remove_channel(uint8_t idx) __z88dk_fastcall
     if (was_current) redraw_input_full();
 }
 
+static uint8_t channel_context_attr(const char *name) __z88dk_fastcall
+{
+    uint8_t h = 0;
+    uint8_t c;
+    static const uint8_t cc_inks[] = { 2, 5, 6, 4, 3, 7 };
+
+    if (current_channel_idx == 0) return 0x47;
+
+    while ((c = (uint8_t)*name++) != 0) {
+        if (c <= 32 || c == '@') continue;
+        if (c >= 'A' && c <= 'Z') c += 32;
+        h += (uint8_t)((c ^ (c >> 3)) & 7);
+        if (h >= 6) h -= 6;
+        if (h >= 6) h -= 6;
+    }
+
+    return (uint8_t)(0x40 | cc_inks[h]);
+}
+
+static char *channel_context_put2(char *p, uint8_t v) __z88dk_callee
+{
+    char tens = '0';
+    while (v >= 10) { v -= 10; tens++; }
+    *p++ = tens;
+    *p++ = (char)('0' + v);
+    return p;
+}
+
+static uint8_t channel_context_next_row;
+static uint8_t channel_context_anchor_idx;
+
+static void channel_context_banner(void)
+{
+    uint8_t row;
+    uint8_t attr;
+    uint8_t start_byte;
+    uint8_t end_byte;
+    uint8_t name_col;
+    uint8_t name_len;
+    uint8_t i;
+    uint8_t erase_only = 0;
+    const char *src;
+    char *p;
+    char *name;
+    uint8_t *pix;
+    uint8_t *ap;
+
+    if (overlay_mode || pagination_active || deferred_wrap_active) return;
+    if (!irc_channel[0]) return;
+
+    if (main_col) {
+        channel_context_next_row = 0;
+        main_newline();
+    } else if (main_line == channel_context_next_row) {
+        main_line--;
+        if (current_channel_idx == channel_context_anchor_idx) {
+            erase_only = 1;
+        }
+    }
+
+    p = temp_input;
+    p = channel_context_put2(p, time_hour);
+    *p++ = ':';
+    p = channel_context_put2(p, time_minute);
+    *p = 0;
+
+    name = temp_input + 8;
+    p = name;
+    if (current_channel_idx == 0 || (chan_flags & CH_FLAG_QUERY)) *p++ = ' ';
+    src = irc_channel;
+    for (i = 0; src[i] && (uint8_t)(p - name) < 28; i++)
+        *p++ = (src[i] == '#' || src[i] == '&') ? ' ' : src[i];
+    *p = 0;
+    name_len = (uint8_t)(p - name);
+    if (!name_len) return;
+
+    row = main_line;
+    attr = channel_context_attr(name);
+    clear_line(row, ATTR_MAIN_BG);
+    if (erase_only) {
+        channel_context_next_row = 0;
+        return;
+    }
+
+    name_col = (uint8_t)(SCREEN_COLS - name_len);
+    start_byte = 3; /* after HH:MM + one 64-col gap */
+    end_byte = (uint8_t)((name_col >> 1) - 1);
+
+    pix = (uint8_t *)(SCREEN_ROW_ADDR(row) + 0x0400); /* scanline 4 */
+    ap = (uint8_t *)(0x5800 + ((uint16_t)row << 5));
+    if (end_byte >= start_byte) {
+        for (i = start_byte; i <= end_byte; i++) {
+            pix[i] = 0xFF;
+            ap[i] = attr;
+        }
+    }
+
+    ikkle_draw(row, 0, temp_input, attr);
+    ikkle_draw(row, name_col, name, attr);
+    last_ts_hour = time_hour;
+    last_ts_minute = time_minute;
+    main_newline();
+    channel_context_next_row = main_line;
+}
+
 void switch_to_channel(uint8_t idx) __z88dk_fastcall
 {
     if (idx >= MAX_CHANNELS || !(channels[idx].flags & CH_FLAG_ACTIVE)) return;
     if (idx == current_channel_idx) return;
 
+    if (main_col || main_line != channel_context_next_row) {
+        channel_context_anchor_idx = current_channel_idx;
+    }
     nav_push(current_channel_idx);
 
     current_channel_idx = idx;
@@ -570,6 +679,7 @@ void switch_to_channel(uint8_t idx) __z88dk_fastcall
     set_border(BORDER_COLOR);
     force_status_redraw = 1;
     status_bar_dirty = 1;
+    channel_context_banner();
     redraw_input_full();
 }
 
@@ -578,7 +688,6 @@ void switch_or_notify(uint8_t idx) __z88dk_fastcall
 {
     if (idx != current_channel_idx) {
         switch_to_channel(idx);
-        notify2(S_SWITCHED, irc_channel, ATTR_MSG_JOIN);
     } else {
         notify2(S_ALREADY, irc_channel, ATTR_MSG_SYS);
     }
@@ -706,6 +815,8 @@ void reset_all_channels(void)
 
     current_channel_idx = 0;
     cur_chan_ptr = channels;
+    channel_context_next_row = 0;
+    channel_context_anchor_idx = 0;
     channel_count = 1;
     other_channel_activity = 0;  // FIX: limpiar indicador de actividad
 }
@@ -2738,7 +2849,8 @@ void main(void)
                      * about_pump() still handles server PING/PONG traffic. */
                 } else if (keepalive_ping_sent) {
                     // Waiting for PONG - check timeout
-                    if (++keepalive_timeout >= KEEPALIVE_TIMEOUT_FRAMES) {
+                    if (++keepalive_timeout >= KEEPALIVE_TIMEOUT_FRAMES &&
+                        server_silence_frames >= KEEPALIVE_TIMEOUT_FRAMES) {
                         // No response to PING - connection is dead
                         set_attr_err();
                         main_puts(S_TIMEOUT);

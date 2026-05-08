@@ -89,15 +89,20 @@ static uint8_t prompt_yn(const char *q) __z88dk_fastcall
     uint8_t tmout = 250;  // ~5s
 
     set_attr_err();
-    main_print(q);
+    main_puts(q);
     while (tmout--) {
         uint8_t k = in_inkey();
         frame_wait();
         uart_drain_to_buffer();
         while (try_read_line_nodrain());
-        if ((k | 32) == 'y') return 1;
-        if ((k | 32) == 'n') return 0;
+        k |= 32;
+        if (k == 'y' || k == 'n') {
+            main_putc(k);
+            main_newline();
+            return (k == 'y');
+        }
     }
+    main_newline();
     return 0;
 }
 
@@ -500,7 +505,6 @@ static void cmd_connect_retry(const char *args) __z88dk_fastcall
     while (connection_state >= STATE_WIFI_OK && connection_state < STATE_TCP_CONNECTED
            && irc_server[0] && irc_nick[0]
            && prompt_yn("Retry (y/n)?")) {
-        main_newline();
         cmd_connect(NULL);
     }
 }

@@ -151,6 +151,7 @@ PUBLIC _sb_append
 PUBLIC _draw_badge_dither
 PUBLIC _notif_clear
 PUBLIC _notif_draw
+PUBLIC _ikkle_draw
 PUBLIC _ikkle_packed
 PUBLIC _in_inkey
 PUBLIC asm_in_inkey
