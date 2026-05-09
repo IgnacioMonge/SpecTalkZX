@@ -721,7 +721,6 @@ static void h_quit(void)
         if (qidx > 0) {
             /* W13: close query window when other user QUITs */
             remove_channel((uint8_t)qidx);
-            status_bar_dirty = 1;
         }
     }
 
