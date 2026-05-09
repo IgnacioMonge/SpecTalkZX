@@ -650,7 +650,7 @@ dws_cut_common:
     bit 0, a
     jr nz, dws_print_puts
 
-    srl a
+    rrca
     ld (_plf_start_byte), a
 
     ; segment length = cut - start (low byte is enough, max 64)
