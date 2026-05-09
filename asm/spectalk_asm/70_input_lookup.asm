@@ -823,10 +823,10 @@ fq_loop_init:
     ld b, 1             ; B = i
 
 fq_loop:
-    ld a, (_channel_count)
-    cp b
-    jr z, fq_ret_neg1_iy ; i >= channel_count
-    jr c, fq_ret_neg1_iy
+    ld a, b
+    ld hl, _channel_count
+    cp (hl)
+    jr nc, fq_ret_neg1_iy ; i >= channel_count
 
     ; Check flags: (ch->flags & (ACTIVE|QUERY)) == (ACTIVE|QUERY)
     ; flags at offset 30 from DE
