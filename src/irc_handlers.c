@@ -479,10 +479,7 @@ static void h_privmsg_notice(void)
                         set_attr_chan();
                     } else {
                         int8_t query_idx = add_query(pkt_usr);
-                        if (query_idx >= 0) {
-                            status_bar_dirty = 1;
-                            mark_channel_activity((uint8_t)query_idx);
-                        }
+                        if (query_idx >= 0) mark_channel_activity((uint8_t)query_idx);
                         set_attr_priv();
                     }
                     main_print_time_prefix();
@@ -569,11 +566,7 @@ static void h_privmsg_notice(void)
         }
         deferred_wrap_start(pkt_txt);
     } else {
-        int8_t query_idx = find_query(pkt_usr);
-        if (query_idx < 0) {
-            query_idx = add_query(pkt_usr);
-            if (query_idx >= 0) status_bar_dirty = 1;
-        }
+        int8_t query_idx = add_query(pkt_usr);
         if (query_idx >= 0) mark_channel_activity((uint8_t)query_idx);
 
         if (query_idx >= 0 && (uint8_t)query_idx == current_channel_idx) {
