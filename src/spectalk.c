@@ -574,15 +574,6 @@ static uint8_t channel_context_attr(const char *name) __z88dk_fastcall
     return (uint8_t)(0x40 | cc_inks[h]);
 }
 
-static char *channel_context_put2(char *p, uint8_t v) __z88dk_callee
-{
-    char tens = '0';
-    while (v >= 10) { v -= 10; tens++; }
-    *p++ = tens;
-    *p++ = (char)('0' + v);
-    return p;
-}
-
 static uint8_t channel_context_next_row;
 static uint8_t channel_context_anchor_idx;
 
@@ -616,9 +607,9 @@ static void channel_context_banner(void)
     }
 
     p = temp_input;
-    p = channel_context_put2(p, time_hour);
+    fast_u8_to_str(p, time_hour); p += 2;
     *p++ = ':';
-    p = channel_context_put2(p, time_minute);
+    fast_u8_to_str(p, time_minute); p += 2;
     *p = 0;
 
     name = temp_input + 8;
