@@ -171,7 +171,6 @@ _u16_to_dec:
     
     ld bc, -10000
     call u16_digit
-    jr u16_common_1000      ; Saltar a c?digo com?n
 
 u16_common_1000:
     ld bc, -1000
