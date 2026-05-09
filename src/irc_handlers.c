@@ -1061,6 +1061,29 @@ static void h_numeric_321(void)
     // (ya mostramos "Searching..." al inicio)
 }
 
+static uint8_t is_network_param(const char *p) __z88dk_fastcall ST_NAKED
+{
+    (void)p;
+    __asm
+    ld de,is_network_param_key
+    ld b,8
+is_network_param_loop:
+    ld a,(de)
+    cp (hl)
+    jr nz,is_network_param_no
+    inc de
+    inc hl
+    djnz is_network_param_loop
+    ld l,1
+    ret
+is_network_param_no:
+    ld l,0
+    ret
+is_network_param_key:
+    DEFM "NETWORK="
+    __endasm;
+}
+
 static void h_end_of_list(void)
 {
     if (search_flush_state == 1) return;  // Todavía drenando
@@ -1240,8 +1263,7 @@ static void h_numeric_5(void)
     irc_params_ensure();
     for (pi = 1; pi < irc_param_count; pi++) {
         const char *p = irc_param(pi);
-        if (p[0] == 'N' && p[1] == 'E' && p[2] == 'T' && p[3] == 'W' &&
-            p[4] == 'O' && p[5] == 'R' && p[6] == 'K' && p[7] == '=') {
+        if (is_network_param(p)) {
             net = p + 8;
             break;
         }
