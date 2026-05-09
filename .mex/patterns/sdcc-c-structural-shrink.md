@@ -84,6 +84,10 @@ rather than hand-written ASM.
 - Do not simplify the trailing-text parser guard from `p > pkt_txt && p[-1] ==
   ' '` to `p > pkt_txt` without re-measuring. It is logically redundant, but in
   the 2026-05-08 inline-wrap layout the emitted code grew.
+- Do not replace `history_add()`'s bounded `uint8_t` byte-copy loop with
+  `memcpy()` without re-measuring. In `codex/size-opt-progressive-gemini` it
+  grew TAP `35465B -> 35479B` (`+14B`) despite `memcpy()` already existing in
+  the binary.
 
 ## Applied In
 
