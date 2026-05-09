@@ -2202,12 +2202,18 @@ void badge_flash_on(void)
 
 void badge_flash_off(void)
 {
+    uint8_t attr;
+    uint8_t top;
+    uint8_t bot;
     if (!badge_flashing) return;
     badge_flashing = 0;
-    *(uint8_t *)(0x5800 + 30) = ATTR_BANNER | 0x40;
-    *(uint8_t *)(0x5800 + 31) = ATTR_BANNER | 0x40;
-    *(uint8_t *)(0x5820 + 30) = ATTR_BANNER & 0xBF;
-    *(uint8_t *)(0x5820 + 31) = ATTR_BANNER & 0xBF;
+    attr = ATTR_BANNER;
+    top = attr | 0x40;
+    bot = attr & 0xBF;
+    *(uint8_t *)0x581E = top;
+    *(uint8_t *)0x581F = top;
+    *(uint8_t *)0x583E = bot;
+    *(uint8_t *)0x583F = bot;
 }
 
 // draw_banner — overlay SPCTLK1 entry 1 (banner_render_ovl)
