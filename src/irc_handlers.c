@@ -162,7 +162,10 @@ static uint8_t is_tracked_friend(const char *nick) __z88dk_fastcall
 }
 
 // Helper: Decrementar user_count de un canal si > 0
-#define channel_dec_users(i) do { if (channels[i].user_count > 0) channels[i].user_count--; } while(0)
+static void channel_dec_users(uint8_t idx) __z88dk_fastcall
+{
+    if (channels[idx].user_count > 0) channels[idx].user_count--;
+}
 
 // Helper: Respuesta CTCP optimizada
 static void send_ctcp_reply(const char *target, const char *tag, const char *data) __z88dk_callee
