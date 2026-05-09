@@ -579,6 +579,9 @@ _deferred_wrap_step:
     ld a, (_overlay_mode)
     or a
     ret nz
+    ld a, (_main_col)
+    cp 64
+    jp z, dws_cancel
 
     ld a, (_deferred_wrap_attr)
     ld (_current_attr), a
@@ -696,6 +699,12 @@ dws_render_done:
 
 dws_newline:
     jp _main_newline
+
+dws_cancel:
+    xor a
+    ld (_deferred_wrap_active), a
+    ld (_wrap_indent), a
+    ret
     
 ; -----------------------------------------------------------------------------
 ; void main_puts(const char *s) __z88dk_fastcall

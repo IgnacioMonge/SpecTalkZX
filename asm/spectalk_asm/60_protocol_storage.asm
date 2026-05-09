@@ -337,6 +337,7 @@ PUBLIC _esx_fread
 PUBLIC _esx_fclose
 PUBLIC _esx_fcreate
 PUBLIC _esx_fwrite
+PUBLIC _esx_fseek_set
 
 ; Globals for parameter passing (set from C before calling)
 PUBLIC _esx_handle
@@ -411,6 +412,26 @@ _esx_fclose:
     jr esx_pop_ix_iy_ret
 
 ; esx_fcreate: now merged with esx_fopen above (esx_open_common)
+
+; -----------------------------------------------------------------------------
+; uint8_t esx_fseek_set(uint16_t offset) __z88dk_fastcall
+; Input:  HL = absolute offset from file start
+; Output: L = 1 on success, 0 on error. Preserves IX.
+; -----------------------------------------------------------------------------
+_esx_fseek_set:
+    push ix
+    ld e, l
+    ld d, h
+    ld bc, 0
+    ld a, (_esx_handle)
+    ld ix, 0
+    rst 8
+    defb 0x9F           ; F_SEEK, mode=SET in IXL
+    pop ix
+    ld hl, 1
+    ret nc
+    dec hl
+    ret
 
 ; -----------------------------------------------------------------------------
 ; void esx_fwrite(void)

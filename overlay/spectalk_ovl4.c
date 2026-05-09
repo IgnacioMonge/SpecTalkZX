@@ -8,8 +8,6 @@
 
 #include "overlay_api.h"
 
-static const char s_exit[] = "ANY KEY TO EXIT";
-
 /* ================================================================
  * ENTRY 0 — Status display
  * ================================================================ */
@@ -113,7 +111,7 @@ void status_render_ovl(void)
       }
     }
 
-    notif_center(s_exit, theme_attrs[TATTR_MSG_SYS]);
+    notif_center(S_ANYKEY, theme_attrs[TATTR_MSG_SYS]);
     rb_head = 0; rb_tail = 0; rx_pos = 0;
 }
 
@@ -135,7 +133,6 @@ extern void ui_err(const char *s) __z88dk_fastcall;
 
 static const char CK_HDR[]  = "; SpecTalkZX config\r\n";
 static const char CK_NKS[]  = "nickserv=";
-static const char CK_AJOIN[] = "autojoin=";
 static const char CK_TZLAST[] = "tzlast=";
 #define CFG_END       ((char *)overlay_slot + OVERLAY_SLOT_SIZE)
 #define CFG_TOO_LARGE (CFG_END + 1)
@@ -160,12 +157,12 @@ void save_config_ovl(void)
      * CONSTRAINT: all values below MUST be 0-9. */
     p = cfg_kv(p, K_THEME, (const char *)(uint16_t)current_theme);
     p = cfg_kv(p, K_BEEP, (const char *)(uint16_t)beep_enabled);
-    p = cfg_kv(p, "click=", (const char *)(uint16_t)keyclick_enabled);
+    p = cfg_kv(p, K_CLICK, (const char *)(uint16_t)keyclick_enabled);
     p = cfg_kv(p, K_NCOLOR, (const char *)(uint16_t)nick_color_mode);
     p = cfg_kv(p, K_TRAFFIC, (const char *)(uint16_t)show_traffic);
     p = cfg_kv(p, K_TS, (const char *)(uint16_t)show_timestamps);
     p = cfg_kv(p, K_AUTOCONN, (const char *)(uint16_t)autoconnect);
-    p = cfg_kv(p, CK_AJOIN, (const char *)(uint16_t)autojoin);
+    p = cfg_kv(p, K_AUTOJOIN, (const char *)(uint16_t)autojoin);
     p = cfg_kv(p, K_NOTIF, (const char *)(uint16_t)notif_enabled);
 
     if (autoaway_minutes) {

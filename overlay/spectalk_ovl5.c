@@ -7,15 +7,10 @@
 
 #include "overlay_api.h"
 
-static const char s_exit[] = "ANY KEY TO EXIT";
-
 static const char cl_nkp[]   = "nick pass=";
-static const char cl_click[] = "click=";
 static const char cl_ncol[]  = "nick color=";
 static const char cl_away[]  = "auto away=";
 static const char cl_tz[]    = "timezone=";
-static const char cl_ajoin[] = "autojoin=";
-static const char cl_chans[] = "channels=";
 
 static const char cv_on[]     = "on";
 static const char cv_off[]    = "off";
@@ -79,13 +74,13 @@ void config_render_ovl(void)
     buf[0] = '0' + current_theme; buf[1] = 0;
     cfg_item(K_THEME, buf);
     cfg_item(K_BEEP, beep_enabled ? cv_on : cv_off);
-    cfg_item(cl_click, keyclick_enabled ? cv_on : cv_off);
+    cfg_item(K_CLICK, keyclick_enabled ? cv_on : cv_off);
     cfg_item(cl_ncol, nick_color_mode ? cv_on : cv_off);
     cfg_item(K_TRAFFIC, show_traffic ? cv_on : cv_off);
     cfg_item(K_TS, show_timestamps == 0 ? cv_off :
                     show_timestamps == 1 ? cv_on : cv_smart);
     cfg_item(K_AUTOCONN, autoconnect ? cv_on : cv_off);
-    cfg_item(cl_ajoin, autojoin ? cv_on : cv_off);
+    cfg_item(K_AUTOJOIN, autojoin ? cv_on : cv_off);
     cfg_item(K_NOTIF, notif_enabled ? cv_on : cv_off);
 
     if (autoaway_minutes) {
@@ -104,7 +99,7 @@ void config_render_ovl(void)
     cfg_item(cl_tz, buf);
 
     if (cfg_col == 34) { g_ps64_y++; cfg_col = 2; }
-    cfg_item(cl_chans, (search_pattern[0] == '#' || search_pattern[0] == '&') ? (const char *)search_pattern : cv_notset);
+    cfg_item(K_CHANNELS, (search_pattern[0] == '#' || search_pattern[0] == '&') ? (const char *)search_pattern : cv_notset);
 
     if (cfg_col == 34) { g_ps64_y++; cfg_col = 2; }
     {
@@ -126,7 +121,7 @@ void config_render_ovl(void)
         }
     }
 
-    notif_center(config_dirty ? "(S)AVE TO SD | ANY KEY TO EXIT" : s_exit,
+    notif_center(config_dirty ? "(S)AVE TO SD | ANY KEY TO EXIT" : S_ANYKEY,
                 theme_attrs[TATTR_MSG_SYS]);
     rb_head = 0; rb_tail = 0; rx_pos = 0;
 }

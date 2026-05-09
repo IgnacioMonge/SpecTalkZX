@@ -3,6 +3,7 @@ SECTION code_user
 EXTERN _status_render_ovl
 EXTERN _save_config_ovl
 EXTERN _overlay_slot
+EXTERN _K_CHANNELS
 PUBLIC _cfg_put
 PUBLIC _cfg_kv
 PUBLIC _cfg_put_autojoin
@@ -111,7 +112,7 @@ ovl4_cpa_loop:
     jr nz, ovl4_cpa_next
 ovl4_cpa_chan:
     push hl
-    ld de, ovl4_ck_chans
+    ld de, _K_CHANNELS
     call ovl4_csv_prefix
     pop hl
     push hl
@@ -135,7 +136,7 @@ ovl4_cpa_next:
     cp '&'
     jr nz, ovl4_cpa_ret_dest
 ovl4_cpa_fallback:
-    ld de, ovl4_ck_chans
+    ld de, _K_CHANNELS
     call ovl4_cpa_put_de
     ld de, _autojoin_channels
     call ovl4_cpa_put_de
@@ -245,6 +246,5 @@ ovl4_csv_comma:
 
 ovl4_cpa_dest: defw 0
 ovl4_cpa_any:  defb 0
-ovl4_ck_chans: defb "channels=", 0
 ovl4_ck_friends: defb "friends=", 0
 ovl4_ck_ignores: defb "ignores=", 0

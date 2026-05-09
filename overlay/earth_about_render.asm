@@ -10,7 +10,6 @@ PUBLIC _earth_apply_attr_delta
 PUBLIC _earth_read_logo
 PUBLIC _earth_ikkle_draw
 PUBLIC _earth_draw_separator
-PUBLIC _earth_seek
 PUBLIC _earth_frame_buffer
 PUBLIC _earth_attr_buffer
 PUBLIC _about_render_ovl
@@ -20,6 +19,7 @@ PUBLIC _about_packet_slot
 EXTERN _esx_fopen
 EXTERN _esx_fread
 EXTERN _esx_fclose
+EXTERN _esx_fseek_set
 EXTERN _esx_handle
 EXTERN _esx_buf
 EXTERN _esx_count
@@ -61,21 +61,6 @@ _about_close_ovl:
 about_close_ready:
         xor a
         ld (_earth_ready),a
-        ret
-
-_earth_seek:
-        push ix
-        ld e,l
-        ld d,h
-        ld bc,0
-        ld a,(_esx_handle)
-        ld ix,0
-        rst 8
-        defb $9F                  ; F_SEEK, mode=SET in IXL
-        pop ix
-        ld hl,1
-        ret nc
-        dec hl
         ret
 
 _earth_draw_frame:
@@ -359,7 +344,7 @@ _about_render_ovl:
         jp z,about_fail
 
         ld hl,EARTH_FRAME0_OFFSET
-        call _earth_seek
+        call _esx_fseek_set
         ld a,l
         or a
         jp z,about_fail
@@ -382,7 +367,7 @@ _about_render_ovl:
         jr z,about_fail
 
         ld hl,EARTH_DELTA_OFFSET
-        call _earth_seek
+        call _esx_fseek_set
         ld a,l
         or a
         jr z,about_fail

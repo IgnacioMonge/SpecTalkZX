@@ -45,6 +45,7 @@ extern const uint8_t ikkle_packed[];
 
 extern uint8_t st_strlen(const char *s) __z88dk_fastcall;
 extern int st_stricmp(const char *a, const char *b);
+extern void st_copy_n(char *dst, const char *src, uint8_t max_len);
 extern uint16_t str_to_u16(const char *s) __z88dk_fastcall;
 extern char *u16_to_dec(char *dst, uint16_t v);
 extern void fast_u8_to_str(char *buf, uint8_t val) __z88dk_callee;
@@ -55,6 +56,7 @@ extern void puts_u8_nolz(uint8_t v) __z88dk_fastcall;
 extern void esx_fopen(const char *path) __z88dk_fastcall;
 extern void esx_fread(void);
 extern void esx_fclose(void);
+extern uint8_t esx_fseek_set(uint16_t offset) __z88dk_fastcall;
 
 /* ===== Resident variables ===== */
 
@@ -129,6 +131,7 @@ extern uint16_t tick_accum;
 extern char     search_pattern[];
 extern char     autojoin_channels[];
 extern char     friend_nicks[][18];   /* MAX_FRIENDS(5) x IRC_NICK_SIZE(18) */
+extern uint8_t  friend_count;
 extern char     ignore_list[][16];
 extern uint8_t  ignore_count;
 
@@ -139,16 +142,20 @@ extern const char K_PORT[];
 extern const char K_PASS[];
 extern const char K_NKPASS[];
 extern const char K_AUTOCONN[];
+extern const char K_AUTOJOIN[];
 extern const char K_THEME[];
 extern const char K_AUTOAWAY[];
 extern const char K_BEEP[];
+extern const char K_CLICK[];
 extern const char K_NCOLOR[];
 extern const char K_TRAFFIC[];
 extern const char K_TS[];
+extern const char K_CHANNELS[];
 extern const char K_CFG_PRI[];
 extern const char K_CFG_ALT[];
 extern const char K_TZ[];
 extern const char K_NOTIF[];
+extern const char S_ANYKEY[];
 
 /* ===== Theme attribute indices (must match spectalk.h) ===== */
 #define TATTR_MSG_CHAN   2

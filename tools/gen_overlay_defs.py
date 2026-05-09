@@ -28,6 +28,7 @@ REQUIRED_FUNCTIONS = [
     # String/number utilities
     "_st_strlen",
     "_st_stricmp",
+    "_st_copy_n",
     "_fast_u8_to_str",
     # esxDOS
     "_esx_fopen",
@@ -35,6 +36,7 @@ REQUIRED_FUNCTIONS = [
     "_esx_fwrite",
     "_esx_fcreate",
     "_esx_fclose",
+    "_esx_fseek_set",
     # Input / frame sync used by overlays
     "_in_inkey",
     "_frame_wait",
@@ -109,16 +111,20 @@ REQUIRED_VARIABLES = [
     "_K_PASS",
     "_K_NKPASS",
     "_K_AUTOCONN",
+    "_K_AUTOJOIN",
     "_K_THEME",
     "_K_AUTOAWAY",
     "_K_BEEP",
+    "_K_CLICK",
     "_K_NCOLOR",
     "_K_TRAFFIC",
     "_K_TS",
+    "_K_CHANNELS",
     "_K_CFG_PRI",
     "_K_CFG_ALT",
     "_K_TZ",
     "_K_NOTIF",
+    "_S_ANYKEY",
     # Config variables (read-only from overlay)
     "_irc_nick",
     "_irc_server",
@@ -155,6 +161,7 @@ REQUIRED_VARIABLES = [
     "_sw_dirty",
     "_autojoin_channels",
     "_friend_nicks",
+    "_friend_count",
     "_ignore_list",
     "_ignore_count",
 ]

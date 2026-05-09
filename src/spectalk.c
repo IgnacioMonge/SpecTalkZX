@@ -109,6 +109,7 @@ const char S_NICK_CMD[] = "NICK";                 // D10: dedup (2 uses)
 const char S_SMART[] = "smart";                   // D10: dedup (2 uses)
 const char S_AT_CMD[] = "AT";
 const char S_JOIN_CMD[] = "JOIN";
+const char S_ANYKEY[] = "ANY KEY TO EXIT";
 // S_NO_ESXDOS removed — esxDOS is now required (fatal halt at startup)
 const char S_PART_CMD[] = "PART";                    // D19: dedup (2 uses, UART - no BPE)
 const char S_TCP[] = "TCP";                          // D19: dedup (2 uses, UART - no BPE)
@@ -2006,10 +2007,7 @@ void force_disconnect(void)
     names_target_channel[0] = '\0';
     counting_new_users = 0;
     names_was_manual = 0;
-    notif_timeout = 0;
-    notif_is_pm = 0;
-    notif_buf[0] = '\0';
-    notif_clear();
+    notif_cancel_current();
     last_pm_nick[0] = '\0';
     autojoin_defer_flags = 0;
     autojoin_ident_grace = 0;
@@ -2394,6 +2392,27 @@ static void cfg_b(uint8_t *dst) __z88dk_fastcall {
     *dst = (uint8_t)str_to_u16(cfg_vp) & 1;
 }
 
+static uint8_t cfg_key4(char *key) __z88dk_fastcall ST_NAKED {
+    (void)key;
+    __asm
+    inc hl
+    inc hl
+    ld a, (hl)
+    or a
+    jr z, cfg_k4_zero
+    inc hl
+    ld a, (hl)
+    or a
+    jr z, cfg_k4_zero
+    inc hl
+    ld l, (hl)
+    ret
+cfg_k4_zero:
+    ld l, 0
+    ret
+    __endasm;
+}
+
 static void cfg_tz_apply(char *key) __z88dk_fastcall ST_NAKED {
     (void)key;
     __asm
@@ -2471,9 +2490,10 @@ static void cfg_apply(char *key, char *val) __z88dk_callee {
     uint8_t k0 = key[0], k1 = key[1];
     cfg_vp = val;
     if (k0 == 'n' && k1 == 'i') {           // nick / nickpass / nickcolor / nickserv
-        if (key[4] == 'p') cfg_s(nickserv_pass, IRC_PASS_SIZE);
-        else if (key[4] == 'c') cfg_b(&nick_color_mode);
-        else if (key[4] == 's') cfg_s(nickserv_nick, IRC_NICK_SIZE);
+        k1 = cfg_key4(key);
+        if (k1 == 'p') cfg_s(nickserv_pass, IRC_PASS_SIZE);
+        else if (k1 == 'c') cfg_b(&nick_color_mode);
+        else if (k1 == 's') cfg_s(nickserv_nick, IRC_NICK_SIZE);
         else cfg_s(irc_nick, IRC_NICK_SIZE);
     } else if (k0 == 's' && k1 == 'e') {    // server
         cfg_s(irc_server, IRC_SERVER_SIZE);
@@ -2485,11 +2505,12 @@ static void cfg_apply(char *key, char *val) __z88dk_callee {
         uint8_t v = (uint8_t)str_to_u16(val);
         if ((uint8_t)(v - 1) <= 2) current_theme = v;  // PD4: underflow trick
     } else if (k0 == 'a' && k1 == 'u') {
-        if (key[4] == 'j') cfg_b(&autojoin);
-        else {
+        k1 = cfg_key4(key);
+        if (k1 == 'j') cfg_b(&autojoin);
+        else if (k1) {
             uint8_t v = (uint8_t)str_to_u16(val);
-            if (key[4] == 'c') autoconnect = v & 1;
-            else if (key[4] == 'a') { if (v <= 60) autoaway_minutes = v; }
+            if (k1 == 'c') autoconnect = v & 1;
+            else if (k1 == 'a') { if (v <= 60) autoaway_minutes = v; }
         }
     } else if (k0 == 'f' && k1 == 'r') {  // friends
         uint8_t idx = 0;

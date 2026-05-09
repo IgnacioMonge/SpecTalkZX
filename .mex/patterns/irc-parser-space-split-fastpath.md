@@ -58,7 +58,9 @@
   - write NUL at that separator and skip following separators,
   - return the command start or a pointer to NUL when no command exists.
   The compact measured form reuses `split_next_param_found` for the separator
-  tail; duplicating that skip logic grew the build. Final measured build in
+  tail; duplicating that skip logic grew the build. Use an absolute `jp` for
+  the cross-helper branch into that shared tail; keep `jr` only for local loops
+  where range/layout fragility is intentional and measured. Final measured build in
   `codex/irc-parser-improve`: TAP `35191B`, BSS free `1001B`, overlays
   unchanged, `-4B` versus the lazy-tokenizer baseline.
 - Inline 3-digit numeric parsing was rejected after build: it grew TAP by 331 bytes.

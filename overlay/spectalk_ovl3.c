@@ -13,7 +13,6 @@
 #include "overlay_api.h"
 #include "whatsnew_data.h"
 
-static const char s_exit[] = "ANY KEY TO EXIT";
 static const char s_off[] = "off";
 static const char s_colon_sp[] = ": ";
 static const char s_min[] = " min";
@@ -100,7 +99,7 @@ void whatsnew_render(void)
         }
     }
 
-    notif_center(s_exit, theme_attrs[TATTR_MSG_SYS]);
+    notif_center(S_ANYKEY, theme_attrs[TATTR_MSG_SYS]);
     rb_head = 0; rb_tail = 0; rx_pos = 0;
 }
 
@@ -146,6 +145,55 @@ void autoaway_cmd_ovl(void)
     puts_u8_nolz(autoaway_minutes);
     main_print(s_min);
     config_dirty = 1;
+
+done:
+    rb_head = 0; rb_tail = 0; rx_pos = 0;
+}
+
+void friend_cmd_ovl(void)
+{
+    char *args = (char *)overlay_slot;
+    uint8_t i;
+    char *fn;
+    char *free_fn = 0;
+
+    if (!*args) {
+        set_attr_sys();
+        main_puts("Friends:");
+        for (i = 0, fn = friend_nicks[0]; i < MAX_FRIENDS; i++, fn += IRC_NICK_SIZE) {
+            if (*fn) { main_putc(' '); main_puts(fn); }
+        }
+        main_newline();
+        goto done;
+    }
+
+    for (i = 0, fn = friend_nicks[0]; i < MAX_FRIENDS; i++, fn += IRC_NICK_SIZE) {
+        if (*fn) {
+            if (st_stricmp(fn, args) == 0) {
+                *fn = '\0';
+                friend_count--;
+                set_attr_sys();
+                main_puts("- ");
+                main_print(args);
+                config_dirty = 1;
+                goto done;
+            }
+        } else if (!free_fn) {
+            free_fn = fn;
+        }
+    }
+
+    if (free_fn) {
+        st_copy_n(free_fn, args, IRC_NICK_SIZE);
+        friend_count++;
+        set_attr_sys();
+        main_puts("+ ");
+        main_print(args);
+        config_dirty = 1;
+        goto done;
+    }
+
+    ui_err("Max 5 friends");
 
 done:
     rb_head = 0; rb_tail = 0; rx_pos = 0;

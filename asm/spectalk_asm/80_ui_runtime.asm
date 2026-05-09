@@ -165,7 +165,7 @@ asm_in_inkey:
     ; --- Row 0: CAPS SHIFT row (port $FEFE) ---
     in a,(c)
     or 0xE1                ; mask CS (bit0) + bits 5-7
-    cp 0xFF
+    inc a
     jr nz, ik_found
 
     ; --- Rows 1-6: main keyboard rows ---
@@ -176,7 +176,7 @@ ik_row_loop:
     ld e, a                ; E += 5 (next row base)
     in a,(c)
     or 0xE0                ; mask bits 5-7
-    cp 0xFF
+    inc a
     jr nz, ik_found
     rlc b
     jp m, ik_row_loop      ; loop while bit 7 set ($FD..$BF)
@@ -185,7 +185,7 @@ ik_row_loop:
     ld e, 35               ; row 7 base after rows 1-6
     in a,(c)
     or 0xE2                ; mask SS (bit1) + bits 5-7
-    cp 0xFF
+    inc a
     jr nz, ik_found
 
     ; No key pressed
@@ -194,6 +194,7 @@ ik_nokey:
     ret
 
 ik_found:
+    dec a                  ; restore row byte after compact no-key test
     ; A = row reading (one of bits 0-4 is 0 = pressed key)
     ; Bit-scan from bit 0 to find key position
 ik_bitscan:

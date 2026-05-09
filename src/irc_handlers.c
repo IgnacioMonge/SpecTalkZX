@@ -71,7 +71,7 @@ spn_prefix_loop:
     or a
     ret z
     cp 33
-    jr c,split_next_param_found
+    jp c,split_next_param_found
     jr z,spn_bang
     inc hl
     jr spn_prefix_loop

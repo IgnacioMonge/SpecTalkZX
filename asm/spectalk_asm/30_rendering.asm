@@ -514,6 +514,10 @@ _notif_draw:
     ; Stop on NUL and avoid a second in-loop end check.
 
 nd_char_loop:
+    ld a, c
+    cp 64
+    jr nc, nd_done
+
     ld a, (hl)
     or a
     jr z, nd_done
@@ -551,52 +555,7 @@ nd_no_fold:
     set 7, l
     ld h, 0x52
 
-    bit 0, c
-    jr nz, nd_odd_col
-
-    ; === EVEN COLUMN ===
-    ld a, d
-    and 0xF0
-    ld (hl), a
-    ld a, d
-    and 0x0F
-    rlca \ rlca \ rlca \ rlca
-    inc h
-    ld (hl), a
-    ld a, e
-    and 0xF0
-    inc h
-    ld (hl), a
-    ld a, e
-    and 0x0F
-    rlca \ rlca \ rlca \ rlca
-    inc h
-    ld (hl), a
-    jr nd_set_attr_drawn
-
-    ; === ODD COLUMN ===
-nd_odd_col:
-    ld a, d
-    rrca \ rrca \ rrca \ rrca
-    and 0x0F
-    or (hl)
-    ld (hl), a
-    ld a, d
-    and 0x0F
-    inc h
-    or (hl)
-    ld (hl), a
-    ld a, e
-    rrca \ rrca \ rrca \ rrca
-    and 0x0F
-    inc h
-    or (hl)
-    ld (hl), a
-    ld a, e
-    and 0x0F
-    inc h
-    or (hl)
-    ld (hl), a
+    call ikkle_blit_de_hl
 
 nd_set_attr_space:
     ld l, b
@@ -670,50 +629,7 @@ id_no_fold:
     add a, l
     ld l, a
 
-    bit 0, c
-    jr nz, id_odd_col
-
-    ld a, d
-    and 0xF0
-    ld (hl), a
-    ld a, d
-    and 0x0F
-    rlca \ rlca \ rlca \ rlca
-    inc h
-    ld (hl), a
-    ld a, e
-    and 0xF0
-    inc h
-    ld (hl), a
-    ld a, e
-    and 0x0F
-    rlca \ rlca \ rlca \ rlca
-    inc h
-    ld (hl), a
-    jr id_set_attr_drawn
-
-id_odd_col:
-    ld a, d
-    rrca \ rrca \ rrca \ rrca
-    and 0x0F
-    or (hl)
-    ld (hl), a
-    ld a, d
-    and 0x0F
-    inc h
-    or (hl)
-    ld (hl), a
-    ld a, e
-    rrca \ rrca \ rrca \ rrca
-    and 0x0F
-    inc h
-    or (hl)
-    ld (hl), a
-    ld a, e
-    and 0x0F
-    inc h
-    or (hl)
-    ld (hl), a
+    call ikkle_blit_de_hl
 
 id_set_attr_space:
 id_set_attr_drawn:
@@ -732,6 +648,55 @@ id_set_attr_drawn:
 
 id_done:
     pop ix
+    ret
+
+; Draw one packed Ikkle-4 glyph.
+; Input: HL = screen byte for scanline 2, DE = packed glyph, C = 64-col x.
+ikkle_blit_de_hl:
+    bit 0, c
+    jr nz, ib_odd_col
+
+    ld a, d
+    and 0xF0
+    ld (hl), a
+    ld a, d
+    and 0x0F
+    rlca \ rlca \ rlca \ rlca
+    inc h
+    ld (hl), a
+    ld a, e
+    and 0xF0
+    inc h
+    ld (hl), a
+    ld a, e
+    and 0x0F
+    rlca \ rlca \ rlca \ rlca
+    inc h
+    ld (hl), a
+    ret
+
+ib_odd_col:
+    ld a, d
+    rrca \ rrca \ rrca \ rrca
+    and 0x0F
+    or (hl)
+    ld (hl), a
+    ld a, d
+    and 0x0F
+    inc h
+    or (hl)
+    ld (hl), a
+    ld a, e
+    rrca \ rrca \ rrca \ rrca
+    and 0x0F
+    inc h
+    or (hl)
+    ld (hl), a
+    ld a, e
+    and 0x0F
+    inc h
+    or (hl)
+    ld (hl), a
     ret
 
 ; -----------------------------------------------------------------------------

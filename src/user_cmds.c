@@ -36,12 +36,15 @@ static const char K_PORT[]     = "port=";
 static const char K_PASS[]     = "pass=";
 static const char K_NKPASS[]   = "nickpass=";
 static const char K_AUTOCONN[] = "autoconnect=";
+static const char K_AUTOJOIN[] = "autojoin=";
 static const char K_THEME[]    = "theme=";
 static const char K_AUTOAWAY[] = "autoaway=";
 static const char K_BEEP[]     = "beep=";
+static const char K_CLICK[]    = "click=";
 static const char K_NCOLOR[]   = "nickcolor=";
 static const char K_TRAFFIC[]  = "traffic=";
 static const char K_TS[]       = "timestamps=";
+static const char K_CHANNELS[] = "channels=";
 static const char K_TOPIC[]    = "TOPIC";
 static const char K_MODE_SP[]  = "MODE ";
 static const char K_CFG_PRI[]  = "/SYS/CONFIG/SPECTALK.CFG";
@@ -1290,42 +1293,16 @@ static void cmd_tz(const char *args) __z88dk_fastcall
 
 static void cmd_friend(const char *args) __z88dk_fastcall
 {
-    uint8_t i;
-    char *fn;
-    if (!args || !*args) {
-        set_attr_sys();
-        main_puts("Friends:");
-        for (i = 0, fn = friend_nicks[0]; i < MAX_FRIENDS; i++, fn += IRC_NICK_SIZE)
-            if (*fn) { main_putc(' '); main_puts(fn); }
-        main_newline();
-        return;
+    uint16_t had_partial = rx_pos;
+
+    if (args && *args) {
+        split_at_space((char *)args);
+        st_copy_n((char *)overlay_slot, args, IRC_NICK_SIZE);
+    } else {
+        overlay_slot[0] = 0;
     }
-    // Truncar en primer espacio (igual que cmd_ignore)
-    split_at_space((char *)args);
-    // Toggle: remove if exists, add if not (single pass)
-    { char *free_fn = NULL;
-    for (i = 0, fn = friend_nicks[0]; i < MAX_FRIENDS; i++, fn += IRC_NICK_SIZE) {
-        if (*fn) {
-            if (st_stricmp(fn, args) == 0) {
-                *fn = '\0';
-                friend_count--;
-                SYS_PUTS("- "); main_print(args);
-                config_dirty = 1;
-                return;
-            }
-        } else if (!free_fn) {
-            free_fn = fn;
-        }
-    }
-    if (free_fn) {
-        st_copy_n(free_fn, args, IRC_NICK_SIZE);
-        friend_count++;
-        SYS_PUTS("+ "); main_print(args);
-        config_dirty = 1;
-        return;
-    }
-    }
-    ui_err("Max 5 friends");
+    overlay_exec(2, 2);
+    if (had_partial) rx_overflow = 1;
 }
 
 // cmd_save — moved to overlay (SPCTLK4.OVL entry 1)

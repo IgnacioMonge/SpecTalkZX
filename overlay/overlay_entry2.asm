@@ -11,7 +11,7 @@ EXTERN _esx_fread
 EXTERN _esx_result
 EXTERN _earth_apply_frame_delta
 EXTERN _earth_apply_attr_delta
-EXTERN _earth_seek
+EXTERN _esx_fseek_set
 EXTERN _earth_draw_frame
 
 DEFC EARTH_PACKET_SIZE  = 467
@@ -72,7 +72,7 @@ _globe_tick_ovl:
     ret nz
 
     ld hl, EARTH_DELTA_OFFSET
-    call _earth_seek
+    call _esx_fseek_set
     ld a, l
     or a
     jr z, _about_close_ovl        ; tail-call if seek fails

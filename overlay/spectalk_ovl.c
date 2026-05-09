@@ -36,26 +36,6 @@ static uint8_t cur_seg;     /* currently loaded segment */
 
 static const char s_hnot[] = "ANY KEY: NEXT / BREAK: EXIT";
 
-static uint8_t help_seek(uint16_t offset) __z88dk_fastcall ST_NAKED
-{
-    (void)offset;
-    __asm
-    push ix
-    ld e,l
-    ld d,h
-    ld bc,0
-    ld a,(_esx_handle)
-    ld ix,0
-    rst 8
-    defb 0x9F                  ; F_SEEK, mode=SET in IXL
-    pop ix
-    ld hl,1
-    ret nc
-    dec hl
-    ret
-    __endasm;
-}
-
 /* Read help text segment N from SPECTALK.DAT into overlay_slot.
  * Supports any segment index (0, 1, 2, ...). */
 static void help_load_segment(uint8_t segment)
@@ -67,7 +47,7 @@ static void help_load_segment(uint8_t segment)
      * 512B, so never use dummy F_READ skips when the help block sits deep in
      * SPECTALK.DAT. */
     esx_buf   = (uint16_t)overlay_slot;
-    if (!help_seek((uint16_t)(BPE_HELP_OFFSET + ((uint16_t)segment << 9)))) {
+    if (!esx_fseek_set((uint16_t)(BPE_HELP_OFFSET + ((uint16_t)segment << 9)))) {
         esx_fclose();
         overlay_mode = 0;
         return;

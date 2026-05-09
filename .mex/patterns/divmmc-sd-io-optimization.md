@@ -13,6 +13,7 @@ Use this when proposing SD read/write speed work for the divMMC/esxDOS build.
 - Keep one data file open while an overlay consumes it.
 - Prefer sequential/monotonic reads; avoid open/close and many small backward seeks.
 - Use `F_SEEK` for large jumps, never dummy-read skips into fixed 512B scratch.
+- If multiple overlays need absolute `F_SEEK` with a 16-bit offset, use resident `_esx_fseek_set()` instead of carrying duplicate overlay-local naked helpers. This grows resident code but can recover enough SPCTLK1/SPCTLK2 headroom when funded by resident shrink.
 - Overlay bundle loads can seek to the selected 2048B block before reading it: `F_SEEK(ovl_id*2048)` plus one `F_READ(2048)` is HW OK when TAP + `SPECTALK.OVL` + `SPECTALK.DAT` are copied as a matching set. A prior apparent regression was artifact/setup-related, not accepted evidence against the seek path. After the read, require exactly 2048 bytes before validating the entry table or jumping; shorter reads can leave stale `ring_buffer` bytes executable.
 - Do not assume a paginated overlay can redraw pages with `overlay_call()` just because it was loaded once; in `!help`, the first attempt showed page 1 but keypress did not advance in hardware, so keep page redraws on the proven `overlay_exec()` path unless the resident-overlay lifetime is re-proven.
 - For segmented DAT payloads, compute `base + segment*segment_size` and seek directly; do not seek to base and read-discard earlier segments.
