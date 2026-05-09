@@ -230,37 +230,31 @@ u16_skip:
 ; Retorna: HL = valor
 ; -----------------------------------------------------------------------------
 _str_to_u16:
-    ld de, 0                ; Acumulador
-    
+    ex de, hl               ; DE = string pointer
+    ld hl, 0                ; Acumulador
 stu16_loop:
-    ld a, (hl)
+    ld a, (de)
     sub '0'
     cp 10
-    jr nc, stu16_done       ; non-digit (including < '0' after underflow)
+    ret nc                  ; non-digit (including < '0' after underflow)
     
-    ; DE = DE * 10 + A
-    push hl
+    ; HL = HL * 10 + A
     ld c, a
     ld b, 0
     
-    ; DE * 10 = (DE * 2 * 2 + DE) * 2 = DE * 5 * 2
-    ld l, e
-    ld h, d                 ; HL = DE (original)
+    push de                 ; save string pointer
+    ld d, h
+    ld e, l                 ; DE = HL (original)
+    ; HL * 10 = (HL * 2 * 2 + HL) * 2 = HL * 5 * 2
     add hl, hl              ; *2
     add hl, hl              ; *4
     add hl, de              ; *5
     add hl, hl              ; *10
     
     add hl, bc
-    ex de, hl               ; DE = nuevo acumulador
-    
-    pop hl
-    inc hl
+    pop de                  ; restore string pointer
+    inc de
     jr stu16_loop
-    
-stu16_done:
-    ex de, hl               ; Retorno en HL
-    ret
 
 ; =============================================================================
 ; PARSING IRC
