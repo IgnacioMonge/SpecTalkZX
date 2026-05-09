@@ -120,8 +120,6 @@ sstr_inner:
     
     ld c, a                 ; C = char de needle
     ld a, (hl)
-    or a
-    jr z, sstr_next_pos     ; Fin de hay en medio
 
     ; Normalizar via RFC 1459 (audit W08: was ASCII-only)
     call irc_tolower
