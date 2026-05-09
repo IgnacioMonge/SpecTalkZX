@@ -1247,13 +1247,7 @@ static void h_numeric_5(void)
         }
     }
     if (net) {
-        const char *end = net;
-        uint8_t len;
-        while (*end && *end != ' ') end++;
-        len = (uint8_t)(end - net);
-        if (len > sizeof(network_name) - 1) len = sizeof(network_name) - 1;
-        memcpy(network_name, net, len);
-        network_name[len] = '\0';
+        st_copy_n(network_name, net, sizeof(network_name));
         draw_status_bar();
     }
 }
