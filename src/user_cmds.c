@@ -987,7 +987,6 @@ static void cmd_topic(const char *args) __z88dk_fastcall
             new_topic = space + 1;
         }
         irc_send_cmd2(K_TOPIC, mutable_target, new_topic);
-        if (space) *space = ' ';
         return;
     }
 

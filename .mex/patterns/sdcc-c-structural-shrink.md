@@ -67,6 +67,9 @@ rather than hand-written ASM.
   `split_at_space()` skips spaces after the channel token, while the existing
   path preserves them in the topic text sent after `:`. Gemini
   SPECTALK-CMD-02 was rejected for this reason.
+- After `cmd_topic()` has sent `irc_send_cmd2()`, the temporary separator NUL
+  in the command buffer does not need to be restored. This keeps the first-space
+  contract above while dropping dead cleanup code.
 - Removing dead-looking NULL checks can still grow badly with current SDCC/BPE
   layout. Measured rejection: simplifying the early guard in
   `h_privmsg_notice()` grew TAP by `+107B`.
@@ -112,4 +115,5 @@ rather than hand-written ASM.
 - `src/user_cmds.c` `cmd_part()`
 - `src/user_cmds.c` `cmd_join()`
 - `src/user_cmds.c` `cmd_connect()`
+- `src/user_cmds.c` `cmd_topic()`
 - `src/spectalk.c` `esp_init()`
