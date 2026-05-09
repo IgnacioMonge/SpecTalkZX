@@ -1378,7 +1378,7 @@ static void h_default_cmd(void)
     // Ignore corrupted/fragmented lines: IRC commands are ALL UPPERCASE
     // If any lowercase letter exists, it's likely a fragment (e.g., "PublicWiFi", "spectalk")
     const char *p = pkt_cmd;
-    while (*p && *p != ' ') {
+    while (*p) {
         if (*p >= 'a' && *p <= 'z') return;
         p++;
     }
