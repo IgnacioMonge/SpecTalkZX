@@ -84,6 +84,28 @@ split_at_space_none:
     __endasm;
 }
 
+static char *ping_params_start(char *p) __z88dk_fastcall ST_NAKED
+{
+    (void)p;
+    __asm
+    ld de,ping_params_start_key
+    ld b,4
+ping_params_start_loop:
+    ld a,(de)
+    cp (hl)
+    jr nz,ping_params_start_no
+    inc de
+    inc hl
+    djnz ping_params_start_loop
+    ret
+ping_params_start_no:
+    ld hl,0
+    ret
+ping_params_start_key:
+    DEFM "PING"
+    __endasm;
+}
+
 // Generic yes/no prompt with ~5s timeout. Returns 1 on y/Y, 0 on n/N or timeout.
 // Drains UART/parser between key polls to keep IRC state consistent during the wait.
 // Caller is responsible for any "Cancelled"/"Aborted" message on a 0 return.
@@ -430,12 +452,10 @@ do_connect:
                 
                 // PING
                 {
-                    char *ping_ptr = NULL;
-                    if (line[0] == 'P' && line[1] == 'I' && line[2] == 'N' && line[3] == 'G') ping_ptr = line;
-                    else if (sp && sp[1] == 'P' && sp[2] == 'I' && sp[3] == 'N' && sp[4] == 'G') ping_ptr = sp + 1;
+                    char *params = ping_params_start(line);
+                    if (!params && sp) params = ping_params_start(sp + 1);
 
-                    if (ping_ptr) {
-                        char *params = ping_ptr + 4;
+                    if (params) {
                         params = skip_spaces(params);
                         uart_send_string(S_PONG); uart_send_line(params);
                         rx_pos = 0; continue;
