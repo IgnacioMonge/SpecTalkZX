@@ -339,7 +339,7 @@ spr_found:
     xor a
     ld (_tick_accum), a     ; Reset frame accumulator
     ld (_sntp_waiting), a
-    ld a, 1
+    inc a
     ld (_sntp_queried), a
 
     jp _draw_status_bar ; tail call
