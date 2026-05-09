@@ -544,23 +544,22 @@ nrg_flush:
 ; -----------------------------------------------------------------------------
 PUBLIC _names_count_line
 _names_count_line:
-    ld e, 0
+    ld b, 0
     ld a, (hl)
     or a
     jr z, ncl_done
-    inc e
-    dec hl
+    inc b
 ncl_loop:
+    cp ' '
+    jr nz, ncl_next
+    inc b
+ncl_next:
     inc hl
     ld a, (hl)
     or a
-    jr z, ncl_done
-    cp ' '
     jr nz, ncl_loop
-    inc e
-    jr ncl_loop
 ncl_done:
-    ld l, e
+    ld l, b
     ret
 
 ; -----------------------------------------------------------------------------
