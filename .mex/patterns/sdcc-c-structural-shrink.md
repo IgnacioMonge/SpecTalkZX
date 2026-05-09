@@ -40,6 +40,11 @@ rather than hand-written ASM.
 - In `h_mode()`, testing the sign first in the ban/unban path is smaller than
   a separate non-empty guard: `(mode_text[0] == '+' || mode_text[0] == '-') &&
   mode_text[1] == 'b'`. The empty-string case is still false by short-circuit.
+- In `cmd_join()`, removing the local `lookup_buf[22]` stack array can shrink
+  if the no-prefix path uses `search_pattern` only as transient storage and
+  preserves the old bound exactly: `st_copy_n(..., 20)` plus byte `21` forced
+  to NUL. Do not switch this path to the full `SEARCH_PATTERN_SIZE`; that would
+  change how long no-prefix channel names are sent.
 
 ## Guardrails
 
@@ -95,4 +100,5 @@ rather than hand-written ASM.
 - `src/irc_handlers.c` `h_quit()` one-channel count scan
 - `src/user_cmds.c` `cmd_nick()`
 - `src/user_cmds.c` `cmd_part()`
+- `src/user_cmds.c` `cmd_join()`
 - `src/spectalk.c` `esp_init()`

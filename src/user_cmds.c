@@ -629,7 +629,6 @@ static void cmd_pass(const char *args) __z88dk_fastcall
 
 static void cmd_join(const char *args) __z88dk_fastcall
 {
-    char lookup_buf[22];     // mismo tamaño que ChannelInfo.name
     const char *lookup;
     int8_t idx;
 
@@ -647,11 +646,10 @@ static void cmd_join(const char *args) __z88dk_fastcall
     if (*p == '#' || *p == '&') {
         lookup = p;
     } else {
-        lookup_buf[0] = '#';
-        // Sustitución validada del bucle manual por rutina C compacta
-        st_copy_n(lookup_buf + 1, p, sizeof(lookup_buf) - 2);
-        lookup_buf[sizeof(lookup_buf) - 1] = '\0';
-        lookup = lookup_buf;
+        search_pattern[0] = '#';
+        st_copy_n(search_pattern + 1, p, 20);
+        search_pattern[21] = '\0';
+        lookup = search_pattern;
     }
 
     idx = find_channel(lookup);
