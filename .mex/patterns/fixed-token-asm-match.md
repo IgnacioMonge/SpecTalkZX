@@ -14,6 +14,7 @@ If the input pointer is already valid for the compared token length and the comp
 - Loop: `ld a,(de)`, `cp (hl)`, `jr nz,no`, `inc de`, `inc hl`, `djnz loop`.
 - Return boolean in `L`.
 - If a surrounding `switch` or branch already proved the first byte, the helper can `inc hl` and compare only the remaining fixed tail; this measured well for CTCP `ACTION ` after `case 'A'`.
+- Several local boolean helpers can share one compare/no-match loop by loading their own `DE` key and `B` length, then `jp` to the first helper's loop.
 
 Guardrails:
 

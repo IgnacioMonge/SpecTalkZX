@@ -338,16 +338,16 @@ static uint8_t is_ctcp_action_tail(const char *p) __z88dk_fastcall ST_NAKED
     inc hl
     ld de,is_ctcp_action_tail_key
     ld b,6
-is_ctcp_action_tail_loop:
+fixed_token_bool_loop:
     ld a,(de)
     cp (hl)
-    jr nz,is_ctcp_action_tail_no
+    jr nz,fixed_token_bool_no
     inc de
     inc hl
-    djnz is_ctcp_action_tail_loop
+    djnz fixed_token_bool_loop
     ld l,1
     ret
-is_ctcp_action_tail_no:
+fixed_token_bool_no:
     ld l,0
     ret
 is_ctcp_action_tail_key:
@@ -1089,18 +1089,7 @@ static uint8_t is_network_param(const char *p) __z88dk_fastcall ST_NAKED
     __asm
     ld de,is_network_param_key
     ld b,8
-is_network_param_loop:
-    ld a,(de)
-    cp (hl)
-    jr nz,is_network_param_no
-    inc de
-    inc hl
-    djnz is_network_param_loop
-    ld l,1
-    ret
-is_network_param_no:
-    ld l,0
-    ret
+    jp fixed_token_bool_loop
 is_network_param_key:
     DEFM "NETWORK="
     __endasm;
