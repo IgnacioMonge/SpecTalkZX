@@ -779,11 +779,7 @@ static void switcher_close(void)
     sw_active = 0;
     clear_line(2, ATTR_MAIN_BG);
     // Redraw 1px separator (row 2, scanline 0)
-    {
-        uint8_t *p = (uint8_t *)0x4040;
-        uint8_t j;
-        for (j = 0; j < 32; j++) p[j] = 0xFF;
-    }
+    memset((void *)0x4040, 0xFF, 32);
     last_frames_lo = *(volatile uint8_t *)23672;
 }
 
