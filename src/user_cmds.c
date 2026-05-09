@@ -119,6 +119,32 @@ cap_params_start_key:
     __endasm;
 }
 
+static uint8_t is_ban_numeric_at(char *p) __z88dk_fastcall ST_NAKED
+{
+    (void)p;
+    __asm
+    ld a,(hl)
+    cp '4'
+    jr nz,is_ban_numeric_at_no
+    inc hl
+    ld a,(hl)
+    cp '6'
+    jr nz,is_ban_numeric_at_no
+    inc hl
+    ld a,(hl)
+    cp '5'
+    jr z,is_ban_numeric_at_yes
+    cp '6'
+    jr z,is_ban_numeric_at_yes
+is_ban_numeric_at_no:
+    ld l,0
+    ret
+is_ban_numeric_at_yes:
+    ld l,1
+    ret
+    __endasm;
+}
+
 // Generic yes/no prompt with ~5s timeout. Returns 1 on y/Y, 0 on n/N or timeout.
 // Drains UART/parser between key polls to keep IRC state consistent during the wait.
 // Caller is responsible for any "Cancelled"/"Aborted" message on a 0 return.
@@ -380,7 +406,7 @@ do_connect:
         // rx_line has captured data — scan for IRC ban numeric (465/466)
         char *p = (char *)rx_line;
         while (*p) {
-            if (p[0] == '4' && p[1] == '6' && (p[2] == '5' || p[2] == '6')) {
+            if (is_ban_numeric_at(p)) {
                 ui_err("Banned"); goto connect_fail;
             }
             p++;
