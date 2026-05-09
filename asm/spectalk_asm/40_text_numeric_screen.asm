@@ -48,8 +48,7 @@ stricmp_loop:
     jr nz, stricmp_diff
     
     ; Iguales - ?fin de string?
-    ld a, b
-    or a
+    or b
     jr z, stricmp_equal
     
     inc hl
