@@ -61,7 +61,8 @@ rather than hand-written ASM.
   search still truncates later, but the on-screen "Searching..." text does not.
 - `cmd_topic()` cannot blindly switch from `strchr()` to `split_at_space()`.
   `split_at_space()` skips spaces after the channel token, while the existing
-  path preserves them in the topic text sent after `:`.
+  path preserves them in the topic text sent after `:`. Gemini
+  SPECTALK-CMD-02 was rejected for this reason.
 - Removing dead-looking NULL checks can still grow badly with current SDCC/BPE
   layout. Measured rejection: simplifying the early guard in
   `h_privmsg_notice()` grew TAP by `+107B`.
@@ -93,6 +94,11 @@ rather than hand-written ASM.
   `memcpy()` without re-measuring. In `codex/size-opt-progressive-gemini` it
   grew TAP `35465B -> 35479B` (`+14B`) despite `memcpy()` already existing in
   the binary.
+- Do not replace the `cmd_connect()` registration abort-trap `line[0]`/`line[1]`
+  and `rx_line[0]`/`rx_line[1]` checks with raw `*(uint16_t *)` magic compares
+  just because `wait_for_connection_result()` uses that shape. In
+  `codex/size-opt-progressive-gemini`, SPECTALK-CMD-03 measured exactly flat:
+  TAP `35442B -> 35442B`.
 
 ## Applied In
 
