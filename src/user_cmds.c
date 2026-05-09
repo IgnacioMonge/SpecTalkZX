@@ -177,6 +177,12 @@ static uint8_t confirm_disconnect(void)
     return 0;
 }
 
+static void err_maxwin(void)
+{
+    ui_err(S_MAXWIN);
+    main_print("Use /close first.");
+}
+
 // =============================================================================
 // INTERNAL HELPERS
 // =============================================================================
@@ -654,7 +660,7 @@ static void cmd_join(const char *args) __z88dk_fastcall
         return;
     }
 
-    if (find_empty_channel_slot() == -1) { ui_err(S_MAXWIN); main_print("Use /close first."); return; }
+    if (find_empty_channel_slot() == -1) { err_maxwin(); return; }
 
     irc_send_cmd1(S_JOIN_CMD, lookup);
     notify2("Joining ", lookup, ATTR_MSG_JOIN);
@@ -780,8 +786,7 @@ static void cmd_query(const char *args) __z88dk_fastcall
             }
             status_bar_dirty = 1;
         } else {
-            ui_err(S_MAXWIN);
-            main_print("Use /close first.");
+            err_maxwin();
         }
     }
 }

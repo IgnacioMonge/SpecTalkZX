@@ -49,6 +49,10 @@ rather than hand-written ASM.
   preserves the old bound exactly: `st_copy_n(..., 20)` plus byte `21` forced
   to NUL. Do not switch this path to the full `SEARCH_PATTERN_SIZE`; that would
   change how long no-prefix channel names are sent.
+- A tiny helper can beat repeated two-call error blocks when both strings and
+  attributes are identical. Current accepted case: `err_maxwin()` for
+  `cmd_join()` and `cmd_query()`. This does not contradict the rejected
+  static-const dedup for `Use /close first.`; helper/code shape is different.
 
 ## Guardrails
 
@@ -116,4 +120,5 @@ rather than hand-written ASM.
 - `src/user_cmds.c` `cmd_join()`
 - `src/user_cmds.c` `cmd_connect()`
 - `src/user_cmds.c` `cmd_topic()`
+- `src/user_cmds.c` `cmd_query()`
 - `src/spectalk.c` `esp_init()`
