@@ -798,7 +798,6 @@ puts_opt_wrap:
     pop hl
     pop de
     call puts_reload_nl
-    bit 6, b
     ret nz
     jr puts_opt_emit
 
@@ -810,7 +809,6 @@ puts_opt_nl:
     call _main_newline
     pop de
     call puts_reload_nl
-    bit 6, b
     ret nz
     inc de
     jr puts_opt_loop
@@ -823,6 +821,7 @@ puts_reload_nl:
     ld c, a
     ld a, (_main_col)
     ld b, a
+    bit 6, b
     ret
 
 ; --- BPE expansion for puts_opt ---
