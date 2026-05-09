@@ -13,6 +13,7 @@ If the input pointer is already valid for the compared token length and the comp
 - `B` is fixed key length.
 - Loop: `ld a,(de)`, `cp (hl)`, `jr nz,no`, `inc de`, `inc hl`, `djnz loop`.
 - Return boolean in `L`.
+- If a surrounding `switch` or branch already proved the first byte, the helper can `inc hl` and compare only the remaining fixed tail; this measured well for CTCP `ACTION ` after `case 'A'`.
 
 Guardrails:
 

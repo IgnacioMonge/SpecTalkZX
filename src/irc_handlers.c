@@ -331,6 +331,30 @@ static void h_mode(void)
     main_print(pkt_par);
 }
 
+static uint8_t is_ctcp_action_tail(const char *p) __z88dk_fastcall ST_NAKED
+{
+    (void)p;
+    __asm
+    inc hl
+    ld de,is_ctcp_action_tail_key
+    ld b,6
+is_ctcp_action_tail_loop:
+    ld a,(de)
+    cp (hl)
+    jr nz,is_ctcp_action_tail_no
+    inc de
+    inc hl
+    djnz is_ctcp_action_tail_loop
+    ld l,1
+    ret
+is_ctcp_action_tail_no:
+    ld l,0
+    ret
+is_ctcp_action_tail_key:
+    DEFM "CTION "
+    __endasm;
+}
+
 static void h_privmsg_notice(void)
 {
     char *target = pkt_par;
@@ -443,9 +467,7 @@ static void h_privmsg_notice(void)
 
         switch (ctcp_cmd[0]) {
             case 'A': // ACTION - "ACTION "
-                if (ctcp_cmd[1] == 'C' && ctcp_cmd[2] == 'T'
-                    && ctcp_cmd[3] == 'I' && ctcp_cmd[4] == 'O'
-                    && ctcp_cmd[5] == 'N' && ctcp_cmd[6] == ' ') {
+                if (is_ctcp_action_tail(ctcp_cmd)) {
                     char *act = ctcp_cmd + 7;
                     char *end = strchr(act, 1);
                     if (end) *end = 0;
