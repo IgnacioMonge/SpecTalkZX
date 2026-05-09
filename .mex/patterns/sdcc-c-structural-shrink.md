@@ -110,6 +110,9 @@ rather than hand-written ASM.
   just because `wait_for_connection_result()` uses that shape. In
   `codex/size-opt-progressive-gemini`, SPECTALK-CMD-03 measured exactly flat:
   TAP `35442B -> 35442B`.
+- Do not route `/close` directly to `cmd_part()` under a SAFE shrink pass. It
+  removes code but changes user-visible error text for Server/inactive-window
+  cases; keep it as explicit behavior tradeoff only.
 
 ## Applied In
 
