@@ -904,10 +904,7 @@ static void history_add(const char *cmd, uint8_t len) __z88dk_callee
     for (i = 0; i < len && cmd[i] == ' '; i++);
     if (i == len) return;
     
-    for (i = 0; i < len && i < HISTORY_LEN - 1; i++) {
-        history[hist_head][i] = cmd[i];
-    }
-    history[hist_head][i] = 0;
+    st_copy_n(history[hist_head], cmd, HISTORY_LEN);
     
     // OPTIMIZADO: % 4 -> & 3
     hist_head = (hist_head + 1) & 3;
