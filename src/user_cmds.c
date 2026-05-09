@@ -113,17 +113,7 @@ static char *cap_params_start(char *p) __z88dk_fastcall ST_NAKED
     inc hl
     ld de,cap_params_start_key
     ld b,3
-cap_params_start_loop:
-    ld a,(de)
-    cp (hl)
-    jr nz,cap_params_start_no
-    inc de
-    inc hl
-    djnz cap_params_start_loop
-    ret
-cap_params_start_no:
-    ld hl,0
-    ret
+    jp ping_params_start_loop
 cap_params_start_key:
     DEFM "CAP"
     __endasm;

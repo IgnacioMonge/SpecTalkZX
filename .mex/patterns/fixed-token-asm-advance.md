@@ -17,6 +17,7 @@ A local `__z88dk_fastcall ST_NAKED` helper can compare the token and return the 
 - On full match, `ret` with `HL` already one byte past the token.
 - On mismatch, return `HL=0`.
 - If the old C probe starts after a known separator byte such as `sp[1]`, the helper can `inc hl` before the loop and still return the post-token pointer.
+- Several local helpers can share one compare/no-match loop by loading their own `DE` key and `B` length, then `jp` to the first helper's loop.
 
 This is useful when the caller probes more than one candidate location but wants the same post-token parameter pointer.
 
