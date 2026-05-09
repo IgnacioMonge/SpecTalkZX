@@ -106,6 +106,29 @@ ping_params_start_key:
     __endasm;
 }
 
+static char *cap_params_start(char *p) __z88dk_fastcall ST_NAKED
+{
+    (void)p;
+    __asm
+    inc hl
+    ld de,cap_params_start_key
+    ld b,3
+cap_params_start_loop:
+    ld a,(de)
+    cp (hl)
+    jr nz,cap_params_start_no
+    inc de
+    inc hl
+    djnz cap_params_start_loop
+    ret
+cap_params_start_no:
+    ld hl,0
+    ret
+cap_params_start_key:
+    DEFM "CAP"
+    __endasm;
+}
+
 // Generic yes/no prompt with ~5s timeout. Returns 1 on y/Y, 0 on n/N or timeout.
 // Drains UART/parser between key polls to keep IRC state consistent during the wait.
 // Caller is responsible for any "Cancelled"/"Aborted" message on a 0 return.
@@ -439,14 +462,16 @@ do_connect:
                 }
                 
                 // CAP LS - format: ":server CAP * LS ..."
-                if (line[0] == ':' && sp && sp[1] == 'C' && sp[2] == 'A' && sp[3] == 'P') {
+                if (line[0] == ':' && sp) {
                     // Check for LS after CAP
-                    char *ls = sp + 4;
-                    ls = skip_spaces(ls);
-                    if (*ls == '*') { ls++; ls = skip_spaces(ls); }
-                    if (ls[0] == 'L' && ls[1] == 'S') {
-                        uart_send_line(S_CAP_END);
-                        rx_pos = 0; continue;
+                    char *ls = cap_params_start(sp);
+                    if (ls) {
+                        ls = skip_spaces(ls);
+                        if (*ls == '*') { ls++; ls = skip_spaces(ls); }
+                        if (ls[0] == 'L' && ls[1] == 'S') {
+                            uart_send_line(S_CAP_END);
+                            rx_pos = 0; continue;
+                        }
                     }
                 }
                 
