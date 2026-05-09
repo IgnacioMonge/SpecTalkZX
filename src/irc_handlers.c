@@ -494,11 +494,11 @@ static void h_privmsg_notice(void)
                 break;
 
             case 'V': // VERSION
-                if (ctcp_cmd[1] == 'E' && ctcp_cmd[2] == 'R') { send_ctcp_reply(pkt_usr, "VERSION", S_APPSHORT); return; }
+                if (*(uint16_t *)(ctcp_cmd + 1) == 0x5245) { send_ctcp_reply(pkt_usr, "VERSION", S_APPSHORT); return; }
                 break;
 
             case 'P': // PING
-                if (ctcp_cmd[1] == 'I' && ctcp_cmd[2] == 'N' && ctcp_cmd[3] == 'G') {
+                if (*(uint16_t *)(ctcp_cmd + 1) == 0x4E49 && ctcp_cmd[3] == 'G') {
                     char *p = ctcp_cmd + 4;
                     char *end;
                     if (*p == ' ') p++;
@@ -510,7 +510,7 @@ static void h_privmsg_notice(void)
                 break;
 
             case 'T': // TIME
-                if (ctcp_cmd[1] == 'I' && ctcp_cmd[2] == 'M') { send_ctcp_reply(pkt_usr, "TIME", "(no rtc)"); return; }
+                if (*(uint16_t *)(ctcp_cmd + 1) == 0x4D49) { send_ctcp_reply(pkt_usr, "TIME", "(no rtc)"); return; }
                 break;
 
         }
