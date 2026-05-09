@@ -30,6 +30,10 @@ rather than hand-written ASM.
   `st_strlen()` call path while preserving the full destination bound. Do not
   pass `sizeof(irc_server) - 1` to `st_copy_n()` unless one less payload byte is
   deliberately desired.
+- In `/server host[:port| port]`, mutating the transient `args` buffer at the
+  separator and then copying the host with `st_copy_n()` is smaller than
+  pointer subtraction plus `memcpy()`. Keep `sep` mutable, but keep the two-step
+  `port = sep + 1; skip_spaces((char *)port)` form.
 - `remove_channel()` already calls `draw_status_bar()` before returning; do not
   add a second redraw after it unless the caller has changed state again.
 - Active non-query slots above index 0 are real joined channels in the current
@@ -107,4 +111,5 @@ rather than hand-written ASM.
 - `src/user_cmds.c` `cmd_nick()`
 - `src/user_cmds.c` `cmd_part()`
 - `src/user_cmds.c` `cmd_join()`
+- `src/user_cmds.c` `cmd_connect()`
 - `src/spectalk.c` `esp_init()`

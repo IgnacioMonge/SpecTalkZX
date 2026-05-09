@@ -286,8 +286,7 @@ wcr_ok:
 static void cmd_connect(const char *args) __z88dk_fastcall
 { 
     const char *port;
-    const char *sep;
-    uint8_t server_len;
+    char *sep;
     uint8_t result;
     uint8_t use_ssl = 0;
     uint8_t use_saved_session = 0;
@@ -328,16 +327,13 @@ static void cmd_connect(const char *args) __z88dk_fastcall
     if (!sep) sep = strchr(args, ':');
     
     if (sep) {
-        server_len = (uint8_t)(sep - args);
-        if (server_len > sizeof(irc_server) - 1) server_len = sizeof(irc_server) - 1;
-        memcpy(irc_server, args, server_len);
-        irc_server[server_len] = '\0';
+        *sep = '\0';
         port = sep + 1;
         port = (const char *)skip_spaces((char *)port);
     } else {
-        st_copy_n(irc_server, args, sizeof(irc_server));
         port = NULL;
     }
+    st_copy_n(irc_server, args, sizeof(irc_server));
     if (!port || !*port) port = S_DEFAULT_PORT;
     if (strchr(irc_server, '"')) { ui_err("Bad server name"); return; }  // audit L04
 
