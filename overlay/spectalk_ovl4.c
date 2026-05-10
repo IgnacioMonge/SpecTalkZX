@@ -17,6 +17,7 @@ extern uint8_t channels[];
 extern char    network_name[];
 extern uint8_t ping_latency;
 extern uint16_t uptime_minutes;
+extern void reset_rx_state(void);
 #define MAX_CHANNELS    10
 #define CH_SIZE         32
 #define CH_FLAG_ACTIVE  0x01
@@ -112,7 +113,7 @@ void status_render_ovl(void)
     }
 
     notif_center(S_ANYKEY, theme_attrs[TATTR_MSG_SYS]);
-    rb_head = 0; rb_tail = 0; rx_pos = 0;
+    reset_rx_state();
 }
 
 /* ================================================================
@@ -233,5 +234,5 @@ void save_config_ovl(void)
 
 done:
     /* overlay_slot aliases rx_line; cmd_save() owns the post-call discard gate. */
-    rb_head = 0; rb_tail = 0; rx_pos = 0;
+    reset_rx_state();
 }
