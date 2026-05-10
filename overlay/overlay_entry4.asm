@@ -24,12 +24,10 @@ _cfg_put:
 ovl4_cfg_put_loop:
     ld a, (de)
     or a
-    jr z, ovl4_cfg_put_done
+    ret z
     call ovl4_put_a_hl
     inc de
     jr ovl4_cfg_put_loop
-ovl4_cfg_put_done:
-    ret
 
 ; A=byte, HL=destination. Returns HL=destination+1, or overlay_slot+513
 ; when no room remains. Preserves DE so callers can keep source pointers live.

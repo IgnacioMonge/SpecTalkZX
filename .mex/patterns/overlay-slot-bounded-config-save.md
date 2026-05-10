@@ -28,4 +28,5 @@ SPCTLK4 config save uses `overlay_slot`, aliased to the 512-byte `rx_line`, as i
 
 - `overlay/overlay_entry4.asm` bounds `_cfg_put()`, `_cfg_kv()`, and `_cfg_put_autojoin()` against `overlay_slot + 512`.
 - `overlay/overlay_entry4.asm` also owns `_cfg_put_friends()` and `_cfg_put_ignores()`, replacing the former C `cfg_put_csv()` loop while still routing every byte through the guarded writer.
+- In `_cfg_put()`, use a direct `ret z` for end-of-string instead of branching to a one-instruction `ret` label; this measured `-2B` in SPCTLK4 and preserves the callee stack shape.
 - `overlay/spectalk_ovl4.c` composes the timezone value in a local buffer and writes `tz=` through `_cfg_kv()`; it must not raw-store `-`, `\r`, or `\n` into the slot.
