@@ -122,11 +122,8 @@ wait_domain:
     ret c
     ld hl, tail_domain
     call match_tail
-    jr c, wait_domain_fail
+    ret c
     jr nz, wait_domain
-    ret
-wait_domain_fail:
-    scf
     ret
 
 wait_ipd:
@@ -134,22 +131,16 @@ wait_ipd:
     ret c
     ld hl, tail_ipd
     call match_tail
-    jr c, wait_ipd_fail
+    ret c
     jr nz, wait_ipd
-    ret
-wait_ipd_fail:
-    scf
     ret
 
 wait_plus:
     call read_byte_timeout
-    jr nc, wait_plus_fail
+    ccf
+    ret c
     cp '+'
     jr nz, wait_plus
-    or a
-    ret
-wait_plus_fail:
-    scf
     ret
 
 match_tail:
@@ -160,7 +151,8 @@ match_tail:
     push hl
     call read_byte_timeout
     pop hl
-    jr nc, match_timeout
+    ccf
+    ret c
     cp e
     jr nz, match_mismatch
     inc hl
@@ -168,9 +160,6 @@ match_tail:
 match_mismatch:
     ld a, 1
     or a
-    ret
-match_timeout:
-    scf
     ret
 
 read_domain_ip:
@@ -182,7 +171,8 @@ read_domain_ip_loop:
     call read_byte_timeout
     pop bc
     pop hl
-    jr nc, read_domain_ip_fail
+    ccf
+    ret c
     cp ' '
     jr c, read_domain_ip_done
     ld (hl), a
@@ -192,54 +182,45 @@ read_domain_ip_loop:
     push hl
     call read_byte_timeout
     pop hl
-    jr nc, read_domain_ip_fail
+    ccf
+    ret c
     cp ' '
-    jr nc, read_domain_ip_fail
+    ccf
+    ret c
 read_domain_ip_done:
     ld (hl), 0
     or a
     ret
-read_domain_ip_fail:
-    scf
-    ret
 
 wait_ok:
     call read_byte_timeout
-    jr nc, wait_ok_fail
+    ccf
+    ret c
     cp 'O'
     jr nz, wait_ok
     call read_byte_timeout
-    jr nc, wait_ok_fail
+    ccf
+    ret c
     cp 'K'
     jr nz, wait_ok
-    or a
-    ret
-wait_ok_fail:
-    scf
     ret
 
 wait_char:
     ld e, a
 wait_char_loop:
     call read_byte_timeout
-    jr nc, wait_char_fail
+    ccf
+    ret c
     cp e
     jr nz, wait_char_loop
-    or a
-    ret
-wait_char_fail:
-    scf
     ret
 
 skip_ipd_len:
     call read_byte_timeout
-    jr nc, skip_ipd_fail
+    ccf
+    ret c
     cp ':'
     jr nz, skip_ipd_len
-    or a
-    ret
-skip_ipd_fail:
-    scf
     ret
 
 read_byte_timeout:
