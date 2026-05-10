@@ -119,8 +119,12 @@ void switcher_render_ovl(void)
                 continue;
             }
 
-            for (px = x0 >> 1; px < pos >> 1; px++)
-                attr_base[px] = attr;
+            {
+                uint8_t *dst_attr = attr_base + (x0 >> 1);
+                for (px = (pos >> 1) - (x0 >> 1); px != 0; px--) {
+                    *dst_attr++ = attr;
+                }
+            }
         }
     }
 
