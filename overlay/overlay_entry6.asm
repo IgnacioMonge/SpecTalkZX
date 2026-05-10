@@ -244,8 +244,6 @@ convert_ntp_time:
     ld hl, epoch_2018 + 3
     call cmp4
     jp m, conv_fail
-    ld de, ntp_secs + 3
-    ld hl, epoch_2018 + 3
     call sub4
 
     call apply_timezone
@@ -261,7 +259,6 @@ conv_year_cmp:
     ld de, ntp_secs + 3
     call cmp4
     jp m, conv_months
-    ld de, ntp_secs + 3
     call sub4
     inc c
     jr conv_year_loop
@@ -282,7 +279,6 @@ conv_month_loop:
     ld de, ntp_secs + 3
     call cmp4
     jp m, conv_days_pop
-    ld de, ntp_secs + 3
     call sub4
     pop hl
     jr conv_month_loop
@@ -294,7 +290,6 @@ conv_days:
     ld hl, day_sec + 3
     call cmp4
     jp m, conv_hours
-    ld de, ntp_secs + 3
     call sub4
     jr conv_days
 
@@ -305,7 +300,6 @@ conv_hour_loop:
     ld hl, hour_sec + 3
     call cmp4
     jp m, conv_hour_done
-    ld de, ntp_secs + 3
     call sub4
     inc c
     jr conv_hour_loop
@@ -321,7 +315,6 @@ conv_min_loop:
     ld hl, min_sec + 3
     call cmp4
     jp m, conv_min_done
-    ld de, ntp_secs + 3
     call sub4
     inc c
     jr conv_min_loop
@@ -407,6 +400,8 @@ add4_loop:
     ret
 
 sub4:
+    push de
+    push hl
     ld b, 4
     or a
 sub4_loop:
@@ -416,6 +411,8 @@ sub4_loop:
     dec hl
     dec de
     djnz sub4_loop
+    pop hl
+    pop de
     ret
 
 cmd_cipdomain:
