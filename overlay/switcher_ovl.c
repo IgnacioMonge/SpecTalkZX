@@ -50,7 +50,10 @@ void switcher_render_ovl(void)
         sw_first++;
     }
 
-    for (i = 0; i < SCREEN_COLS; i++) buf[i] = ' ';
+    {
+        char *p = buf;
+        for (i = SCREEN_COLS; i != 0; i--) *p++ = ' ';
+    }
 
     pos = (sw_first > 0) ? 2 : 0;
     last_shown = sw_first;
