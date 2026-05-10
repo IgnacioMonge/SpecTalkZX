@@ -72,6 +72,9 @@ rather than hand-written ASM.
   accepted case: `overlay/spectalk_ovl5.c` ignores scan uses `ign += 16` and
   saved `3B`; changing the counter to countdown added another `2B` with the
   same visible order.
+- In overlay switcher code, tiny pointer rewrites are highly layout-sensitive:
+  line-buffer pointer clear and attribute-span pointer fill shrank, but pointer
+  versions of the name-copy loop and `sw_flags_snap` snapshot grew badly.
 
 ## Guardrails
 
@@ -143,6 +146,10 @@ rather than hand-written ASM.
   `+15B` when it split the shared `cfg_item(cl_tz, buf)` tail; the exact
   literal-plus-ternary proposal still grew by `+2B`. Keep the branchy buffer
   fill plus shared call shape there.
+- Do not rewrite `overlay/switcher_ovl.c`'s tab-name copy loop to a local
+  `char *dst` countdown form without a new measurement; it grew `SPCTLK6.OVL`
+  by `+91B` in the 2026-05-10 layout. Likewise, the `sw_flags_snap` pointer
+  snapshot grew by `+82B`; keep the indexed snapshot expression.
 
 ## Applied In
 
@@ -158,3 +165,4 @@ rather than hand-written ASM.
 - `overlay/spectalk_ovl3.c` overlay command cleanup and friend scans
 - `overlay/spectalk_ovl4.c` status channel scan and config-save cleanup
 - `overlay/spectalk_ovl5.c` config render cleanup and fixed-width list scans
+- `overlay/switcher_ovl.c` switcher render C micro-shrinks
