@@ -4,6 +4,8 @@ This worktree is the isolated progressive size-optimization validation tree.
 
 ## Startup Required
 
+- This file is the automatic bootstrap for sessions started in this directory.
+- Do not wait for the user to say "ponte al dia"; immediately read `.mex/ROUTER.md` and recover the current size-opt state before answering or editing.
 - Read `.mex/ROUTER.md` before doing any work.
 - Current final candidate branch: `codex/size-opt-progressive-helper-attrbase`.
 - Do not touch `main` from this worktree unless the user explicitly asks to promote a hardware-validated result.
