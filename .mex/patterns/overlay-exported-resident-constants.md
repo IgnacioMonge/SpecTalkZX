@@ -20,6 +20,10 @@
 - Removing them saves resident bytes during the resident build, then breaks overlay link with missing symbols.
 - Public helpers such as `_sys_puts` and `_reset_rx_state` can also be reused by
   overlays, but only after adding them to `tools\gen_overlay_defs.py`.
+- Resident geometry helpers can be reused the same way when the ABI is exact.
+  `earth_about_render.asm` now replaces its local `earth_screen_base` body with
+  `jp _compute_screen_base`; the helper takes row in `A`, returns `HL`, and is
+  whitelisted in `tools/gen_overlay_defs.py`.
 
 ## Applies To
 

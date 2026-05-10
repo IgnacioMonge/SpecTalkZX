@@ -31,6 +31,7 @@ EXTERN _theme_attrs
 EXTERN _current_theme
 EXTERN _K_DAT
 EXTERN _clear_zone
+EXTERN _compute_screen_base
 EXTERN _rx_last_len
 EXTERN _earth_ready
 EXTERN _frame_idx
@@ -656,17 +657,7 @@ earth_ikkle_done:
         ret
 
 earth_screen_base:
-        ld h,a
-        and $07
-        rrca
-        rrca
-        rrca
-        ld l,a
-        ld a,h
-        and $18
-        or $40
-        ld h,a
-        ret
+        jp _compute_screen_base
 
 earth_attr_base:
         ld l,a
