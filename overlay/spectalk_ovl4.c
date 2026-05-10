@@ -184,11 +184,11 @@ void save_config_ovl(void)
     }
 
     if (sntp_tz == TZ_RTC) {
-        tmp[0] = 'r'; tmp[1] = 't'; tmp[2] = 'c'; tmp[3] = 0;
+        p = cfg_kv(p, K_TZ, "rtc");
     } else {
         format_tz_tmp(tmp, sntp_tz);
+        p = cfg_kv(p, K_TZ, tmp);
     }
-    p = cfg_kv(p, K_TZ, tmp);
 
     {
         int8_t tz = (sntp_tz == TZ_RTC) ? sntp_tz_last : sntp_tz;
