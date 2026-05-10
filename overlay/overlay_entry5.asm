@@ -18,7 +18,7 @@ EXTERN _time_hour
 EXTERN _status_bar_dirty
 EXTERN _config_dirty
 EXTERN _str_to_u16
-EXTERN _set_attr_sys
+EXTERN _sys_puts
 EXTERN _main_puts
 EXTERN _main_putc
 EXTERN _main_newline
@@ -127,9 +127,8 @@ tz_show_current:
     ld a, (_sntp_tz)
     cp TZ_RTC
     jr nz, tz_suffix_none
-    call _set_attr_sys
     ld hl, _K_TZ
-    call _main_puts
+    call _sys_puts
     ld hl, tz_rtc_msg
     call _main_puts
     call _main_newline
@@ -140,9 +139,8 @@ tz_suffix_none:
 
 tz_print_numeric:
     push af                    ; suffix
-    call _set_attr_sys
     ld hl, _K_TZ
-    call _main_puts
+    call _sys_puts
     ld a, (_sntp_tz)
     or a                       ; sets S flag
     ld l, '+'                  ; ld r,n preserves flags
