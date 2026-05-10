@@ -406,6 +406,12 @@ about_theme_attr:
 
 about_draw_line2:
         call _earth_ikkle_draw
+        jr about_draw_foot
+
+about_fail:
+        call _about_close_ovl
+
+about_draw_foot:
         ld hl,about_s_foot
         ld d,20
         ld e,18
@@ -413,15 +419,6 @@ about_draw_line2:
         ld c,a
         call _earth_ikkle_draw
         jr about_reset_rx
-
-about_fail:
-        call _about_close_ovl
-        ld hl,about_s_foot
-        ld d,20
-        ld e,18
-        ld a,(_theme_attrs + TA_MSG_SYS)
-        ld c,a
-        call _earth_ikkle_draw
 
 about_reset_rx:
         xor a
