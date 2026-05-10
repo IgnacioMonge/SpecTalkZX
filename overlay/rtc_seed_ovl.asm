@@ -89,7 +89,6 @@ rtc_esx_epilogue:
     pop ix
     pop iy
     ret c
-    jr rtc_try_msdos_regs
 
 ; Single-pass MS-DOS date/time decode: validates and stores hour/min/sec.
 ; Returns CF=0 on success, CF=1 on failure (date/time out of range).
@@ -355,8 +354,6 @@ bcd_to_bin:
     rrca
     rrca
     rrca
-    cp 10
-    jr nc, bcd_fail
     ld b, a
     add a, a                  ; tens * 2
     add a, a                  ; tens * 4
