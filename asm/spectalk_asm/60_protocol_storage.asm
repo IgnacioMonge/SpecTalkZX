@@ -228,7 +228,6 @@ ap_poll:
     jr ap_store_pos_ret
 
 ap_have_byte:
-    dec b
     cp 13
     jr z, ap_continue
     cp 10
@@ -279,11 +278,8 @@ ap_reset:
     jp _rx_pos_reset            ; tail-call yields after one complete/discarded line
 
 ap_continue:
-    ld a, b
-    or a
-    jr z, ap_store_pos_ret
     ld c, 64
-    jr ap_poll                ; PD2: jr instead of jp (-1B)
+    djnz ap_poll
 
 ap_store_pos_ret:
     ex de, hl                 ; HL = next rx_line write pointer
