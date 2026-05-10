@@ -364,17 +364,13 @@ wb_right:
     add hl, bc
 wbr_wd:
     ld a, (hl)
-    or a
-    jr z, wbr_done
-    cp ' '
-    jr z, wbr_sp
+    cp 33
+    jr c, wbr_sp
     inc hl
     inc c
     jr wbr_wd
 wbr_sp:
     ld a, (hl)
-    or a
-    jr z, wbr_done
     cp ' '
     jr nz, wbr_done
     inc hl
