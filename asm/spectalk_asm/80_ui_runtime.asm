@@ -709,25 +709,23 @@ pu8_skip_tens:
 ; Scan ChannelInfo[10] flags, skipping current_channel_idx.
 EXTERN _channels
 _has_other_mention:
-    ld hl, _channels + 30       ; flags field, ChannelInfo stride is 32
     ld a, (_current_channel_idx)
-    ld b, a                     ; B = current index
-    ld c, 0                     ; C = slot index
+    ld c, a                     ; C counts down to the slot to skip
+    ld hl, _channels + 30       ; flags field, ChannelInfo stride is 32
     ld de, 32
+    ld b, 10                    ; MAX_CHANNELS
 homm_loop:
     ld a, c
-    cp b
+    or a
     jr z, homm_next
     ld a, (hl)
     and 0x09                    ; CH_FLAG_ACTIVE | CH_FLAG_MENTION
     cp 0x09
     jr z, homm_yes
 homm_next:
+    dec c
     add hl, de
-    inc c
-    ld a, c
-    cp 10
-    jr nz, homm_loop
+    djnz homm_loop
     ld l, 0
     ret
 homm_yes:
