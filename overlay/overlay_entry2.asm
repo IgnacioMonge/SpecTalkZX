@@ -48,10 +48,9 @@ _globe_tick_ovl:
     ld (_esx_count), hl
     call _esx_fread
 
-    ld hl, (_esx_result)
-    ld de, EARTH_PACKET_SIZE
+    ld hl, EARTH_PACKET_SIZE
     or a
-    sbc hl, de
+    sbc hl, bc
     jr nz, _about_close_ovl       ; tail-call if read fails
 
     ; Apply frame delta: earth_apply_frame_delta(about_packet_slot + 2)
