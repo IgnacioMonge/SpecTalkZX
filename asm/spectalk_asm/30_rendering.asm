@@ -180,15 +180,14 @@ cz_done:
 ; Destroys: AF, DE (solo si cache miss)
 ; -----------------------------------------------------------------------------
 p64_get_scr_base:
-    ld a, (cache_row_y)
-    ld hl, _g_ps64_y
+    ld a, (_g_ps64_y)
+    ld hl, cache_row_y
     cp (hl)
     jr nz, p64_scr_miss
     ld hl, (cache_scr_base)
     ret
 p64_scr_miss:
-    ld a, (hl)             ; A = g_ps64_y
-    ld (cache_row_y), a
+    ld (hl), a             ; A = g_ps64_y, HL = &cache_row_y
     ld b, a
     call _compute_screen_base
     ld (cache_scr_base), hl
