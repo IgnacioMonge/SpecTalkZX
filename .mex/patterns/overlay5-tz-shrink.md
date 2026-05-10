@@ -19,3 +19,6 @@ description: Measured local shrink rules for `overlay/overlay_entry5.asm` `!tz`.
   current layout, `tz_range` is more than +127 bytes away (`+$B1`, `+$A8`,
   `+$A3` before later edits), so the literal `JP -> JR` proposal is invalid
   unless the error block is deliberately relocated and re-measured.
+- Relocating `tz_range` upward can make those three branches relative, but it
+  needs an explicit `jr tz_done` after `_ui_err` to preserve the RX-reset cleanup
+  path. In the current OVL5 branch this measured as only `-1B` net.

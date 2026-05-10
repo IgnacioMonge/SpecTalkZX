@@ -55,16 +55,16 @@ tz_after_sign:
     ld a, (hl)
     sub '0'
     cp 10
-    jp nc, tz_range
+    jr nc, tz_range
     push bc
     call _str_to_u16           ; HL = abs value, stops on first non-digit
     pop bc
     ld a, h
     or a
-    jp nz, tz_range
+    jr nz, tz_range
     ld a, l
     cp 13
-    jp nc, tz_range
+    jr nc, tz_range
 
     dec b                      ; neg flag was 0 -> NZ (skip), was 1 -> Z
     jr nz, tz_new_ready
@@ -121,6 +121,11 @@ tz_store_new:
     inc a                      ; suffix: later
     jr tz_print_numeric
 
+tz_range:
+    ld hl, tz_range_msg
+    call _ui_err
+    jr tz_done
+
 tz_show_current:
     ld a, (_sntp_tz)
     cp TZ_RTC
@@ -164,10 +169,6 @@ tz_print_suffix:
 tz_print_newline:
     call _main_newline
     jr tz_done
-
-tz_range:
-    ld hl, tz_range_msg
-    call _ui_err
 
 tz_done:
     jp _reset_rx_state
