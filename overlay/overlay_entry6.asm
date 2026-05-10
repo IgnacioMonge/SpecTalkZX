@@ -12,11 +12,8 @@ EXTERN _ay_uart_send
 EXTERN _frame_wait
 EXTERN _draw_status_bar
 EXTERN uartRead
+EXTERN _reset_rx_state
 
-EXTERN _rb_head
-EXTERN _rb_tail
-EXTERN _rx_pos
-EXTERN _rx_overflow
 EXTERN _sntp_tz
 EXTERN _sntp_waiting
 EXTERN _sntp_queried
@@ -123,13 +120,7 @@ udp_fail:
     ld (_sntp_waiting), a
 
 udp_done:
-    ld hl, 0
-    ld (_rb_head), hl
-    ld (_rb_tail), hl
-    ld (_rx_pos), hl
-    xor a
-    ld (_rx_overflow), a
-    ret
+    jp _reset_rx_state
 
 wait_domain:
     call wait_plus
