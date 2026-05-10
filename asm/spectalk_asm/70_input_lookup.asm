@@ -585,13 +585,11 @@ np_no_dup:
     jr c, np_append             ; ptr < 6, just append
 
     ; Shift left: history[0..4] = history[1..5]
-    push bc                     ; save B=ptr, C=idx (LDIR clobbers BC)
+    ld a, c                     ; save idx across LDIR (A is preserved)
     ld hl, _nav_history + 1
     ld de, _nav_history
     ld bc, NAV_HIST_SZ - 1
     ldir
-    pop bc
-    ld a, c
     ld (_nav_history + NAV_HIST_SZ - 1), a
     ret
 
