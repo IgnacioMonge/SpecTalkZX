@@ -379,22 +379,22 @@ _key_shift_held:
 
     ld bc, 0xF7FE
     in a, (c)
+    cpl
     and 0x1F
-    cp 0x1F
     jr nz, shift_not_held
 
     ld bc, 0xEFFE
     in a, (c)
+    cpl
     and 0x1F
-    cp 0x1F
     jr nz, shift_not_held
 
     ; BREAK is CAPS SHIFT+SPACE and word navigation is CAPS SHIFT+SYMBOL SHIFT.
     ; Neither should count as a clean typing shift for cursor/case state.
     ld bc, 0x7FFE
     in a, (c)
+    cpl
     and 0x03
-    cp 0x03
     jr nz, shift_not_held
 
     ld hl, 1
