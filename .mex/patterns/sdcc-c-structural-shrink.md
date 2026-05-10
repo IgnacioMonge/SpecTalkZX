@@ -68,6 +68,10 @@ rather than hand-written ASM.
   `base + i * 32` source code even with resident multiply-by-32 copt helpers.
   Current accepted case: `status_render_ovl()` channel rows saved `19B` while
   preserving labels `0..9` and display order.
+- The same pattern can still grow if the original loop already uses a moving
+  pointer and the old counter also serves as the display index. In
+  `overlay/spectalk_ovl.c`, adding a separate `idx` to make
+  `windows_render_ovl()` count down grew `SPCTLK1.OVL` by `+6B`.
 - For two-dimensional fixed-width overlay tables, a moving pointer can still
   beat repeated `array[i]` references even when the table is small. Current
   accepted case: `overlay/spectalk_ovl5.c` ignores scan uses `ign += 16` and
