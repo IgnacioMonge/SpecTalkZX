@@ -76,11 +76,9 @@ _rb_push:
     
     ; 2. Comprobar colisi?n: ?El Futuro Head choca con el Tail actual?
     ld bc, (_rb_tail)
-    ld a, h
-    cp b
-    jr nz, _rb_push_ok
-    ld a, l
-    cp c
+    or a                    ; clear carry for SBC
+    sbc hl, bc              ; Z=1 if future head == tail
+    add hl, bc              ; restore future head; ADD HL does not alter Z
     jr z, _rb_push_full ; Si son iguales, el buffer est? lleno. Abortar.
     
 _rb_push_ok:
