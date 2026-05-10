@@ -23,6 +23,7 @@ static const char s_range_minutes[] = "Range: 1-60 minutes (0=off)";
 /* Additional resident symbols */
 extern void print_big_str(uint8_t y, uint8_t col, const char *s, uint8_t attr)
     __z88dk_callee;
+extern void reset_rx_state(void);
 
 #define MAIN_START 3
 
@@ -100,7 +101,7 @@ void whatsnew_render(void)
     }
 
     notif_center(S_ANYKEY, theme_attrs[TATTR_MSG_SYS]);
-    rb_head = 0; rb_tail = 0; rx_pos = 0;
+    reset_rx_state();
 }
 
 void autoaway_cmd_ovl(void)
@@ -147,7 +148,7 @@ void autoaway_cmd_ovl(void)
     config_dirty = 1;
 
 done:
-    rb_head = 0; rb_tail = 0; rx_pos = 0;
+    reset_rx_state();
 }
 
 void friend_cmd_ovl(void)
@@ -196,5 +197,5 @@ void friend_cmd_ovl(void)
     ui_err("Max 5 friends");
 
 done:
-    rb_head = 0; rb_tail = 0; rx_pos = 0;
+    reset_rx_state();
 }
