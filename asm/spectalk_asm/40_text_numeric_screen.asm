@@ -359,15 +359,13 @@ _cls_fast:
     ld (cls_restore_sp + 1), sp
     ld sp, 0x5800
     ld hl, 0
-    ld c, 6
-cls_outer:
-    ld b, 0
+    ld bc, 0x0006
 cls_inner:
     push hl
     push hl
     djnz cls_inner
     dec c
-    jr nz, cls_outer
+    jr nz, cls_inner
 cls_restore_sp:
     ld sp, 0
     ei
