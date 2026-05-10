@@ -477,10 +477,9 @@ rk_new_emit:
     ; Set repeat_timer based on key type
     cp RK_KEY_BS
     jr z, rk_new_bs
-    cp RK_KEY_LEFT
-    jr z, rk_new_arrow
-    cp RK_KEY_RIGHT
-    jr z, rk_new_arrow
+    sub 8
+    cp 2
+    jr c, rk_new_arrow
     ; Default: repeat_timer = 20
     ld a, 20
     jr rk_new_set_timer
@@ -531,14 +530,11 @@ rk_rep_fire:
     jr rk_rep_emit
 
 rk_rep_lr:
-    cp RK_KEY_LEFT
-    jr z, rk_rep_lr_emit
-    cp RK_KEY_RIGHT
-    jr z, rk_rep_lr_emit
-    cp RK_KEY_UP
-    jr z, rk_rep_ud
-    cp RK_KEY_DOWN
-    jr z, rk_rep_ud
+    sub 8
+    cp 2
+    jr c, rk_rep_lr_emit
+    cp 4
+    jr c, rk_rep_ud
     ; Other keys: standard repeat
     ld a, 3
     jr rk_rep_emit
