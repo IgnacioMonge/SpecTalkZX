@@ -14,6 +14,10 @@ Use for `codex/size-opt-progressive` at `C:\tmp\SpecTalkZX-size-opt-progressive`
 
 ## Work Rules
 
+- Keep `AGENTS.md` in the worktree root as the automatic startup anchor for
+  future sessions. It must point agents to `.mex/ROUTER.md`, the final
+  candidate branch, expected build sizes, audit status, and the decremental HW
+  validation strategy.
 - Do not touch `main`; all experiments stay in this worktree and branch.
 - Keep one logical optimization per commit.
 - Before each candidate, start from a clean `git status --short`.
