@@ -114,10 +114,8 @@ ovl4_cpa_chan:
     push hl
     ld de, _K_CHANNELS
     call ovl4_csv_prefix
-    pop hl
-    push hl
-    ld d, h
-    ld e, l
+    pop de
+    push de
     call ovl4_cpa_put_de
     pop hl
 ovl4_cpa_next:
@@ -183,10 +181,8 @@ ovl4_cpf_loop:
     push hl
     ld de, ovl4_ck_friends
     call ovl4_csv_prefix
-    pop hl
-    push hl
-    ld d, h
-    ld e, l
+    pop de
+    push de
     call ovl4_cpa_put_de
     pop hl
     pop bc
@@ -214,10 +210,8 @@ ovl4_cpi_loop:
     push hl
     ld de, ovl4_ck_ignores
     call ovl4_csv_prefix
-    pop hl
-    push hl
-    ld d, h
-    ld e, l
+    pop de
+    push de
     call ovl4_cpa_put_de
     pop hl
     pop bc
