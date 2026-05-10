@@ -147,6 +147,10 @@ rather than hand-written ASM.
   `+15B` when it split the shared `cfg_item(cl_tz, buf)` tail; the exact
   literal-plus-ternary proposal still grew by `+2B`. Keep the branchy buffer
   fill plus shared call shape there.
+- Do not assume a mutable static string is smaller than local byte stores in an
+  overlay. In `overlay/spectalk_ovl.c`, changing the help title from a local
+  `title[12]` filled procedurally to `static char title[] = "Help 0/0"` plus
+  two digit stores grew `SPCTLK1.OVL` by `+30B`.
 - Do not rewrite `overlay/switcher_ovl.c`'s tab-name copy loop to a local
   `char *dst` countdown form without a new measurement; it grew `SPCTLK6.OVL`
   by `+91B` in the 2026-05-10 layout. Likewise, the `sw_flags_snap` pointer
