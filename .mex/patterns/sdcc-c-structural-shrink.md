@@ -87,6 +87,10 @@ rather than hand-written ASM.
   In `overlay/spectalk_ovl.c`, replacing the explicit badge writes to
   `0x5800/0x5820 + 27..31` with `a1/a2` post-increment pointers measured flat
   (`0B`), so the clearer fixed-address stores were kept.
+- Do not count edits to sources that are not in the active build graph. In the
+  2026-05-10 final pass, `overlay/globe_render.asm` still existed but SPCTLK2
+  was built only from `overlay/earth_about_render.asm`; changing it measured
+  `0B` and was reverted.
 
 ## Guardrails
 
