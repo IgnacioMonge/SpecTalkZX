@@ -1,6 +1,6 @@
 # Progressive Size Optimization Worktree
 
-Use for `codex/size-opt-progressive` at `C:\tmp\SpecTalkZX-size-opt-progressive`.
+Use for `codex/size-opt-progressive-helper-attrbase` at `C:\Users\ignac\Dropbox\Retro\Software\Para divMMC\SpectalkZX\SpecTalkZX dev\experimentos\size-opt-progressive` (moved from `C:\tmp\SpecTalkZX-size-opt-progressive`).
 
 ## Baseline
 
