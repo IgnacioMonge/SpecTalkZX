@@ -223,11 +223,12 @@ _set_border:
 ; -----------------------------------------------------------------------------
 PUBLIC _skip_spaces
 _skip_spaces:
-    ld a, (hl)
-    cp ' '
+    ld a, ' '
+ss_loop:
+    cp (hl)
     ret nz
     inc hl
-    jr _skip_spaces
+    jr ss_loop
 
 ; -----------------------------------------------------------------------------
 ; cdecl cleanup wrappers: EXX saves ret addr in HL' (alt register set).
