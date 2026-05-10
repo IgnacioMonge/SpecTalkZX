@@ -117,9 +117,7 @@ EXTERN _connection_state
 EXTERN _S_SP_COLON
 ; S_CRLF removed ? use uart_send_crlf instead
 EXTERN _uart_send_crlf
-
-; Common string " " for param separator
-isc_space: defb ' ', 0
+EXTERN _ay_uart_send
 
 ; void irc_send_cmd_internal(const char *cmd, const char *p1, const char *p2)
 ; Sends: CMD [p1] [ :p2]\r\n
@@ -161,8 +159,8 @@ _irc_send_cmd_internal:
     
     ; Send " " + p1
     push de
-    ld hl, isc_space
-    call _uart_send_string
+    ld l, ' '
+    call _ay_uart_send
     pop hl
     call _uart_send_string
     
