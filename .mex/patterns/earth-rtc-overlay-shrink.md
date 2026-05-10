@@ -11,6 +11,11 @@ description: Measured local shrink rules for ABOUT Earth and RTC seed overlays.
 - ABOUT exit must clear `_rx_last_len` in addition to the ring parser state.
   `_reset_rx_state` covers `_rb_head`, `_rb_tail`, `_rx_pos`, and
   `_rx_overflow`, but not `_rx_last_len`.
+- Tiny local ABOUT helpers that exactly duplicate resident address helpers are
+  worth exporting instead of open-coding again. Current measured case:
+  `earth_attr_base: jp _compute_attr_base` plus `tools/gen_overlay_defs.py`
+  export saved `10B` in `SPCTLK2.OVL`; keep the ABI contract as
+  `A=row`, `HL=0x5800+A*32`, clobbers `DE`.
 - Caching `earth_logo_attr_value` outside the logo attr row loop is a speed-only
   tradeoff in the current layout. It measured `+4B` in SPCTLK2 because the
   one-time cache setup costs more static bytes than replacing the in-loop call.

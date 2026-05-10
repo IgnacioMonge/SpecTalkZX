@@ -32,6 +32,7 @@ EXTERN _current_theme
 EXTERN _K_DAT
 EXTERN _clear_zone
 EXTERN _compute_screen_base
+EXTERN _compute_attr_base
 EXTERN _rx_last_len
 EXTERN _earth_ready
 EXTERN _frame_idx
@@ -660,16 +661,7 @@ earth_screen_base:
         jp _compute_screen_base
 
 earth_attr_base:
-        ld l,a
-        ld h,0
-        add hl,hl
-        add hl,hl
-        add hl,hl
-        add hl,hl
-        add hl,hl
-        ld de,$5800
-        add hl,de
-        ret
+        jp _compute_attr_base
 
 about_s_line1:
         db "SPECTALKZX 1.3.8: IRC CLIENT FOR ZX SPECTRUM",0
