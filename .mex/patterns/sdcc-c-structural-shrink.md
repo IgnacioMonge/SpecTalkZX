@@ -57,7 +57,8 @@ rather than hand-written ASM.
   re-emitting `rb_head = 0; rb_tail = 0; rx_pos = 0` when the overlay has
   already clobbered the ring buffer. Accepted cases include
   `overlay/spectalk_ovl3.c` (`-55B`), `overlay/spectalk_ovl4.c` (`-36B`),
-  and `overlay/spectalk_ovl5.c` (`-37B`).
+  `overlay/spectalk_ovl5.c` (`-37B`), and `overlay/spectalk_ovl.c`
+  (`-73B` across help/banner/windows/theme exits).
 - For fixed small table scans where the pointer still advances from slot 0,
   changing the `uint8_t` loop counter from count-up compare to countdown
   (`i = MAX; i != 0; i--`) can shrink SDCC output, but measure it. Current
