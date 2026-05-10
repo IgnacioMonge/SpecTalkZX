@@ -79,6 +79,10 @@ rather than hand-written ASM.
 - Countdown loop rewrites are not automatically useful. In
   `overlay/spectalk_ovl.c`, changing the 32-byte banner separator clear loop to
   count down measured flat (`0B`), so the original count-up loop was kept.
+- Sequential pointer rewrites for fixed VRAM/attribute stores can be neutral.
+  In `overlay/spectalk_ovl.c`, replacing the explicit badge writes to
+  `0x5800/0x5820 + 27..31` with `a1/a2` post-increment pointers measured flat
+  (`0B`), so the clearer fixed-address stores were kept.
 
 ## Guardrails
 
