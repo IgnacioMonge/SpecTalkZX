@@ -428,9 +428,8 @@ _esx_fseek_set:
     rst 8
     defb 0x9F           ; F_SEEK, mode=SET in IXL
     pop ix
-    ld hl, 1
-    ret nc
-    dec hl
+    sbc hl, hl
+    inc hl
     ret
 
 ; -----------------------------------------------------------------------------
