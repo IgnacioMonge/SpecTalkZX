@@ -435,9 +435,8 @@ drain_loop_start:
 
     ; 4. Meter en Ring Buffer
     call _rb_push           ; Retorna L=1 (?xito) o 0 (Fallo/Lleno)
-    ld a, l
-    or a
-    jr z, drain_exit_pop    ; Si buffer lleno, PARAR para no romper framing
+    dec l
+    jr nz, drain_exit_pop   ; Si buffer lleno (L era 0 -> 255), PARAR
 
     ; Decrementar contador
     pop bc
