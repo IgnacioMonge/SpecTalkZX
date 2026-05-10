@@ -267,9 +267,7 @@ rbt_poll:
     ret c
     dec c
     jr nz, rbt_poll
-    push bc
     call _frame_wait
-    pop bc
     djnz rbt_frame
     or a
     ret
