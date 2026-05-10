@@ -18,6 +18,7 @@
 
 #define sw_map          ((uint8_t *)search_pattern)
 #define sw_flags_snap   ((uint8_t *)(search_pattern + 10))
+#define sw_ch(slot)     (channels + ((uint16_t)(slot) << 5))
 
 extern uint8_t sw_sel;
 extern uint8_t sw_first;
@@ -27,11 +28,6 @@ extern uint8_t sw_dirty;
 extern uint8_t sw_tab_width(uint8_t slot) __z88dk_fastcall;
 extern void switcher_rebuild_map(void);
 extern void switcher_close(void);
-
-static uint8_t *sw_ch(uint8_t slot) __z88dk_fastcall
-{
-    return channels + ((uint16_t)slot * CH_SIZE);
-}
 
 void switcher_render_ovl(void)
 {
