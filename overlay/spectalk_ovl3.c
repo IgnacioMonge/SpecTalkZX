@@ -161,14 +161,14 @@ void friend_cmd_ovl(void)
     if (!*args) {
         set_attr_sys();
         main_puts("Friends:");
-        for (i = 0, fn = friend_nicks[0]; i < MAX_FRIENDS; i++, fn += IRC_NICK_SIZE) {
+        for (i = MAX_FRIENDS, fn = friend_nicks[0]; i != 0; i--, fn += IRC_NICK_SIZE) {
             if (*fn) { main_putc(' '); main_puts(fn); }
         }
         main_newline();
         goto done;
     }
 
-    for (i = 0, fn = friend_nicks[0]; i < MAX_FRIENDS; i++, fn += IRC_NICK_SIZE) {
+    for (i = MAX_FRIENDS, fn = friend_nicks[0]; i != 0; i--, fn += IRC_NICK_SIZE) {
         if (*fn) {
             if (st_stricmp(fn, args) == 0) {
                 *fn = '\0';

@@ -53,6 +53,15 @@ rather than hand-written ASM.
   attributes are identical. Current accepted case: `err_maxwin()` for
   `cmd_join()` and `cmd_query()`. This does not contradict the rejected
   static-const dedup for `Use /close first.`; helper/code shape is different.
+- Overlay C exit paths should call resident `reset_rx_state()` instead of
+  re-emitting `rb_head = 0; rb_tail = 0; rx_pos = 0` when the overlay has
+  already clobbered the ring buffer. Current accepted case:
+  `overlay/spectalk_ovl3.c` (`whatsnew_render`, `autoaway_cmd_ovl`,
+  `friend_cmd_ovl`) saved `55B` in `SPCTLK3.OVL`.
+- For fixed small table scans where the pointer still advances from slot 0,
+  changing the `uint8_t` loop counter from count-up compare to countdown
+  (`i = MAX; i != 0; i--`) can shrink SDCC output, but measure it. Current
+  accepted case: the two `friend_cmd_ovl()` scans saved only `2B`.
 
 ## Guardrails
 
@@ -113,6 +122,12 @@ rather than hand-written ASM.
 - Do not route `/close` directly to `cmd_part()` under a SAFE shrink pass. It
   removes code but changes user-visible error text for Server/inactive-window
   cases; keep it as explicit behavior tradeoff only.
+- Do not assume that C-level loop-invariant extraction around ZX VRAM addresses
+  shrinks under SDCC. In `overlay/spectalk_ovl3.c`, moving `blit_logo()`'s
+  pixel `row_base` into a local that increments by `0x100` grew `SPCTLK3.OVL`
+  by `+57B`, and changing the attribute fill to a moving `attr += 32` pointer
+  grew by `+7B`. Keep the original expression form unless a hand-ASM rewrite is
+  being measured.
 
 ## Applied In
 
@@ -125,3 +140,4 @@ rather than hand-written ASM.
 - `src/user_cmds.c` `cmd_topic()`
 - `src/user_cmds.c` `cmd_query()`
 - `src/spectalk.c` `esp_init()`
+- `overlay/spectalk_ovl3.c` overlay command cleanup and friend scans
