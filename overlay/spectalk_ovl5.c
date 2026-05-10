@@ -116,9 +116,12 @@ void config_render_ovl(void)
         col = 12;
         print_str64(row, 2, "Ignores:", theme_attrs[TATTR_MSG_NICK]);
         if (ignore_count == 0) print_str64(row, col, cv_notset, theme_attrs[TATTR_MSG_TIME]);
-        else for (i = 0; i < ignore_count; i++) {
-            print_str64(row, col, ignore_list[i], theme_attrs[TATTR_MSG_CHAN]);
-            col += st_strlen(ignore_list[i]) + 1;
+        else {
+            const char *ign = ignore_list[0];
+            for (i = 0; i < ignore_count; i++, ign += 16) {
+                print_str64(row, col, ign, theme_attrs[TATTR_MSG_CHAN]);
+                col += st_strlen(ign) + 1;
+            }
         }
     }
 
