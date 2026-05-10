@@ -139,6 +139,18 @@ static const char CK_TZLAST[] = "tzlast=";
 #define CFG_TOO_LARGE (CFG_END + 1)
 extern char *cfg_put_autojoin(char *p) __z88dk_fastcall;
 
+static void format_tz_tmp(char *tmp, int8_t tz)
+{
+    if (tz < 0) {
+        tmp[0] = '-';
+        fast_u8_to_str(tmp + 1, (uint8_t)(-tz));
+        tmp[3] = 0;
+    } else {
+        fast_u8_to_str(tmp, (uint8_t)tz);
+        tmp[2] = 0;
+    }
+}
+
 void save_config_ovl(void)
 {
     char *p = (char *)overlay_slot;
@@ -173,26 +185,14 @@ void save_config_ovl(void)
 
     if (sntp_tz == TZ_RTC) {
         tmp[0] = 'r'; tmp[1] = 't'; tmp[2] = 'c'; tmp[3] = 0;
-    } else if (sntp_tz < 0) {
-        tmp[0] = '-';
-        fast_u8_to_str(tmp + 1, (uint8_t)(-sntp_tz));
-        tmp[3] = 0;
     } else {
-        fast_u8_to_str(tmp, (uint8_t)sntp_tz);
-        tmp[2] = 0;
+        format_tz_tmp(tmp, sntp_tz);
     }
     p = cfg_kv(p, K_TZ, tmp);
 
     {
         int8_t tz = (sntp_tz == TZ_RTC) ? sntp_tz_last : sntp_tz;
-        if (tz < 0) {
-            tmp[0] = '-';
-            fast_u8_to_str(tmp + 1, (uint8_t)(-tz));
-            tmp[3] = 0;
-        } else {
-            fast_u8_to_str(tmp, (uint8_t)tz);
-            tmp[2] = 0;
-        }
+        format_tz_tmp(tmp, tz);
         p = cfg_kv(p, CK_TZLAST, tmp);
     }
 
