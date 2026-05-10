@@ -72,10 +72,9 @@ _globe_tick_ovl:
 
     ld hl, EARTH_DELTA_OFFSET
     call _esx_fseek_set
+    dec l
+    jr nz, _about_close_ovl       ; tail-call if seek fails
     ld a, l
-    or a
-    jr z, _about_close_ovl        ; tail-call if seek fails
-    xor a
     ld (_frame_idx), a
     ret
 
