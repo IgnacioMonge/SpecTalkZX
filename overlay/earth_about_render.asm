@@ -21,6 +21,7 @@ EXTERN _esx_fread
 EXTERN _esx_fclose
 EXTERN _esx_fseek_set
 EXTERN _esx_handle
+EXTERN _reset_rx_state
 EXTERN _esx_buf
 EXTERN _esx_count
 EXTERN _esx_result
@@ -30,11 +31,7 @@ EXTERN _theme_attrs
 EXTERN _current_theme
 EXTERN _K_DAT
 EXTERN _clear_zone
-EXTERN _rb_head
-EXTERN _rb_tail
-EXTERN _rx_pos
 EXTERN _rx_last_len
-EXTERN _rx_overflow
 EXTERN _earth_ready
 EXTERN _frame_idx
 
@@ -421,14 +418,9 @@ about_draw_foot:
         jr about_reset_rx
 
 about_reset_rx:
-        xor a
         ld hl,0
-        ld (_rb_head),hl
-        ld (_rb_tail),hl
-        ld (_rx_pos),hl
         ld (_rx_last_len),hl
-        ld (_rx_overflow),a
-        ret
+        jp _reset_rx_state
 
 about_read_exact:
         ld (_esx_buf),hl
