@@ -21,6 +21,7 @@ static const char cv_smart[]  = "smart";
 static uint8_t cfg_col;
 
 extern void rtc_seed_ovl(void);
+extern void reset_rx_state(void);
 
 void rtc_enable_ovl(void)
 {
@@ -39,7 +40,7 @@ void rtc_enable_ovl(void)
         sntp_tz = old_tz;
         ui_err("No RTC");
     }
-    rb_head = 0; rb_tail = 0; rx_pos = 0;
+    reset_rx_state();
 }
 
 static void cfg_item(const char *label, const char *val)
@@ -123,5 +124,5 @@ void config_render_ovl(void)
 
     notif_center(config_dirty ? "(S)AVE TO SD | ANY KEY TO EXIT" : S_ANYKEY,
                 theme_attrs[TATTR_MSG_SYS]);
-    rb_head = 0; rb_tail = 0; rx_pos = 0;
+    reset_rx_state();
 }
