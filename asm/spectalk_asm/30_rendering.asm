@@ -1175,14 +1175,14 @@ _draw_cursor_underline:
     ld a, b
     srl a                   ; A = phys_x = col / 2
     ld e, a                 ; E = phys_x
-    ld a, b
-    and 1
-    ld d, 0xF0              ; D = cursor mask
-    ld b, 0x0F              ; B = inverse mask
-    jr z, dcu_masks
-    ld d, b
-    ld b, 0xF0
+    ld b, 0x0F              ; B = inverse mask for even col
+    jr nc, dcu_masks        ; Carry from srl is original col bit 0
+    ld b, 0xF0              ; B = inverse mask for odd col
 dcu_masks:
+    ld a, b
+    cpl
+    ld d, a                 ; D = cursor mask
+
     ; Attribute: attr_addr(y, phys_x) = ATTR_INPUT.
     push de                 ; save mask/phys_x
     push bc                 ; save inv_mask/y
