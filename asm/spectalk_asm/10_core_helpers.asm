@@ -349,8 +349,7 @@ _check_caps_toggle:
     bit 1, a
     jr nz, caps_no_combo
 
-    ld hl, _caps_latch
-    ld a, (hl)
+    ld a, (_caps_latch)
     or a
     ret nz
 
@@ -364,8 +363,8 @@ _check_caps_toggle:
     ret
 
 caps_no_combo:
-    ld hl, _caps_latch
-    ld (hl), 0
+    xor a
+    ld (_caps_latch), a
     ret
 
 ; -----------------------------------------------------------------------------
