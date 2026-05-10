@@ -418,11 +418,12 @@ wm_apply:
 ; void input_delete_word(void)
 _input_delete_word:
     ld a, (_cursor_pos)
+    ld e, a                 ; old cursor_pos survives wb_left_clean
     call wb_left_clean      ; A = new_pos (word boundary)
-    ld c, a                 ; C = new_pos
-    ld a, (_cursor_pos)
-    cp c
+    cp e
     ret z
+    ld c, a                 ; C = new_pos
+    ld a, e                 ; A = old cursor_pos
     sub c
     ld b, a                 ; B = del_count = cursor_pos - new_pos
     push bc
