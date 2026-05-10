@@ -714,9 +714,8 @@ _put_char64_input_cached:
     ld e, h                 ; E = attr
 
     ld a, c
-    cp 22
-    jr c, pci_draw
-    cp 24
+    sub 22
+    cp 2
     jr nc, pci_draw
     ld a, b
     cp 64
