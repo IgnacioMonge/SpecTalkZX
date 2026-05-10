@@ -62,6 +62,11 @@ rather than hand-written ASM.
   changing the `uint8_t` loop counter from count-up compare to countdown
   (`i = MAX; i != 0; i--`) can shrink SDCC output, but measure it. Current
   accepted case: the two `friend_cmd_ovl()` scans saved only `2B`.
+- For 32-byte overlay table scans that also need the slot number for display,
+  a moving pointer plus a separate sequential display digit can beat repeated
+  `base + i * 32` source code even with resident multiply-by-32 copt helpers.
+  Current accepted case: `status_render_ovl()` channel rows saved `19B` while
+  preserving labels `0..9` and display order.
 
 ## Guardrails
 
@@ -141,3 +146,4 @@ rather than hand-written ASM.
 - `src/user_cmds.c` `cmd_query()`
 - `src/spectalk.c` `esp_init()`
 - `overlay/spectalk_ovl3.c` overlay command cleanup and friend scans
+- `overlay/spectalk_ovl4.c` status channel scan and config-save cleanup

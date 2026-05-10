@@ -41,7 +41,6 @@ void status_render_ovl(void)
     uint8_t r = overlay_header("Status");
     uint8_t a_nick = theme_attrs[TATTR_MSG_NICK];
     uint8_t a_chan  = theme_attrs[TATTR_MSG_CHAN];
-    uint8_t i;
 
     print_str64(r, 2, ss_nick, a_nick);
     print_str64(r++, 11, irc_nick[0] ? (const char *)irc_nick : "(none)", a_chan);
@@ -94,14 +93,16 @@ void status_render_ovl(void)
     r++; /* blank line before channels */
     print_str64(r++, 2, ss_chans, a_nick);
     { uint8_t rl = r, rr = r;  /* two-column row counters */
-      for (i = 0; i < MAX_CHANNELS; i++) {
-        uint8_t *ch = (uint8_t *)channels + i * CH_SIZE;
+      uint8_t *ch = channels;
+      char c_idx = '0';
+      uint8_t i;
+      for (i = MAX_CHANNELS; i != 0; i--, ch += CH_SIZE, c_idx++) {
         uint8_t flags = ch[CH_FLAGS_OFF];
         if (flags & CH_FLAG_ACTIVE) {
             char idx[4];
             uint8_t attr = (flags & CH_FLAG_QUERY) ? theme_attrs[TATTR_MSG_TIME] : a_chan;
-            idx[0] = ' '; idx[1] = '0' + i; idx[2] = '.'; idx[3] = 0;
-            if (i < 5) {
+            idx[0] = ' '; idx[1] = c_idx; idx[2] = '.'; idx[3] = 0;
+            if (c_idx < '5') {
                 print_str64(rl, 2, idx, a_nick);
                 print_str64(rl++, 6, (const char *)ch, attr);
             } else {
