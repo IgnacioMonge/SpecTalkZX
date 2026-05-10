@@ -101,20 +101,15 @@ udp_store_ts:
     call commit_ntp_time
     jr udp_close
 
-udp_fail_dns:
-    jr udp_fail
 udp_fail_open:
 udp_fail_send:
 udp_fail_ipd:
 udp_fail_time:
-    ld hl, cmd_cipclose
-    call _uart_send_line
-    jr udp_fail
-
 udp_close:
     ld hl, cmd_cipclose
     call _uart_send_line
 
+udp_fail_dns:
 udp_fail:
     xor a
     ld (_sntp_waiting), a
