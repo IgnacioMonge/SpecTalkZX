@@ -34,20 +34,16 @@ ovl4_cfg_put_done:
 ; A=byte, HL=destination. Returns HL=destination+1, or overlay_slot+513
 ; when no room remains. Preserves DE so callers can keep source pointers live.
 ovl4_put_a_hl:
-    push bc
-    push hl
     ld bc, _overlay_slot + 512
     or a
     sbc hl, bc
-    pop hl
+    add hl, bc
     jr nc, ovl4_put_full
     ld (hl), a
     inc hl
-    pop bc
     ret
 ovl4_put_full:
     ld hl, _overlay_slot + 513
-    pop bc
     ret
 
 ; char *cfg_kv(char *p, const char *key, const char *val) __z88dk_callee
@@ -111,6 +107,7 @@ ovl4_cpa_loop:
     cp '&'
     jr nz, ovl4_cpa_next
 ovl4_cpa_chan:
+    push bc
     push hl
     ld de, _K_CHANNELS
     call ovl4_csv_prefix
@@ -118,6 +115,7 @@ ovl4_cpa_chan:
     push de
     call ovl4_cpa_put_de
     pop hl
+    pop bc
 ovl4_cpa_next:
     ld de, 32                 ; CH_SIZE
     add hl, de
