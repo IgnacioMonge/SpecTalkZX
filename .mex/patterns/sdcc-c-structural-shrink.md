@@ -76,6 +76,9 @@ rather than hand-written ASM.
 - In overlay switcher code, tiny pointer rewrites are highly layout-sensitive:
   line-buffer pointer clear and attribute-span pointer fill shrank, but pointer
   versions of the name-copy loop and `sw_flags_snap` snapshot grew badly.
+- Countdown loop rewrites are not automatically useful. In
+  `overlay/spectalk_ovl.c`, changing the 32-byte banner separator clear loop to
+  count down measured flat (`0B`), so the original count-up loop was kept.
 
 ## Guardrails
 
