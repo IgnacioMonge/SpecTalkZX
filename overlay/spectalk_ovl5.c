@@ -108,7 +108,7 @@ void config_render_ovl(void)
         uint8_t row = g_ps64_y;
         const char *fn;
         print_str64(row, 2, "Friends:", theme_attrs[TATTR_MSG_NICK]);
-        for (i = 0, fn = friend_nicks[0]; i < MAX_FRIENDS; i++, fn += IRC_NICK_SIZE) {
+        for (i = MAX_FRIENDS, fn = friend_nicks[0]; i != 0; i--, fn += IRC_NICK_SIZE) {
             if (*fn) { print_str64(row, col, fn, theme_attrs[TATTR_MSG_CHAN]); col += st_strlen(fn) + 1; }
         }
         if (col == 12) print_str64(row, col, cv_notset, theme_attrs[TATTR_MSG_TIME]);
@@ -118,7 +118,7 @@ void config_render_ovl(void)
         if (ignore_count == 0) print_str64(row, col, cv_notset, theme_attrs[TATTR_MSG_TIME]);
         else {
             const char *ign = ignore_list[0];
-            for (i = 0; i < ignore_count; i++, ign += 16) {
+            for (i = ignore_count; i != 0; i--, ign += 16) {
                 print_str64(row, col, ign, theme_attrs[TATTR_MSG_CHAN]);
                 col += st_strlen(ign) + 1;
             }

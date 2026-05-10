@@ -55,9 +55,9 @@ rather than hand-written ASM.
   static-const dedup for `Use /close first.`; helper/code shape is different.
 - Overlay C exit paths should call resident `reset_rx_state()` instead of
   re-emitting `rb_head = 0; rb_tail = 0; rx_pos = 0` when the overlay has
-  already clobbered the ring buffer. Current accepted case:
-  `overlay/spectalk_ovl3.c` (`whatsnew_render`, `autoaway_cmd_ovl`,
-  `friend_cmd_ovl`) saved `55B` in `SPCTLK3.OVL`.
+  already clobbered the ring buffer. Accepted cases include
+  `overlay/spectalk_ovl3.c` (`-55B`), `overlay/spectalk_ovl4.c` (`-36B`),
+  and `overlay/spectalk_ovl5.c` (`-37B`).
 - For fixed small table scans where the pointer still advances from slot 0,
   changing the `uint8_t` loop counter from count-up compare to countdown
   (`i = MAX; i != 0; i--`) can shrink SDCC output, but measure it. Current
@@ -67,6 +67,11 @@ rather than hand-written ASM.
   `base + i * 32` source code even with resident multiply-by-32 copt helpers.
   Current accepted case: `status_render_ovl()` channel rows saved `19B` while
   preserving labels `0..9` and display order.
+- For two-dimensional fixed-width overlay tables, a moving pointer can still
+  beat repeated `array[i]` references even when the table is small. Current
+  accepted case: `overlay/spectalk_ovl5.c` ignores scan uses `ign += 16` and
+  saved `3B`; changing the counter to countdown added another `2B` with the
+  same visible order.
 
 ## Guardrails
 
@@ -133,6 +138,11 @@ rather than hand-written ASM.
   by `+57B`, and changing the attribute fill to a moving `attr += 32` pointer
   grew by `+7B`. Keep the original expression form unless a hand-ASM rewrite is
   being measured.
+- Do not duplicate a call across branches just to pass a literal. In
+  `overlay/spectalk_ovl5.c`, passing `"RTC"` directly to `cfg_item()` grew by
+  `+15B` when it split the shared `cfg_item(cl_tz, buf)` tail; the exact
+  literal-plus-ternary proposal still grew by `+2B`. Keep the branchy buffer
+  fill plus shared call shape there.
 
 ## Applied In
 
@@ -147,3 +157,4 @@ rather than hand-written ASM.
 - `src/spectalk.c` `esp_init()`
 - `overlay/spectalk_ovl3.c` overlay command cleanup and friend scans
 - `overlay/spectalk_ovl4.c` status channel scan and config-save cleanup
+- `overlay/spectalk_ovl5.c` config render cleanup and fixed-width list scans
