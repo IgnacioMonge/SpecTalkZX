@@ -509,7 +509,7 @@ fm_ctr:
     ; H = 0x40 | (third << 3) | scanline = 0x48 | 0 = 0x48
     ; L = (row_in_third << 5) | col = (3 << 5) | col = 0x60 | col
     or 0x60              ; A = 0x60 | start_col (row 11, scanline 0 base)
-    ld d, a              ; D = low byte base for row 11
+    ld e, a              ; E = low byte base for row 11
 fm_char:
     ld a, (hl)
     or a
@@ -523,21 +523,16 @@ fm_char:
     add hl, hl           ; HL = (char-32) * 8
     ld bc, 0x3D00
     add hl, bc            ; HL = glyph address
-    ; Write 8 scanlines: H=0x48+S, L=D (column)
-    ld e, d               ; E = column (preserved across scanlines)
+    ; Write 8 scanlines: D=0x48+S, E=column.
+    ld d, 0x48            ; D = high byte base for row 11
     ld b, 8
-    ld c, 0x48            ; C = high byte base for row 11
 fm_scan:
     ld a, (hl)
-    push hl
-    ld h, c
-    ld l, e
-    ld (hl), a
-    pop hl
+    ld (de), a
     inc hl
-    inc c                 ; next scanline
+    inc d                 ; next scanline
     djnz fm_scan
-    inc d                 ; next column
+    inc e                 ; next column
     pop hl
     inc hl
     jr fm_char
