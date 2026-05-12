@@ -612,21 +612,13 @@ static void cmd_nick(const char *args) __z88dk_fastcall
 
 static void cmd_pass(const char *args) __z88dk_fastcall
 {
-    if (!args || !*args) {
-        sys_puts_print("Server password: ", irc_pass[0] ? S_SET : S_NOTSET);
-        return;
-    }
-    
-    if (st_stricmp(args, "clear") == 0 || st_stricmp(args, "none") == 0) {
-        irc_pass[0] = '\0';
-        notify("Password cleared", ATTR_MSG_SYS);
-        config_dirty = 1;
-        return;
-    }
+    uint16_t had_partial = rx_pos;
 
-    st_copy_n(irc_pass, args, sizeof(irc_pass));
-    notify("Password set", ATTR_MSG_SYS);
-    config_dirty = 1;
+    if (args && *args) st_copy_n((char *)overlay_slot, args, 64);
+    else overlay_slot[0] = 0;
+
+    overlay_exec(6, 1);
+    if (had_partial) rx_overflow = 1;
 }
 
 static void cmd_join(const char *args) __z88dk_fastcall

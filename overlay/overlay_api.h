@@ -38,6 +38,7 @@ extern void main_newline(void);
 extern void set_attr_sys(void);
 extern void set_attr_priv(void);
 extern void sys_puts_print(const char *label, const char *value) __z88dk_callee;
+extern void notify(const char *msg, uint8_t attr) __z88dk_callee;
 extern void notify2(const char *a, const char *b, uint8_t attr) __z88dk_callee;
 extern void ui_err(const char *s) __z88dk_fastcall;
 extern void ui_usage(const char *a) __z88dk_fastcall;
@@ -195,6 +196,7 @@ extern const char S_ANYKEY[];
 #define MAX_FRIENDS     5
 #define MAX_IGNORES     5
 #define IRC_NICK_SIZE   18
+#define IRC_PASS_SIZE   24
 #define ATTR_MSG_SYS    theme_attrs[TATTR_MSG_SYS]
 
 #endif /* OVERLAY_API_H */

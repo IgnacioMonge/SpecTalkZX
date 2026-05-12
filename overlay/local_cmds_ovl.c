@@ -62,3 +62,27 @@ void ignore_cmd_ovl(void)
 done:
     reset_rx_state();
 }
+
+void pass_cmd_ovl(void)
+{
+    const char *args = (const char *)overlay_slot;
+
+    if (!*args) {
+        sys_puts_print("Server password: ", irc_pass[0] ? "(set)" : "(not set)");
+        goto done;
+    }
+
+    if (st_stricmp(args, "clear") == 0 || st_stricmp(args, "none") == 0) {
+        irc_pass[0] = '\0';
+        notify("Password cleared", ATTR_MSG_SYS);
+        config_dirty = 1;
+        goto done;
+    }
+
+    st_copy_n(irc_pass, args, IRC_PASS_SIZE);
+    notify("Password set", ATTR_MSG_SYS);
+    config_dirty = 1;
+
+done:
+    reset_rx_state();
+}

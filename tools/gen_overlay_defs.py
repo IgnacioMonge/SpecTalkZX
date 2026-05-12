@@ -57,6 +57,7 @@ REQUIRED_FUNCTIONS = [
     "_set_attr_priv",
     "_sys_puts",
     "_sys_puts_print",
+    "_notify",
     "_notify2",
     "_ui_err",
     "_ui_usage",
