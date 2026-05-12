@@ -23,9 +23,6 @@ void cmd_quit(const char *args) __z88dk_fastcall;
 static void sntp_init(void);  // forward decl — defined in spectalk.c (SCU order)
 extern void sntp_udp_fallback(void);
 
-// OPT H3: extern para constantes compartidas (definidas en spectalk.c)
-extern const char S_ON[];
-extern const char S_OFF[];
 extern const char S_DEFAULT_PORT[];
 extern uint8_t autoconnect;
 
@@ -1216,72 +1213,56 @@ static void cmd_autoaway(const char *args) __z88dk_fastcall
     if (had_partial) rx_overflow = 1;
 }
 
-// OPT H4: Helper para comandos toggle con argumento directo opcional
-static void set_or_toggle_flag(uint8_t *flag, const char *label, const char *args) __z88dk_callee {
-    if (args && *args) {
-        if (args[0] == '1' || st_stricmp(args, S_ON) == 0) *flag = 1;
-        else if (args[0] == '0' || st_stricmp(args, S_OFF) == 0) *flag = 0;
-        else { ui_usage("on|off"); return; }
-    } else {
-        *flag = !*flag;
-    }
-    sys_puts_print(label, *flag ? S_ON : S_OFF);
-    config_dirty = 1;
+static void cmd_local_setting(uint8_t id, const char *args) __z88dk_callee
+{
+    uint16_t had_partial = rx_pos;
+
+    overlay_slot[0] = id;
+    if (args && *args) st_copy_n((char *)overlay_slot + 1, args, 16);
+    else overlay_slot[1] = 0;
+
+    overlay_exec(6, 2);
+    if (had_partial) rx_overflow = 1;
 }
 
 static void cmd_beep(const char *args) __z88dk_fastcall
 {
-    set_or_toggle_flag(&beep_enabled, "Beep: ", args);
+    cmd_local_setting(0, args);
 }
 
 static void cmd_click(const char *args) __z88dk_fastcall
 {
-    set_or_toggle_flag(&keyclick_enabled, "Click: ", args);
+    cmd_local_setting(1, args);
 }
 
 static void cmd_nickcolor(const char *args) __z88dk_fastcall
 {
-    set_or_toggle_flag(&nick_color_mode, "Nick color: ", args);
+    cmd_local_setting(2, args);
 }
 
 static void cmd_traffic(const char *args) __z88dk_fastcall
 {
-    set_or_toggle_flag(&show_traffic, "Show traffic: ", args);
+    cmd_local_setting(3, args);
 }
 
 static void cmd_notif(const char *args) __z88dk_fastcall
 {
-    set_or_toggle_flag(&notif_enabled, "Notifications: ", args);
+    cmd_local_setting(4, args);
 }
 
 static void cmd_timestamps(const char *args) __z88dk_fastcall
 {
-    if (args && *args) {
-        if (args[0] == '0' || st_stricmp(args, S_OFF) == 0) show_timestamps = 0;
-        else if (args[0] == '1' || st_stricmp(args, S_ON) == 0) show_timestamps = 1;
-        else if (args[0] == '2' || st_stricmp(args, S_SMART) == 0) show_timestamps = 2;
-        else { ui_usage("off|on|smart"); return; }
-    } else {
-        // Cycle: 0 (off) -> 1 (always) -> 2 (on-change) -> 0
-        if (++show_timestamps > 2) show_timestamps = 0;
-    }
-    if (show_timestamps == 2) {
-        last_ts_hour = 0xFF;
-        last_ts_minute = 0xFF;
-    }
-    sys_puts_print("Timestamps: ", show_timestamps == 0 ? S_OFF :
-               show_timestamps == 1 ? S_ON : S_SMART);
-    config_dirty = 1;
+    cmd_local_setting(5, args);
 }
 
 static void cmd_autoconnect(const char *args) __z88dk_fastcall
 {
-    set_or_toggle_flag(&autoconnect, "Autoconnect: ", args);
+    cmd_local_setting(6, args);
 }
 
 static void cmd_autojoin(const char *args) __z88dk_fastcall
 {
-    set_or_toggle_flag(&autojoin, "Autojoin: ", args);
+    cmd_local_setting(7, args);
 }
 
 static void cmd_tz(const char *args) __z88dk_fastcall

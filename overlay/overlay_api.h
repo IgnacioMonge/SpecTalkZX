@@ -132,6 +132,8 @@ extern uint8_t  sntp_queried;
 extern uint8_t  time_hour;
 extern uint8_t  time_minute;
 extern uint8_t  time_second;
+extern uint8_t  last_ts_hour;
+extern uint8_t  last_ts_minute;
 extern uint8_t  last_frames_lo;
 extern uint16_t tick_accum;
 extern char     search_pattern[];

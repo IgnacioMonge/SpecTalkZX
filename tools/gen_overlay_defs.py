@@ -164,6 +164,8 @@ REQUIRED_VARIABLES = [
     "_time_hour",
     "_time_minute",
     "_time_second",
+    "_last_ts_hour",
+    "_last_ts_minute",
     "_last_frames_lo",
     "_tick_accum",
     "_search_pattern",
