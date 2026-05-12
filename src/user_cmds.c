@@ -1062,56 +1062,13 @@ static void cmd_search(const char *args) __z88dk_fastcall
 
 static void cmd_ignore(const char *args) __z88dk_fastcall
 {
-    uint8_t i;
-    char *p;
+    uint16_t had_partial = rx_pos;
 
-    if (!args || !*args) {
-        set_attr_sys();
-        if (ignore_count == 0) {
-            main_print("Ignore list is empty");
-        } else {
-            main_puts("Ignored (");
-            main_putc('0' + ignore_count);
-            main_puts("): ");
-            for (i = 0; i < ignore_count; i++) {
-                if (i > 0) main_puts(S_COMMA_SP);
-                main_puts(ignore_list[i]);
-            }
-            main_newline();
-        }
-        return;
-    }
+    if (args && *args) st_copy_n((char *)overlay_slot, args, 64);
+    else overlay_slot[0] = 0;
 
-    p = (char *)args;
-
-    // Caso UNIGNORE
-    if (p[0] == '-') {
-        p++;
-        p = skip_spaces(p);
-        if (!*p) { ui_usage("ignore -nick to unignore"); return; }
-
-        split_at_space(p);
-
-        if (remove_ignore(p)) {
-            notify2("Unignored: ", p, ATTR_MSG_SYS);
-            config_dirty = 1;
-        } else {
-            notify2("Not in ignore list: ", p, ATTR_MSG_SYS);
-        }
-        return;
-    }
-
-    // Caso IGNORE
-    split_at_space(p);
-
-    if (add_ignore(p)) {
-        notify2("Now ignoring: ", p, ATTR_MSG_SYS);
-        config_dirty = 1;
-    } else if (is_ignored(p)) {
-        notify2("Already ignoring: ", p, ATTR_MSG_SYS);
-    } else {
-        ui_err("Ignore list full");
-    }
+    overlay_exec(6, 0);
+    if (had_partial) rx_overflow = 1;
 }
 
 static void cmd_kick(const char *args) __z88dk_fastcall
