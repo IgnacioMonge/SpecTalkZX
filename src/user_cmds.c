@@ -1209,7 +1209,7 @@ static void cmd_autoaway(const char *args) __z88dk_fastcall
 {
     uint16_t had_partial = rx_pos;
     st_copy_n((char *)overlay_slot, args ? args : "", 16);
-    overlay_exec(2, 1);
+    overlay_exec(6, 3);
     if (had_partial) rx_overflow = 1;
 }
 
@@ -1290,7 +1290,7 @@ static void cmd_friend(const char *args) __z88dk_fastcall
     } else {
         overlay_slot[0] = 0;
     }
-    overlay_exec(2, 2);
+    overlay_exec(6, 4);
     if (had_partial) rx_overflow = 1;
 }
 

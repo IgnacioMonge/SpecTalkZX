@@ -4,7 +4,6 @@
  * Generated data from tools/gen_whatsnew.py (logo + changelog).
  *
  * Entry 0: whatsnew_render — What's New screen
- * Entry 1: autoaway_cmd_ovl — !autoaway cold command
  *
  * For each new version: update release/logo.png, changes.txt, version.txt
  * and run make. This file doesn't need editing.
@@ -12,18 +11,6 @@
 
 #include "overlay_api.h"
 #include "whatsnew_data.h"
-
-static const char s_off[] = "off";
-static const char s_colon_sp[] = ": ";
-static const char s_min[] = " min";
-static const char s_disabled[] = " disabled";
-static const char s_set_to[] = " set to ";
-static const char s_range_minutes[] = "Range: 1-60 minutes (0=off)";
-
-/* Additional resident symbols */
-extern void print_big_str(uint8_t y, uint8_t col, const char *s, uint8_t attr)
-    __z88dk_callee;
-extern void reset_rx_state(void);
 
 #define MAIN_START 3
 
@@ -101,101 +88,5 @@ void whatsnew_render(void)
     }
 
     notif_center(S_ANYKEY, theme_attrs[TATTR_MSG_SYS]);
-    reset_rx_state();
-}
-
-void autoaway_cmd_ovl(void)
-{
-    const char *args = (const char *)overlay_slot;
-
-    if (!*args) {
-        set_attr_sys();
-        main_puts(S_AUTOAWAY);
-        main_puts(s_colon_sp);
-        if (autoaway_minutes) {
-            puts_u8_nolz(autoaway_minutes);
-            main_print(s_min);
-        } else {
-            main_print(s_off);
-        }
-        goto done;
-    }
-
-    if (*args == '0' || st_stricmp(args, s_off) == 0) {
-        autoaway_minutes = 0;
-        autoaway_counter = 0;
-        autoaway_active = 0;
-        sys_puts_print(S_AUTOAWAY, s_disabled);
-        config_dirty = 1;
-        goto done;
-    }
-
-    {
-        uint16_t raw = str_to_u16(args);
-        if (raw < 1 || raw > 60) {
-            ui_err(s_range_minutes);
-            goto done;
-        }
-        autoaway_minutes = (uint8_t)raw;
-    }
-
-    autoaway_counter = 0;
-    set_attr_sys();
-    main_puts(S_AUTOAWAY);
-    main_puts(s_set_to);
-    puts_u8_nolz(autoaway_minutes);
-    main_print(s_min);
-    config_dirty = 1;
-
-done:
-    reset_rx_state();
-}
-
-void friend_cmd_ovl(void)
-{
-    char *args = (char *)overlay_slot;
-    uint8_t i;
-    char *fn;
-    char *free_fn = 0;
-
-    if (!*args) {
-        set_attr_sys();
-        main_puts("Friends:");
-        for (i = MAX_FRIENDS, fn = friend_nicks[0]; i != 0; i--, fn += IRC_NICK_SIZE) {
-            if (*fn) { main_putc(' '); main_puts(fn); }
-        }
-        main_newline();
-        goto done;
-    }
-
-    for (i = MAX_FRIENDS, fn = friend_nicks[0]; i != 0; i--, fn += IRC_NICK_SIZE) {
-        if (*fn) {
-            if (st_stricmp(fn, args) == 0) {
-                *fn = '\0';
-                friend_count--;
-                set_attr_sys();
-                main_puts("- ");
-                main_print(args);
-                config_dirty = 1;
-                goto done;
-            }
-        } else if (!free_fn) {
-            free_fn = fn;
-        }
-    }
-
-    if (free_fn) {
-        st_copy_n(free_fn, args, IRC_NICK_SIZE);
-        friend_count++;
-        set_attr_sys();
-        main_puts("+ ");
-        main_print(args);
-        config_dirty = 1;
-        goto done;
-    }
-
-    ui_err("Max 5 friends");
-
-done:
     reset_rx_state();
 }

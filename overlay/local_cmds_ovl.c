@@ -149,3 +149,99 @@ void local_setting_cmd_ovl(void)
 done:
     reset_rx_state();
 }
+
+void autoaway_cmd_ovl(void)
+{
+    const char *args = (const char *)overlay_slot;
+
+    if (!*args) {
+        set_attr_sys();
+        main_puts(S_AUTOAWAY);
+        main_puts(": ");
+        if (autoaway_minutes) {
+            puts_u8_nolz(autoaway_minutes);
+            main_print(" min");
+        } else {
+            main_print("off");
+        }
+        goto done;
+    }
+
+    if (*args == '0' || st_stricmp(args, "off") == 0) {
+        autoaway_minutes = 0;
+        autoaway_counter = 0;
+        autoaway_active = 0;
+        sys_puts_print(S_AUTOAWAY, " disabled");
+        config_dirty = 1;
+        goto done;
+    }
+
+    {
+        uint16_t raw = str_to_u16(args);
+        if (raw < 1 || raw > 60) {
+            ui_err("Range: 1-60 minutes (0=off)");
+            goto done;
+        }
+        autoaway_minutes = (uint8_t)raw;
+    }
+
+    autoaway_counter = 0;
+    set_attr_sys();
+    main_puts(S_AUTOAWAY);
+    main_puts(" set to ");
+    puts_u8_nolz(autoaway_minutes);
+    main_print(" min");
+    config_dirty = 1;
+
+done:
+    reset_rx_state();
+}
+
+void friend_cmd_ovl(void)
+{
+    char *args = (char *)overlay_slot;
+    uint8_t i;
+    char *fn;
+    char *free_fn = 0;
+
+    if (!*args) {
+        set_attr_sys();
+        main_puts("Friends:");
+        for (i = MAX_FRIENDS, fn = friend_nicks[0]; i != 0; i--, fn += IRC_NICK_SIZE) {
+            if (*fn) { main_putc(' '); main_puts(fn); }
+        }
+        main_newline();
+        goto done;
+    }
+
+    for (i = MAX_FRIENDS, fn = friend_nicks[0]; i != 0; i--, fn += IRC_NICK_SIZE) {
+        if (*fn) {
+            if (st_stricmp(fn, args) == 0) {
+                *fn = '\0';
+                friend_count--;
+                set_attr_sys();
+                main_puts("- ");
+                main_print(args);
+                config_dirty = 1;
+                goto done;
+            }
+        } else if (!free_fn) {
+            free_fn = fn;
+        }
+    }
+
+    if (free_fn) {
+        st_copy_n(free_fn, args, IRC_NICK_SIZE);
+        friend_count++;
+        set_attr_sys();
+        main_puts("+ ");
+        main_print(args);
+        config_dirty = 1;
+        goto done;
+    }
+
+    ui_err("Max 5 friends");
+
+done:
+    reset_rx_state();
+}
