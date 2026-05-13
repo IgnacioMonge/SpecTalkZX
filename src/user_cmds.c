@@ -100,6 +100,7 @@ static uint8_t prompt_yn(const char *q) __z88dk_fastcall
         while (try_read_line_nodrain());
         k |= 32;
         if (k == 'y' || k == 'n') {
+            main_putc(' ');
             main_putc(k);
             main_newline();
             return (k == 'y');
