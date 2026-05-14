@@ -29,3 +29,8 @@ Risk:
 Measurement:
 - 2026-05-05 safe worktree build: TAP `34927B`, BSS guard `0xF00A < 0xF500` (`1270B` free), overlays `1808/1846/1547/2014/2001/1733`, `SPECTALK.OVL=12288B`.
 - User hardware test on 2026-05-05 confirmed this build OK.
+- 2026-05-10 Gemini switcher C shrink mini-branch: accepted local C rewrites
+  reduced `SPCTLK6.OVL 1668B -> 1651B` without changing TAP size. Accepted:
+  `sw_ch` macro (`-6B`), attribute-span pointer fill (`-4B`), and line-buffer
+  pointer clear (`-7B`). Rejected: name-copy pointer loop (`+91B`) and
+  `sw_flags_snap` pointer snapshot (`+82B`).

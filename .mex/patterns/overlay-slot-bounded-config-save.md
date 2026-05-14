@@ -12,9 +12,21 @@ SPCTLK4 config save uses `overlay_slot`, aliased to the 512-byte `rx_line`, as i
 - Do not add resident RAM for this; the save path is cold and belongs in SPCTLK4.
 - If SPCTLK4 approaches 2048B, recover space from cold status/config text before weakening bounds.
 - Local SPCTLK4 ASM writers may replace C list builders when they reuse the same bounded byte primitive and return the same sentinel-on-overflow contract.
+- If `ovl4_put_a_hl` uses `BC` as the `_overlay_slot + 512` bound and restores
+  `HL` with `add hl,bc`, callers must not assume `BC` survives. Protect `B`
+  around active `DJNZ` loops such as autojoin channel scanning; friends/ignores
+  already push `BC` around CSV writes.
+- For CSV list emission, `pop de / push de` is a safe shrink when the stack top
+  is the saved source iterator needed by `ovl4_cpa_put_de`; the later `pop hl`
+  still recovers the same iterator for stride advancement.
+- Avoid moving shared CSV return/store helpers across the whole SPCTLK4 tail
+  unless jump ranges are re-measured. In the current layout, the proposed shared
+  `ovl4_cpa_ret_store` made the comma path require `JP`, and the rewrite grew
+  `SPCTLK4` by 1 byte.
 
 ## Applied
 
 - `overlay/overlay_entry4.asm` bounds `_cfg_put()`, `_cfg_kv()`, and `_cfg_put_autojoin()` against `overlay_slot + 512`.
 - `overlay/overlay_entry4.asm` also owns `_cfg_put_friends()` and `_cfg_put_ignores()`, replacing the former C `cfg_put_csv()` loop while still routing every byte through the guarded writer.
+- In `_cfg_put()`, use a direct `ret z` for end-of-string instead of branching to a one-instruction `ret` label; this measured `-2B` in SPCTLK4 and preserves the callee stack shape.
 - `overlay/spectalk_ovl4.c` composes the timezone value in a local buffer and writes `tz=` through `_cfg_kv()`; it must not raw-store `-`, `\r`, or `\n` into the slot.

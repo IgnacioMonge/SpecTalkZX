@@ -12,11 +12,8 @@ EXTERN _ay_uart_send
 EXTERN _frame_wait
 EXTERN _draw_status_bar
 EXTERN uartRead
+EXTERN _reset_rx_state
 
-EXTERN _rb_head
-EXTERN _rb_tail
-EXTERN _rx_pos
-EXTERN _rx_overflow
 EXTERN _sntp_tz
 EXTERN _sntp_waiting
 EXTERN _sntp_queried
@@ -104,43 +101,29 @@ udp_store_ts:
     call commit_ntp_time
     jr udp_close
 
-udp_fail_dns:
-    jr udp_fail
 udp_fail_open:
 udp_fail_send:
 udp_fail_ipd:
 udp_fail_time:
-    ld hl, cmd_cipclose
-    call _uart_send_line
-    jr udp_fail
-
 udp_close:
     ld hl, cmd_cipclose
     call _uart_send_line
 
+udp_fail_dns:
 udp_fail:
     xor a
     ld (_sntp_waiting), a
 
 udp_done:
-    ld hl, 0
-    ld (_rb_head), hl
-    ld (_rb_tail), hl
-    ld (_rx_pos), hl
-    xor a
-    ld (_rx_overflow), a
-    ret
+    jp _reset_rx_state
 
 wait_domain:
     call wait_plus
     ret c
     ld hl, tail_domain
     call match_tail
-    jr c, wait_domain_fail
+    ret c
     jr nz, wait_domain
-    ret
-wait_domain_fail:
-    scf
     ret
 
 wait_ipd:
@@ -148,22 +131,16 @@ wait_ipd:
     ret c
     ld hl, tail_ipd
     call match_tail
-    jr c, wait_ipd_fail
+    ret c
     jr nz, wait_ipd
-    ret
-wait_ipd_fail:
-    scf
     ret
 
 wait_plus:
     call read_byte_timeout
-    jr nc, wait_plus_fail
+    ccf
+    ret c
     cp '+'
     jr nz, wait_plus
-    or a
-    ret
-wait_plus_fail:
-    scf
     ret
 
 match_tail:
@@ -174,7 +151,8 @@ match_tail:
     push hl
     call read_byte_timeout
     pop hl
-    jr nc, match_timeout
+    ccf
+    ret c
     cp e
     jr nz, match_mismatch
     inc hl
@@ -182,9 +160,6 @@ match_tail:
 match_mismatch:
     ld a, 1
     or a
-    ret
-match_timeout:
-    scf
     ret
 
 read_domain_ip:
@@ -196,7 +171,8 @@ read_domain_ip_loop:
     call read_byte_timeout
     pop bc
     pop hl
-    jr nc, read_domain_ip_fail
+    ccf
+    ret c
     cp ' '
     jr c, read_domain_ip_done
     ld (hl), a
@@ -206,54 +182,45 @@ read_domain_ip_loop:
     push hl
     call read_byte_timeout
     pop hl
-    jr nc, read_domain_ip_fail
+    ccf
+    ret c
     cp ' '
-    jr nc, read_domain_ip_fail
+    ccf
+    ret c
 read_domain_ip_done:
     ld (hl), 0
     or a
     ret
-read_domain_ip_fail:
-    scf
-    ret
 
 wait_ok:
     call read_byte_timeout
-    jr nc, wait_ok_fail
+    ccf
+    ret c
     cp 'O'
     jr nz, wait_ok
     call read_byte_timeout
-    jr nc, wait_ok_fail
+    ccf
+    ret c
     cp 'K'
     jr nz, wait_ok
-    or a
-    ret
-wait_ok_fail:
-    scf
     ret
 
 wait_char:
     ld e, a
 wait_char_loop:
     call read_byte_timeout
-    jr nc, wait_char_fail
+    ccf
+    ret c
     cp e
     jr nz, wait_char_loop
-    or a
-    ret
-wait_char_fail:
-    scf
     ret
 
 skip_ipd_len:
     call read_byte_timeout
-    jr nc, skip_ipd_fail
+    ccf
+    ret c
     cp ':'
     jr nz, skip_ipd_len
-    or a
-    ret
-skip_ipd_fail:
-    scf
     ret
 
 read_byte_timeout:
@@ -267,9 +234,7 @@ rbt_poll:
     ret c
     dec c
     jr nz, rbt_poll
-    push bc
     call _frame_wait
-    pop bc
     djnz rbt_frame
     or a
     ret
@@ -279,8 +244,6 @@ convert_ntp_time:
     ld hl, epoch_2018 + 3
     call cmp4
     jp m, conv_fail
-    ld de, ntp_secs + 3
-    ld hl, epoch_2018 + 3
     call sub4
 
     call apply_timezone
@@ -296,7 +259,6 @@ conv_year_cmp:
     ld de, ntp_secs + 3
     call cmp4
     jp m, conv_months
-    ld de, ntp_secs + 3
     call sub4
     inc c
     jr conv_year_loop
@@ -317,7 +279,6 @@ conv_month_loop:
     ld de, ntp_secs + 3
     call cmp4
     jp m, conv_days_pop
-    ld de, ntp_secs + 3
     call sub4
     pop hl
     jr conv_month_loop
@@ -329,7 +290,6 @@ conv_days:
     ld hl, day_sec + 3
     call cmp4
     jp m, conv_hours
-    ld de, ntp_secs + 3
     call sub4
     jr conv_days
 
@@ -340,7 +300,6 @@ conv_hour_loop:
     ld hl, hour_sec + 3
     call cmp4
     jp m, conv_hour_done
-    ld de, ntp_secs + 3
     call sub4
     inc c
     jr conv_hour_loop
@@ -356,7 +315,6 @@ conv_min_loop:
     ld hl, min_sec + 3
     call cmp4
     jp m, conv_min_done
-    ld de, ntp_secs + 3
     call sub4
     inc c
     jr conv_min_loop
@@ -442,6 +400,8 @@ add4_loop:
     ret
 
 sub4:
+    push de
+    push hl
     ld b, 4
     or a
 sub4_loop:
@@ -451,6 +411,8 @@ sub4_loop:
     dec hl
     dec de
     djnz sub4_loop
+    pop hl
+    pop de
     ret
 
 cmd_cipdomain:

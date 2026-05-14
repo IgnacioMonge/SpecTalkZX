@@ -223,11 +223,12 @@ _set_border:
 ; -----------------------------------------------------------------------------
 PUBLIC _skip_spaces
 _skip_spaces:
-    ld a, (hl)
-    cp ' '
+    ld a, ' '
+ss_loop:
+    cp (hl)
     ret nz
     inc hl
-    jr _skip_spaces
+    jr ss_loop
 
 ; -----------------------------------------------------------------------------
 ; cdecl cleanup wrappers: EXX saves ret addr in HL' (alt register set).
@@ -349,8 +350,7 @@ _check_caps_toggle:
     bit 1, a
     jr nz, caps_no_combo
 
-    ld hl, _caps_latch
-    ld a, (hl)
+    ld a, (_caps_latch)
     or a
     ret nz
 
@@ -364,8 +364,8 @@ _check_caps_toggle:
     ret
 
 caps_no_combo:
-    ld hl, _caps_latch
-    ld (hl), 0
+    xor a
+    ld (_caps_latch), a
     ret
 
 ; -----------------------------------------------------------------------------
@@ -380,22 +380,22 @@ _key_shift_held:
 
     ld bc, 0xF7FE
     in a, (c)
+    cpl
     and 0x1F
-    cp 0x1F
     jr nz, shift_not_held
 
     ld bc, 0xEFFE
     in a, (c)
+    cpl
     and 0x1F
-    cp 0x1F
     jr nz, shift_not_held
 
     ; BREAK is CAPS SHIFT+SPACE and word navigation is CAPS SHIFT+SYMBOL SHIFT.
     ; Neither should count as a clean typing shift for cursor/case state.
     ld bc, 0x7FFE
     in a, (c)
+    cpl
     and 0x03
-    cp 0x03
     jr nz, shift_not_held
 
     ld hl, 1

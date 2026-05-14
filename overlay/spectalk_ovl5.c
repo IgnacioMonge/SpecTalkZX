@@ -21,6 +21,7 @@ static const char cv_smart[]  = "smart";
 static uint8_t cfg_col;
 
 extern void rtc_seed_ovl(void);
+extern void reset_rx_state(void);
 
 void rtc_enable_ovl(void)
 {
@@ -39,7 +40,7 @@ void rtc_enable_ovl(void)
         sntp_tz = old_tz;
         ui_err("No RTC");
     }
-    rb_head = 0; rb_tail = 0; rx_pos = 0;
+    reset_rx_state();
 }
 
 static void cfg_item(const char *label, const char *val)
@@ -107,7 +108,7 @@ void config_render_ovl(void)
         uint8_t row = g_ps64_y;
         const char *fn;
         print_str64(row, 2, "Friends:", theme_attrs[TATTR_MSG_NICK]);
-        for (i = 0, fn = friend_nicks[0]; i < MAX_FRIENDS; i++, fn += IRC_NICK_SIZE) {
+        for (i = MAX_FRIENDS, fn = friend_nicks[0]; i != 0; i--, fn += IRC_NICK_SIZE) {
             if (*fn) { print_str64(row, col, fn, theme_attrs[TATTR_MSG_CHAN]); col += st_strlen(fn) + 1; }
         }
         if (col == 12) print_str64(row, col, cv_notset, theme_attrs[TATTR_MSG_TIME]);
@@ -115,13 +116,16 @@ void config_render_ovl(void)
         col = 12;
         print_str64(row, 2, "Ignores:", theme_attrs[TATTR_MSG_NICK]);
         if (ignore_count == 0) print_str64(row, col, cv_notset, theme_attrs[TATTR_MSG_TIME]);
-        else for (i = 0; i < ignore_count; i++) {
-            print_str64(row, col, ignore_list[i], theme_attrs[TATTR_MSG_CHAN]);
-            col += st_strlen(ignore_list[i]) + 1;
+        else {
+            const char *ign = ignore_list[0];
+            for (i = ignore_count; i != 0; i--, ign += 16) {
+                print_str64(row, col, ign, theme_attrs[TATTR_MSG_CHAN]);
+                col += st_strlen(ign) + 1;
+            }
         }
     }
 
     notif_center(config_dirty ? "(S)AVE TO SD | ANY KEY TO EXIT" : S_ANYKEY,
                 theme_attrs[TATTR_MSG_SYS]);
-    rb_head = 0; rb_tail = 0; rx_pos = 0;
+    reset_rx_state();
 }

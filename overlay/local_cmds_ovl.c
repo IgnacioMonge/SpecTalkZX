@@ -1,0 +1,247 @@
+/*
+ * local_cmds_ovl.c -- Cold local management commands for SPCTLK7.OVL.
+ */
+
+#include "overlay_api.h"
+
+void ignore_cmd_ovl(void)
+{
+    char *p = (char *)overlay_slot;
+    uint8_t i;
+
+    if (!*p) {
+        set_attr_sys();
+        if (ignore_count == 0) {
+            main_print("Ignore list is empty");
+        } else {
+            main_puts("Ignored (");
+            main_putc('0' + ignore_count);
+            main_puts("): ");
+            for (i = 0; i < ignore_count; i++) {
+                if (i > 0) {
+                    main_putc(',');
+                    main_putc(' ');
+                }
+                main_puts(ignore_list[i]);
+            }
+            main_newline();
+        }
+        goto done;
+    }
+
+    if (p[0] == '-') {
+        p++;
+        p = skip_spaces(p);
+        if (!*p) {
+            ui_usage("ignore -nick to unignore");
+            goto done;
+        }
+
+        split_at_space(p);
+
+        if (remove_ignore(p)) {
+            notify2("Unignored: ", p, ATTR_MSG_SYS);
+            config_dirty = 1;
+        } else {
+            notify2("Not in ignore list: ", p, ATTR_MSG_SYS);
+        }
+        goto done;
+    }
+
+    split_at_space(p);
+
+    if (add_ignore(p)) {
+        notify2("Now ignoring: ", p, ATTR_MSG_SYS);
+        config_dirty = 1;
+    } else if (is_ignored(p)) {
+        notify2("Already ignoring: ", p, ATTR_MSG_SYS);
+    } else {
+        ui_err("Ignore list full");
+    }
+
+done:
+    reset_rx_state();
+}
+
+void pass_cmd_ovl(void)
+{
+    const char *args = (const char *)overlay_slot;
+
+    if (!*args) {
+        sys_puts_print("Server password: ", irc_pass[0] ? "(set)" : "(not set)");
+        goto done;
+    }
+
+    if (st_stricmp(args, "clear") == 0 || st_stricmp(args, "none") == 0) {
+        irc_pass[0] = '\0';
+        notify("Password cleared", ATTR_MSG_SYS);
+        config_dirty = 1;
+        goto done;
+    }
+
+    st_copy_n(irc_pass, args, IRC_PASS_SIZE);
+    notify("Password set", ATTR_MSG_SYS);
+    config_dirty = 1;
+
+done:
+    reset_rx_state();
+}
+
+static void set_or_toggle_flag_ovl(uint8_t *flag, const char *label, const char *args) __z88dk_callee
+{
+    if (*args) {
+        if (args[0] == '1' || st_stricmp(args, "on") == 0) *flag = 1;
+        else if (args[0] == '0' || st_stricmp(args, "off") == 0) *flag = 0;
+        else { ui_usage("on|off"); return; }
+    } else {
+        *flag = !*flag;
+    }
+    sys_puts_print(label, *flag ? "on" : "off");
+    config_dirty = 1;
+}
+
+void local_setting_cmd_ovl(void)
+{
+    uint8_t id = overlay_slot[0];
+    const char *args = (const char *)overlay_slot + 1;
+
+    switch (id) {
+    case 0:
+        set_or_toggle_flag_ovl(&beep_enabled, "Beep: ", args);
+        break;
+    case 1:
+        set_or_toggle_flag_ovl(&keyclick_enabled, "Click: ", args);
+        break;
+    case 2:
+        set_or_toggle_flag_ovl(&nick_color_mode, "Nick color: ", args);
+        break;
+    case 3:
+        set_or_toggle_flag_ovl(&show_traffic, "Show traffic: ", args);
+        break;
+    case 4:
+        set_or_toggle_flag_ovl(&notif_enabled, "Notifications: ", args);
+        break;
+    case 5:
+        if (*args) {
+            if (args[0] == '0' || st_stricmp(args, "off") == 0) show_timestamps = 0;
+            else if (args[0] == '1' || st_stricmp(args, "on") == 0) show_timestamps = 1;
+            else if (args[0] == '2' || st_stricmp(args, "smart") == 0) show_timestamps = 2;
+            else { ui_usage("off|on|smart"); goto done; }
+        } else {
+            if (++show_timestamps > 2) show_timestamps = 0;
+        }
+        if (show_timestamps == 2) {
+            last_ts_hour = 0xFF;
+            last_ts_minute = 0xFF;
+        }
+        sys_puts_print("Timestamps: ", show_timestamps == 0 ? "off" :
+                       show_timestamps == 1 ? "on" : "smart");
+        config_dirty = 1;
+        break;
+    case 6:
+        set_or_toggle_flag_ovl(&autoconnect, "Autoconnect: ", args);
+        break;
+    case 7:
+        set_or_toggle_flag_ovl(&autojoin, "Autojoin: ", args);
+        break;
+    }
+
+done:
+    reset_rx_state();
+}
+
+void autoaway_cmd_ovl(void)
+{
+    const char *args = (const char *)overlay_slot;
+
+    if (!*args) {
+        set_attr_sys();
+        main_puts(S_AUTOAWAY);
+        main_puts(": ");
+        if (autoaway_minutes) {
+            puts_u8_nolz(autoaway_minutes);
+            main_print(" min");
+        } else {
+            main_print("off");
+        }
+        goto done;
+    }
+
+    if (*args == '0' || st_stricmp(args, "off") == 0) {
+        autoaway_minutes = 0;
+        autoaway_counter = 0;
+        autoaway_active = 0;
+        sys_puts_print(S_AUTOAWAY, " disabled");
+        config_dirty = 1;
+        goto done;
+    }
+
+    {
+        uint16_t raw = str_to_u16(args);
+        if (raw < 1 || raw > 60) {
+            ui_err("Range: 1-60 minutes (0=off)");
+            goto done;
+        }
+        autoaway_minutes = (uint8_t)raw;
+    }
+
+    autoaway_counter = 0;
+    set_attr_sys();
+    main_puts(S_AUTOAWAY);
+    main_puts(" set to ");
+    puts_u8_nolz(autoaway_minutes);
+    main_print(" min");
+    config_dirty = 1;
+
+done:
+    reset_rx_state();
+}
+
+void friend_cmd_ovl(void)
+{
+    char *args = (char *)overlay_slot;
+    uint8_t i;
+    char *fn;
+    char *free_fn = 0;
+
+    if (!*args) {
+        set_attr_sys();
+        main_puts("Friends:");
+        for (i = MAX_FRIENDS, fn = friend_nicks[0]; i != 0; i--, fn += IRC_NICK_SIZE) {
+            if (*fn) { main_putc(' '); main_puts(fn); }
+        }
+        main_newline();
+        goto done;
+    }
+
+    for (i = MAX_FRIENDS, fn = friend_nicks[0]; i != 0; i--, fn += IRC_NICK_SIZE) {
+        if (*fn) {
+            if (st_stricmp(fn, args) == 0) {
+                *fn = '\0';
+                friend_count--;
+                set_attr_sys();
+                main_puts("- ");
+                main_print(args);
+                config_dirty = 1;
+                goto done;
+            }
+        } else if (!free_fn) {
+            free_fn = fn;
+        }
+    }
+
+    if (free_fn) {
+        st_copy_n(free_fn, args, IRC_NICK_SIZE);
+        friend_count++;
+        set_attr_sys();
+        main_puts("+ ");
+        main_print(args);
+        config_dirty = 1;
+        goto done;
+    }
+
+    ui_err("Max 5 friends");
+
+done:
+    reset_rx_state();
+}

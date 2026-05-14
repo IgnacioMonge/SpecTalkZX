@@ -544,23 +544,22 @@ nrg_flush:
 ; -----------------------------------------------------------------------------
 PUBLIC _names_count_line
 _names_count_line:
-    ld e, 0
+    ld b, 0
     ld a, (hl)
     or a
     jr z, ncl_done
-    inc e
-    dec hl
+    inc b
 ncl_loop:
+    cp ' '
+    jr nz, ncl_next
+    inc b
+ncl_next:
     inc hl
     ld a, (hl)
     or a
-    jr z, ncl_done
-    cp ' '
     jr nz, ncl_loop
-    inc e
-    jr ncl_loop
 ncl_done:
-    ld l, e
+    ld l, b
     ret
 
 ; -----------------------------------------------------------------------------
@@ -651,7 +650,7 @@ dws_cut_common:
     bit 0, a
     jr nz, dws_print_puts
 
-    srl a
+    rrca
     ld (_plf_start_byte), a
 
     ; segment length = cut - start (low byte is enough, max 64)
@@ -799,7 +798,6 @@ puts_opt_wrap:
     pop hl
     pop de
     call puts_reload_nl
-    bit 6, b
     ret nz
     jr puts_opt_emit
 
@@ -811,7 +809,6 @@ puts_opt_nl:
     call _main_newline
     pop de
     call puts_reload_nl
-    bit 6, b
     ret nz
     inc de
     jr puts_opt_loop
@@ -824,6 +821,7 @@ puts_reload_nl:
     ld c, a
     ld a, (_main_col)
     ld b, a
+    bit 6, b
     ret
 
 ; --- BPE expansion for puts_opt ---

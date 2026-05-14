@@ -574,15 +574,6 @@ static uint8_t channel_context_attr(const char *name) __z88dk_fastcall
     return (uint8_t)(0x40 | cc_inks[h]);
 }
 
-static char *channel_context_put2(char *p, uint8_t v) __z88dk_callee
-{
-    char tens = '0';
-    while (v >= 10) { v -= 10; tens++; }
-    *p++ = tens;
-    *p++ = (char)('0' + v);
-    return p;
-}
-
 static uint8_t channel_context_next_row;
 static uint8_t channel_context_anchor_idx;
 
@@ -616,9 +607,9 @@ static void channel_context_banner(void)
     }
 
     p = temp_input;
-    p = channel_context_put2(p, time_hour);
+    fast_u8_to_str(p, time_hour); p += 2;
     *p++ = ':';
-    p = channel_context_put2(p, time_minute);
+    fast_u8_to_str(p, time_minute); p += 2;
     *p = 0;
 
     name = temp_input + 8;
@@ -788,11 +779,7 @@ static void switcher_close(void)
     sw_active = 0;
     clear_line(2, ATTR_MAIN_BG);
     // Redraw 1px separator (row 2, scanline 0)
-    {
-        uint8_t *p = (uint8_t *)0x4040;
-        uint8_t j;
-        for (j = 0; j < 32; j++) p[j] = 0xFF;
-    }
+    memset((void *)0x4040, 0xFF, 32);
     last_frames_lo = *(volatile uint8_t *)23672;
 }
 
@@ -913,10 +900,7 @@ static void history_add(const char *cmd, uint8_t len) __z88dk_callee
     for (i = 0; i < len && cmd[i] == ' '; i++);
     if (i == len) return;
     
-    for (i = 0; i < len && i < HISTORY_LEN - 1; i++) {
-        history[hist_head][i] = cmd[i];
-    }
-    history[hist_head][i] = 0;
+    st_copy_n(history[hist_head], cmd, HISTORY_LEN);
     
     // OPTIMIZADO: % 4 -> & 3
     hist_head = (hist_head + 1) & 3;
@@ -2211,12 +2195,18 @@ void badge_flash_on(void)
 
 void badge_flash_off(void)
 {
+    uint8_t attr;
+    uint8_t top;
+    uint8_t bot;
     if (!badge_flashing) return;
     badge_flashing = 0;
-    *(uint8_t *)(0x5800 + 30) = ATTR_BANNER | 0x40;
-    *(uint8_t *)(0x5800 + 31) = ATTR_BANNER | 0x40;
-    *(uint8_t *)(0x5820 + 30) = ATTR_BANNER & 0xBF;
-    *(uint8_t *)(0x5820 + 31) = ATTR_BANNER & 0xBF;
+    attr = ATTR_BANNER;
+    top = attr | 0x40;
+    bot = attr & 0xBF;
+    *(uint8_t *)0x581E = top;
+    *(uint8_t *)0x581F = top;
+    *(uint8_t *)0x583E = bot;
+    *(uint8_t *)0x583F = bot;
 }
 
 // draw_banner — overlay SPCTLK1 entry 1 (banner_render_ovl)

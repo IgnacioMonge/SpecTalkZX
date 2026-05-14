@@ -15,8 +15,10 @@ When overlays are loaded into `ring_buffer`, the shared overlay-exit path must c
 - Prefer doing this in the shared ASM exit helper (`overlay_exit_full`) so both normal exits and load-failure paths inherit the cleanup.
 - If the overlay was displayed while IRC processing continued in the background, sample `rx_pos`/`rx_overflow` before calling the shared helper and re-arm `rx_overflow=1` afterwards when needed; otherwise the helper cuts the head off the current line and the parser later prints the tail as `>< ...`.
 - For repeated user-facing exits, prefer a tiny C wrapper around `overlay_exit_full()` instead of open-coding the same preserve-discard sequence at every call site.
+- For cold command/display overlays that already overwrite the ring buffer, prefer calling resident `reset_rx_state()` from each C entry over repeating `rb_head = 0; rb_tail = 0; rx_pos = 0`; this also clears `rx_overflow` and measured smaller in SPCTLK1/3/4/5/6 overlay exits.
 
 ## Applied In
 - `asm/overlay_loader.asm` `_overlay_exec`
 - `asm/spectalk_asm/10_core_helpers.asm` `_overlay_exit_full`
 - `src/spectalk.c` `overlay_exit_maybe_discard()`
+- `overlay/spectalk_ovl.c` help/banner/windows/theme entries

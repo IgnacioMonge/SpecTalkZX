@@ -18,6 +18,7 @@
 
 #define sw_map          ((uint8_t *)search_pattern)
 #define sw_flags_snap   ((uint8_t *)(search_pattern + 10))
+#define sw_ch(slot)     (channels + ((uint16_t)(slot) << 5))
 
 extern uint8_t sw_sel;
 extern uint8_t sw_first;
@@ -27,11 +28,6 @@ extern uint8_t sw_dirty;
 extern uint8_t sw_tab_width(uint8_t slot) __z88dk_fastcall;
 extern void switcher_rebuild_map(void);
 extern void switcher_close(void);
-
-static uint8_t *sw_ch(uint8_t slot) __z88dk_fastcall
-{
-    return channels + ((uint16_t)slot * CH_SIZE);
-}
 
 void switcher_render_ovl(void)
 {
@@ -54,7 +50,10 @@ void switcher_render_ovl(void)
         sw_first++;
     }
 
-    for (i = 0; i < SCREEN_COLS; i++) buf[i] = ' ';
+    {
+        char *p = buf;
+        for (i = SCREEN_COLS; i != 0; i--) *p++ = ' ';
+    }
 
     pos = (sw_first > 0) ? 2 : 0;
     last_shown = sw_first;
@@ -123,8 +122,12 @@ void switcher_render_ovl(void)
                 continue;
             }
 
-            for (px = x0 >> 1; px < pos >> 1; px++)
-                attr_base[px] = attr;
+            {
+                uint8_t *dst_attr = attr_base + (x0 >> 1);
+                for (px = (pos >> 1) - (x0 >> 1); px != 0; px--) {
+                    *dst_attr++ = attr;
+                }
+            }
         }
     }
 

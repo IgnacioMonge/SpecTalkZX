@@ -38,11 +38,17 @@ extern void main_newline(void);
 extern void set_attr_sys(void);
 extern void set_attr_priv(void);
 extern void sys_puts_print(const char *label, const char *value) __z88dk_callee;
+extern void notify(const char *msg, uint8_t attr) __z88dk_callee;
+extern void notify2(const char *a, const char *b, uint8_t attr) __z88dk_callee;
 extern void ui_err(const char *s) __z88dk_fastcall;
+extern void ui_usage(const char *a) __z88dk_fastcall;
+extern void reset_rx_state(void);
 extern const uint8_t ikkle_packed[];
 
 /* ===== String/number utilities ===== */
 
+extern char *skip_spaces(char *p) __z88dk_fastcall;
+extern char *split_at_space(char *p) __z88dk_fastcall;
 extern uint8_t st_strlen(const char *s) __z88dk_fastcall;
 extern int st_stricmp(const char *a, const char *b);
 extern void st_copy_n(char *dst, const char *src, uint8_t max_len);
@@ -126,6 +132,8 @@ extern uint8_t  sntp_queried;
 extern uint8_t  time_hour;
 extern uint8_t  time_minute;
 extern uint8_t  time_second;
+extern uint8_t  last_ts_hour;
+extern uint8_t  last_ts_minute;
 extern uint8_t  last_frames_lo;
 extern uint16_t tick_accum;
 extern char     search_pattern[];
@@ -134,6 +142,9 @@ extern char     friend_nicks[][18];   /* MAX_FRIENDS(5) x IRC_NICK_SIZE(18) */
 extern uint8_t  friend_count;
 extern char     ignore_list[][16];
 extern uint8_t  ignore_count;
+extern uint8_t  add_ignore(const char *nick) __z88dk_fastcall;
+extern uint8_t  remove_ignore(const char *nick) __z88dk_fastcall;
+extern uint8_t  is_ignored(const char *nick) __z88dk_fastcall;
 
 /* Shared config-key strings from resident core */
 extern const char K_NICK[];
@@ -185,6 +196,9 @@ extern const char S_ANYKEY[];
 #define EARTH_LOGO_H 24
 #define EARTH_LOGO_ATTR_H 3
 #define MAX_FRIENDS     5
+#define MAX_IGNORES     5
 #define IRC_NICK_SIZE   18
+#define IRC_PASS_SIZE   24
+#define ATTR_MSG_SYS    theme_attrs[TATTR_MSG_SYS]
 
 #endif /* OVERLAY_API_H */

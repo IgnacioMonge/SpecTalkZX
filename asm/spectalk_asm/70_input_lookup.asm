@@ -339,7 +339,7 @@ spr_found:
     xor a
     ld (_tick_accum), a     ; Reset frame accumulator
     ld (_sntp_waiting), a
-    ld a, 1
+    inc a
     ld (_sntp_queried), a
 
     jp _draw_status_bar ; tail call
@@ -477,10 +477,9 @@ rk_new_emit:
     ; Set repeat_timer based on key type
     cp RK_KEY_BS
     jr z, rk_new_bs
-    cp RK_KEY_LEFT
-    jr z, rk_new_arrow
-    cp RK_KEY_RIGHT
-    jr z, rk_new_arrow
+    sub 8
+    cp 2
+    jr c, rk_new_arrow
     ; Default: repeat_timer = 20
     ld a, 20
     jr rk_new_set_timer
@@ -531,14 +530,11 @@ rk_rep_fire:
     jr rk_rep_emit
 
 rk_rep_lr:
-    cp RK_KEY_LEFT
-    jr z, rk_rep_lr_emit
-    cp RK_KEY_RIGHT
-    jr z, rk_rep_lr_emit
-    cp RK_KEY_UP
-    jr z, rk_rep_ud
-    cp RK_KEY_DOWN
-    jr z, rk_rep_ud
+    sub 8
+    cp 2
+    jr c, rk_rep_lr_emit
+    cp 4
+    jr c, rk_rep_ud
     ; Other keys: standard repeat
     ld a, 3
     jr rk_rep_emit
@@ -589,13 +585,11 @@ np_no_dup:
     jr c, np_append             ; ptr < 6, just append
 
     ; Shift left: history[0..4] = history[1..5]
-    push bc                     ; save B=ptr, C=idx (LDIR clobbers BC)
+    ld a, c                     ; save idx across LDIR (A is preserved)
     ld hl, _nav_history + 1
     ld de, _nav_history
     ld bc, NAV_HIST_SZ - 1
     ldir
-    pop bc
-    ld a, c
     ld (_nav_history + NAV_HIST_SZ - 1), a
     ret
 
@@ -823,10 +817,10 @@ fq_loop_init:
     ld b, 1             ; B = i
 
 fq_loop:
-    ld a, (_channel_count)
-    cp b
-    jr z, fq_ret_neg1_iy ; i >= channel_count
-    jr c, fq_ret_neg1_iy
+    ld a, b
+    ld hl, _channel_count
+    cp (hl)
+    jr nc, fq_ret_neg1_iy ; i >= channel_count
 
     ; Check flags: (ch->flags & (ACTIVE|QUERY)) == (ACTIVE|QUERY)
     ; flags at offset 30 from DE

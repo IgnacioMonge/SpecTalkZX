@@ -13,6 +13,8 @@
 
 #include "overlay_api.h"
 
+extern void reset_rx_state(void);
+
 #ifdef __SDCC
 #define ST_NAKED __naked
 #else
@@ -190,9 +192,7 @@ void help_render_ovl(void)
     } /* end of total_pages scope */
 
     if (help_page == 0) notif_center(s_hnot, theme_attrs[TATTR_MSG_SYS]);
-    rb_head = 0;
-    rb_tail = 0;
-    rx_pos  = 0;
+    reset_rx_state();
 }
 
 /* ================================================================
@@ -230,7 +230,7 @@ void banner_render_ovl(void)
         print_big_str(0, bp ? 58 : 61, bp ? "_ [] X" : "<<<", banner_attr);
     }
     { uint8_t i; uint8_t *p = (uint8_t *)0x4040; for (i = 0; i < 32; i++) *p++ = 0xFF; }
-    rb_head = 0; rb_tail = 0; rx_pos = 0;
+    reset_rx_state();
 }
 
 /* ================================================================
@@ -275,7 +275,7 @@ void windows_render_ovl(void)
 
     if (n == 0) main_puts(" (none)");
     main_newline();
-    rb_head = 0; rb_tail = 0; rx_pos = 0;
+    reset_rx_state();
 }
 
 /* ================================================================
@@ -295,5 +295,5 @@ void theme_msg_ovl(void)
 {
     sys_puts_print(search_pattern[0] ? "Theme set to " : "Already using ",
                    theme_name_ovl((uint8_t)search_pattern[1]));
-    rb_head = 0; rb_tail = 0; rx_pos = 0;
+    reset_rx_state();
 }

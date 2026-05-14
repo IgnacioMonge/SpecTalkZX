@@ -180,15 +180,14 @@ cz_done:
 ; Destroys: AF, DE (solo si cache miss)
 ; -----------------------------------------------------------------------------
 p64_get_scr_base:
-    ld a, (cache_row_y)
-    ld hl, _g_ps64_y
+    ld a, (_g_ps64_y)
+    ld hl, cache_row_y
     cp (hl)
     jr nz, p64_scr_miss
     ld hl, (cache_scr_base)
     ret
 p64_scr_miss:
-    ld a, (hl)             ; A = g_ps64_y
-    ld (cache_row_y), a
+    ld (hl), a             ; A = g_ps64_y, HL = &cache_row_y
     ld b, a
     call _compute_screen_base
     ld (cache_scr_base), hl
@@ -715,9 +714,8 @@ _put_char64_input_cached:
     ld e, h                 ; E = attr
 
     ld a, c
-    cp 22
-    jr c, pci_draw
-    cp 24
+    sub 22
+    cp 2
     jr nc, pci_draw
     ld a, b
     cp 64
@@ -1175,14 +1173,14 @@ _draw_cursor_underline:
     ld a, b
     srl a                   ; A = phys_x = col / 2
     ld e, a                 ; E = phys_x
-    ld a, b
-    and 1
-    ld d, 0xF0              ; D = cursor mask
-    ld b, 0x0F              ; B = inverse mask
-    jr z, dcu_masks
-    ld d, b
-    ld b, 0xF0
+    ld b, 0x0F              ; B = inverse mask for even col
+    jr nc, dcu_masks        ; Carry from srl is original col bit 0
+    ld b, 0xF0              ; B = inverse mask for odd col
 dcu_masks:
+    ld a, b
+    cpl
+    ld d, a                 ; D = cursor mask
+
     ; Attribute: attr_addr(y, phys_x) = ATTR_INPUT.
     push de                 ; save mask/phys_x
     push bc                 ; save inv_mask/y

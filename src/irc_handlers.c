@@ -162,7 +162,10 @@ static uint8_t is_tracked_friend(const char *nick) __z88dk_fastcall
 }
 
 // Helper: Decrementar user_count de un canal si > 0
-#define channel_dec_users(i) do { if (channels[i].user_count > 0) channels[i].user_count--; } while(0)
+static void channel_dec_users(uint8_t idx) __z88dk_fastcall
+{
+    if (channels[idx].user_count > 0) channels[idx].user_count--;
+}
 
 // Helper: Respuesta CTCP optimizada
 static void send_ctcp_reply(const char *target, const char *tag, const char *data) __z88dk_callee
@@ -331,6 +334,30 @@ static void h_mode(void)
     main_print(pkt_par);
 }
 
+static uint8_t is_ctcp_action_tail(const char *p) __z88dk_fastcall ST_NAKED
+{
+    (void)p;
+    __asm
+    inc hl
+    ld de,is_ctcp_action_tail_key
+    ld b,6
+fixed_token_bool_loop:
+    ld a,(de)
+    cp (hl)
+    jr nz,fixed_token_bool_no
+    inc de
+    inc hl
+    djnz fixed_token_bool_loop
+    ld l,1
+    ret
+fixed_token_bool_no:
+    ld l,0
+    ret
+is_ctcp_action_tail_key:
+    DEFM "CTION "
+    __endasm;
+}
+
 static void h_privmsg_notice(void)
 {
     char *target = pkt_par;
@@ -443,9 +470,7 @@ static void h_privmsg_notice(void)
 
         switch (ctcp_cmd[0]) {
             case 'A': // ACTION - "ACTION "
-                if (ctcp_cmd[1] == 'C' && ctcp_cmd[2] == 'T'
-                    && ctcp_cmd[3] == 'I' && ctcp_cmd[4] == 'O'
-                    && ctcp_cmd[5] == 'N' && ctcp_cmd[6] == ' ') {
+                if (is_ctcp_action_tail(ctcp_cmd)) {
                     char *act = ctcp_cmd + 7;
                     char *end = strchr(act, 1);
                     if (end) *end = 0;
@@ -454,10 +479,7 @@ static void h_privmsg_notice(void)
                         set_attr_chan();
                     } else {
                         int8_t query_idx = add_query(pkt_usr);
-                        if (query_idx >= 0) {
-                            status_bar_dirty = 1;
-                            mark_channel_activity((uint8_t)query_idx);
-                        }
+                        if (query_idx >= 0) mark_channel_activity((uint8_t)query_idx);
                         set_attr_priv();
                     }
                     main_print_time_prefix();
@@ -469,11 +491,11 @@ static void h_privmsg_notice(void)
                 break;
 
             case 'V': // VERSION
-                if (ctcp_cmd[1] == 'E' && ctcp_cmd[2] == 'R') { send_ctcp_reply(pkt_usr, "VERSION", S_APPSHORT); return; }
+                if (*(uint16_t *)(ctcp_cmd + 1) == 0x5245) { send_ctcp_reply(pkt_usr, "VERSION", S_APPSHORT); return; }
                 break;
 
             case 'P': // PING
-                if (ctcp_cmd[1] == 'I' && ctcp_cmd[2] == 'N' && ctcp_cmd[3] == 'G') {
+                if (*(uint16_t *)(ctcp_cmd + 1) == 0x4E49 && ctcp_cmd[3] == 'G') {
                     char *p = ctcp_cmd + 4;
                     char *end;
                     if (*p == ' ') p++;
@@ -485,7 +507,7 @@ static void h_privmsg_notice(void)
                 break;
 
             case 'T': // TIME
-                if (ctcp_cmd[1] == 'I' && ctcp_cmd[2] == 'M') { send_ctcp_reply(pkt_usr, "TIME", "(no rtc)"); return; }
+                if (*(uint16_t *)(ctcp_cmd + 1) == 0x4D49) { send_ctcp_reply(pkt_usr, "TIME", "(no rtc)"); return; }
                 break;
 
         }
@@ -544,11 +566,7 @@ static void h_privmsg_notice(void)
         }
         deferred_wrap_start(pkt_txt);
     } else {
-        int8_t query_idx = find_query(pkt_usr);
-        if (query_idx < 0) {
-            query_idx = add_query(pkt_usr);
-            if (query_idx >= 0) status_bar_dirty = 1;
-        }
+        int8_t query_idx = add_query(pkt_usr);
         if (query_idx >= 0) mark_channel_activity((uint8_t)query_idx);
 
         if (query_idx >= 0 && (uint8_t)query_idx == current_channel_idx) {
@@ -703,7 +721,6 @@ static void h_quit(void)
         if (qidx > 0) {
             /* W13: close query window when other user QUITs */
             remove_channel((uint8_t)qidx);
-            status_bar_dirty = 1;
         }
     }
 
@@ -1061,6 +1078,18 @@ static void h_numeric_321(void)
     // (ya mostramos "Searching..." al inicio)
 }
 
+static uint8_t is_network_param(const char *p) __z88dk_fastcall ST_NAKED
+{
+    (void)p;
+    __asm
+    ld de,is_network_param_key
+    ld b,8
+    jp fixed_token_bool_loop
+is_network_param_key:
+    DEFM "NETWORK="
+    __endasm;
+}
+
 static void h_end_of_list(void)
 {
     if (search_flush_state == 1) return;  // Todavía drenando
@@ -1240,20 +1269,13 @@ static void h_numeric_5(void)
     irc_params_ensure();
     for (pi = 1; pi < irc_param_count; pi++) {
         const char *p = irc_param(pi);
-        if (p[0] == 'N' && p[1] == 'E' && p[2] == 'T' && p[3] == 'W' &&
-            p[4] == 'O' && p[5] == 'R' && p[6] == 'K' && p[7] == '=') {
+        if (is_network_param(p)) {
             net = p + 8;
             break;
         }
     }
     if (net) {
-        const char *end = net;
-        uint8_t len;
-        while (*end && *end != ' ') end++;
-        len = (uint8_t)(end - net);
-        if (len > sizeof(network_name) - 1) len = sizeof(network_name) - 1;
-        memcpy(network_name, net, len);
-        network_name[len] = '\0';
+        st_copy_n(network_name, net, sizeof(network_name));
         draw_status_bar();
     }
 }
@@ -1378,7 +1400,7 @@ static void h_default_cmd(void)
     // Ignore corrupted/fragmented lines: IRC commands are ALL UPPERCASE
     // If any lowercase letter exists, it's likely a fragment (e.g., "PublicWiFi", "spectalk")
     const char *p = pkt_cmd;
-    while (*p && *p != ' ') {
+    while (*p) {
         if (*p >= 'a' && *p <= 'z') return;
         p++;
     }

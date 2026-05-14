@@ -17,6 +17,7 @@ extern uint8_t channels[];
 extern char    network_name[];
 extern uint8_t ping_latency;
 extern uint16_t uptime_minutes;
+extern void reset_rx_state(void);
 #define MAX_CHANNELS    10
 #define CH_SIZE         32
 #define CH_FLAG_ACTIVE  0x01
@@ -40,7 +41,6 @@ void status_render_ovl(void)
     uint8_t r = overlay_header("Status");
     uint8_t a_nick = theme_attrs[TATTR_MSG_NICK];
     uint8_t a_chan  = theme_attrs[TATTR_MSG_CHAN];
-    uint8_t i;
 
     print_str64(r, 2, ss_nick, a_nick);
     print_str64(r++, 11, irc_nick[0] ? (const char *)irc_nick : "(none)", a_chan);
@@ -93,14 +93,16 @@ void status_render_ovl(void)
     r++; /* blank line before channels */
     print_str64(r++, 2, ss_chans, a_nick);
     { uint8_t rl = r, rr = r;  /* two-column row counters */
-      for (i = 0; i < MAX_CHANNELS; i++) {
-        uint8_t *ch = (uint8_t *)channels + i * CH_SIZE;
+      uint8_t *ch = channels;
+      char c_idx = '0';
+      uint8_t i;
+      for (i = MAX_CHANNELS; i != 0; i--, ch += CH_SIZE, c_idx++) {
         uint8_t flags = ch[CH_FLAGS_OFF];
         if (flags & CH_FLAG_ACTIVE) {
             char idx[4];
             uint8_t attr = (flags & CH_FLAG_QUERY) ? theme_attrs[TATTR_MSG_TIME] : a_chan;
-            idx[0] = ' '; idx[1] = '0' + i; idx[2] = '.'; idx[3] = 0;
-            if (i < 5) {
+            idx[0] = ' '; idx[1] = c_idx; idx[2] = '.'; idx[3] = 0;
+            if (c_idx < '5') {
                 print_str64(rl, 2, idx, a_nick);
                 print_str64(rl++, 6, (const char *)ch, attr);
             } else {
@@ -112,7 +114,7 @@ void status_render_ovl(void)
     }
 
     notif_center(S_ANYKEY, theme_attrs[TATTR_MSG_SYS]);
-    rb_head = 0; rb_tail = 0; rx_pos = 0;
+    reset_rx_state();
 }
 
 /* ================================================================
@@ -137,6 +139,18 @@ static const char CK_TZLAST[] = "tzlast=";
 #define CFG_END       ((char *)overlay_slot + OVERLAY_SLOT_SIZE)
 #define CFG_TOO_LARGE (CFG_END + 1)
 extern char *cfg_put_autojoin(char *p) __z88dk_fastcall;
+
+static void format_tz_tmp(char *tmp, int8_t tz)
+{
+    if (tz < 0) {
+        tmp[0] = '-';
+        fast_u8_to_str(tmp + 1, (uint8_t)(-tz));
+        tmp[3] = 0;
+    } else {
+        fast_u8_to_str(tmp, (uint8_t)tz);
+        tmp[2] = 0;
+    }
+}
 
 void save_config_ovl(void)
 {
@@ -171,27 +185,15 @@ void save_config_ovl(void)
     }
 
     if (sntp_tz == TZ_RTC) {
-        tmp[0] = 'r'; tmp[1] = 't'; tmp[2] = 'c'; tmp[3] = 0;
-    } else if (sntp_tz < 0) {
-        tmp[0] = '-';
-        fast_u8_to_str(tmp + 1, (uint8_t)(-sntp_tz));
-        tmp[3] = 0;
+        p = cfg_kv(p, K_TZ, "rtc");
     } else {
-        fast_u8_to_str(tmp, (uint8_t)sntp_tz);
-        tmp[2] = 0;
+        format_tz_tmp(tmp, sntp_tz);
+        p = cfg_kv(p, K_TZ, tmp);
     }
-    p = cfg_kv(p, K_TZ, tmp);
 
     {
         int8_t tz = (sntp_tz == TZ_RTC) ? sntp_tz_last : sntp_tz;
-        if (tz < 0) {
-            tmp[0] = '-';
-            fast_u8_to_str(tmp + 1, (uint8_t)(-tz));
-            tmp[3] = 0;
-        } else {
-            fast_u8_to_str(tmp, (uint8_t)tz);
-            tmp[2] = 0;
-        }
+        format_tz_tmp(tmp, tz);
         p = cfg_kv(p, CK_TZLAST, tmp);
     }
 
@@ -233,5 +235,5 @@ void save_config_ovl(void)
 
 done:
     /* overlay_slot aliases rx_line; cmd_save() owns the post-call discard gate. */
-    rb_head = 0; rb_tail = 0; rx_pos = 0;
+    reset_rx_state();
 }

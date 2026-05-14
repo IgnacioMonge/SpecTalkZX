@@ -5,9 +5,6 @@ EXTERN _rtc_seed_ovl
 EXTERN _rtc_enable_ovl
 PUBLIC _tz_cmd_ovl
 EXTERN _overlay_slot
-EXTERN _rb_head
-EXTERN _rb_tail
-EXTERN _rx_pos
 EXTERN _sntp_tz
 EXTERN _sntp_tz_last
 EXTERN _sntp_init_sent
@@ -18,7 +15,8 @@ EXTERN _time_hour
 EXTERN _status_bar_dirty
 EXTERN _config_dirty
 EXTERN _str_to_u16
-EXTERN _set_attr_sys
+EXTERN _reset_rx_state
+EXTERN _sys_puts
 EXTERN _main_puts
 EXTERN _main_putc
 EXTERN _main_newline
@@ -57,16 +55,16 @@ tz_after_sign:
     ld a, (hl)
     sub '0'
     cp 10
-    jp nc, tz_range
+    jr nc, tz_range
     push bc
     call _str_to_u16           ; HL = abs value, stops on first non-digit
     pop bc
     ld a, h
     or a
-    jp nz, tz_range
+    jr nz, tz_range
     ld a, l
     cp 13
-    jp nc, tz_range
+    jr nc, tz_range
 
     dec b                      ; neg flag was 0 -> NZ (skip), was 1 -> Z
     jr nz, tz_new_ready
@@ -123,13 +121,17 @@ tz_store_new:
     inc a                      ; suffix: later
     jr tz_print_numeric
 
+tz_range:
+    ld hl, tz_range_msg
+    call _ui_err
+    jr tz_done
+
 tz_show_current:
     ld a, (_sntp_tz)
     cp TZ_RTC
     jr nz, tz_suffix_none
-    call _set_attr_sys
     ld hl, _K_TZ
-    call _main_puts
+    call _sys_puts
     ld hl, tz_rtc_msg
     call _main_puts
     call _main_newline
@@ -140,9 +142,8 @@ tz_suffix_none:
 
 tz_print_numeric:
     push af                    ; suffix
-    call _set_attr_sys
     ld hl, _K_TZ
-    call _main_puts
+    call _sys_puts
     ld a, (_sntp_tz)
     or a                       ; sets S flag
     ld l, '+'                  ; ld r,n preserves flags
@@ -169,16 +170,8 @@ tz_print_newline:
     call _main_newline
     jr tz_done
 
-tz_range:
-    ld hl, tz_range_msg
-    call _ui_err
-
 tz_done:
-    ld hl, 0
-    ld (_rb_head), hl
-    ld (_rb_tail), hl
-    ld (_rx_pos), hl
-    ret
+    jp _reset_rx_state
 
 tz_rtc_msg:
     DEFM "RTC"

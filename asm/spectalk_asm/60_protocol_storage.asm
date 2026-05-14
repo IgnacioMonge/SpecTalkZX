@@ -117,9 +117,7 @@ EXTERN _connection_state
 EXTERN _S_SP_COLON
 ; S_CRLF removed ? use uart_send_crlf instead
 EXTERN _uart_send_crlf
-
-; Common string " " for param separator
-isc_space: defb ' ', 0
+EXTERN _ay_uart_send
 
 ; void irc_send_cmd_internal(const char *cmd, const char *p1, const char *p2)
 ; Sends: CMD [p1] [ :p2]\r\n
@@ -161,8 +159,8 @@ _irc_send_cmd_internal:
     
     ; Send " " + p1
     push de
-    ld hl, isc_space
-    call _uart_send_string
+    ld l, ' '
+    call _ay_uart_send
     pop hl
     call _uart_send_string
     
@@ -228,7 +226,6 @@ ap_poll:
     jr ap_store_pos_ret
 
 ap_have_byte:
-    dec b
     cp 13
     jr z, ap_continue
     cp 10
@@ -279,11 +276,8 @@ ap_reset:
     jp _rx_pos_reset            ; tail-call yields after one complete/discarded line
 
 ap_continue:
-    ld a, b
-    or a
-    jr z, ap_store_pos_ret
     ld c, 64
-    jr ap_poll                ; PD2: jr instead of jp (-1B)
+    djnz ap_poll
 
 ap_store_pos_ret:
     ex de, hl                 ; HL = next rx_line write pointer
@@ -428,9 +422,8 @@ _esx_fseek_set:
     rst 8
     defb 0x9F           ; F_SEEK, mode=SET in IXL
     pop ix
-    ld hl, 1
-    ret nc
-    dec hl
+    sbc hl, hl
+    inc hl
     ret
 
 ; -----------------------------------------------------------------------------

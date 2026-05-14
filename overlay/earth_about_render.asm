@@ -21,6 +21,7 @@ EXTERN _esx_fread
 EXTERN _esx_fclose
 EXTERN _esx_fseek_set
 EXTERN _esx_handle
+EXTERN _reset_rx_state
 EXTERN _esx_buf
 EXTERN _esx_count
 EXTERN _esx_result
@@ -30,11 +31,9 @@ EXTERN _theme_attrs
 EXTERN _current_theme
 EXTERN _K_DAT
 EXTERN _clear_zone
-EXTERN _rb_head
-EXTERN _rb_tail
-EXTERN _rx_pos
+EXTERN _compute_screen_base
+EXTERN _compute_attr_base
 EXTERN _rx_last_len
-EXTERN _rx_overflow
 EXTERN _earth_ready
 EXTERN _frame_idx
 
@@ -406,6 +405,12 @@ about_theme_attr:
 
 about_draw_line2:
         call _earth_ikkle_draw
+        jr about_draw_foot
+
+about_fail:
+        call _about_close_ovl
+
+about_draw_foot:
         ld hl,about_s_foot
         ld d,20
         ld e,18
@@ -414,24 +419,10 @@ about_draw_line2:
         call _earth_ikkle_draw
         jr about_reset_rx
 
-about_fail:
-        call _about_close_ovl
-        ld hl,about_s_foot
-        ld d,20
-        ld e,18
-        ld a,(_theme_attrs + TA_MSG_SYS)
-        ld c,a
-        call _earth_ikkle_draw
-
 about_reset_rx:
-        xor a
         ld hl,0
-        ld (_rb_head),hl
-        ld (_rb_tail),hl
-        ld (_rx_pos),hl
         ld (_rx_last_len),hl
-        ld (_rx_overflow),a
-        ret
+        jp _reset_rx_state
 
 about_read_exact:
         ld (_esx_buf),hl
@@ -667,29 +658,10 @@ earth_ikkle_done:
         ret
 
 earth_screen_base:
-        ld h,a
-        and $07
-        rrca
-        rrca
-        rrca
-        ld l,a
-        ld a,h
-        and $18
-        or $40
-        ld h,a
-        ret
+        jp _compute_screen_base
 
 earth_attr_base:
-        ld l,a
-        ld h,0
-        add hl,hl
-        add hl,hl
-        add hl,hl
-        add hl,hl
-        add hl,hl
-        ld de,$5800
-        add hl,de
-        ret
+        jp _compute_attr_base
 
 about_s_line1:
         db "SPECTALKZX 1.3.8: IRC CLIENT FOR ZX SPECTRUM",0

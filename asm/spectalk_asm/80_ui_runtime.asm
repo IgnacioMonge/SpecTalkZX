@@ -364,17 +364,13 @@ wb_right:
     add hl, bc
 wbr_wd:
     ld a, (hl)
-    or a
-    jr z, wbr_done
-    cp ' '
-    jr z, wbr_sp
+    cp 33
+    jr c, wbr_sp
     inc hl
     inc c
     jr wbr_wd
 wbr_sp:
     ld a, (hl)
-    or a
-    jr z, wbr_done
     cp ' '
     jr nz, wbr_done
     inc hl
@@ -422,11 +418,12 @@ wm_apply:
 ; void input_delete_word(void)
 _input_delete_word:
     ld a, (_cursor_pos)
+    ld e, a                 ; old cursor_pos survives wb_left_clean
     call wb_left_clean      ; A = new_pos (word boundary)
-    ld c, a                 ; C = new_pos
-    ld a, (_cursor_pos)
-    cp c
+    cp e
     ret z
+    ld c, a                 ; C = new_pos
+    ld a, e                 ; A = old cursor_pos
     sub c
     ld b, a                 ; B = del_count = cursor_pos - new_pos
     push bc
@@ -509,7 +506,7 @@ fm_ctr:
     ; H = 0x40 | (third << 3) | scanline = 0x48 | 0 = 0x48
     ; L = (row_in_third << 5) | col = (3 << 5) | col = 0x60 | col
     or 0x60              ; A = 0x60 | start_col (row 11, scanline 0 base)
-    ld d, a              ; D = low byte base for row 11
+    ld e, a              ; E = low byte base for row 11
 fm_char:
     ld a, (hl)
     or a
@@ -523,21 +520,16 @@ fm_char:
     add hl, hl           ; HL = (char-32) * 8
     ld bc, 0x3D00
     add hl, bc            ; HL = glyph address
-    ; Write 8 scanlines: H=0x48+S, L=D (column)
-    ld e, d               ; E = column (preserved across scanlines)
+    ; Write 8 scanlines: D=0x48+S, E=column.
+    ld d, 0x48            ; D = high byte base for row 11
     ld b, 8
-    ld c, 0x48            ; C = high byte base for row 11
 fm_scan:
     ld a, (hl)
-    push hl
-    ld h, c
-    ld l, e
-    ld (hl), a
-    pop hl
+    ld (de), a
     inc hl
-    inc c                 ; next scanline
+    inc d                 ; next scanline
     djnz fm_scan
-    inc d                 ; next column
+    inc e                 ; next column
     pop hl
     inc hl
     jr fm_char
@@ -709,25 +701,23 @@ pu8_skip_tens:
 ; Scan ChannelInfo[10] flags, skipping current_channel_idx.
 EXTERN _channels
 _has_other_mention:
-    ld hl, _channels + 30       ; flags field, ChannelInfo stride is 32
     ld a, (_current_channel_idx)
-    ld b, a                     ; B = current index
-    ld c, 0                     ; C = slot index
+    ld c, a                     ; C counts down to the slot to skip
+    ld hl, _channels + 30       ; flags field, ChannelInfo stride is 32
     ld de, 32
+    ld b, 10                    ; MAX_CHANNELS
 homm_loop:
     ld a, c
-    cp b
+    or a
     jr z, homm_next
     ld a, (hl)
     and 0x09                    ; CH_FLAG_ACTIVE | CH_FLAG_MENTION
     cp 0x09
     jr z, homm_yes
 homm_next:
+    dec c
     add hl, de
-    inc c
-    ld a, c
-    cp 10
-    jr nz, homm_loop
+    djnz homm_loop
     ld l, 0
     ret
 homm_yes:

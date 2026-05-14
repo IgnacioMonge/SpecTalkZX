@@ -35,15 +35,13 @@ EXTERN _current_channel_idx
     or c
     jr z, bss_zero_skip ; W10: skip if BSS size = 0
     ex de, hl           ; HL = start address (1 byte vs 2)
+bss_loop:
     ld (hl), 0
-    dec bc              ; BC = size - 1
+    inc hl
+    dec bc
     ld a, b
     or c
-    jr z, bss_zero_skip ; skip LDIR if BSS size = 1
-    ld d, h
-    ld e, l
-    inc de              ; DE = start + 1
-    ldir
+    jr nz, bss_loop
 bss_zero_skip:
     ; OPT-SHRINK: zero_fill_256 subroutine saves 5B for 2 identical fills
     ; Zero Printer Buffer: 0x5B00..0x5BFF (256 bytes)
@@ -54,12 +52,11 @@ bss_zero_skip:
     call zero_fill_256
     ; Zero UDG area: 0xFF58..0xFFF1 (154 bytes)
     ld hl, 0xFF58
-    ld (hl), 0
-    ld d, h
-    ld e, l
-    inc de
-    ld bc, 153
-    ldir
+    ld b, 154
+udg_zero_loop:
+    ld (hl), a
+    inc hl
+    djnz udg_zero_loop
     ; --- IM2 removed ---
     ; IM2 was dead code: frame_wait() uses IM1 exclusively.
     ; The CRT IM2 setup was overwriting BSS at $FC00+ (bpe_dict, esx_* vars).
@@ -71,12 +68,12 @@ bss_zero_skip:
 
 ; OPT-SHRINK: zero-fill 256 bytes from HL (saves 5B for 2 identical fills)
 zero_fill_256:
-    ld (hl), 0
-    ld d, h
-    ld e, l
-    inc de
-    ld bc, 255
-    ldir
+    xor a
+    ld b, a
+zf_loop:
+    ld (hl), a
+    inc hl
+    djnz zf_loop
     ret
 
 bss_zero_done:
