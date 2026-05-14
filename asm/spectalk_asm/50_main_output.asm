@@ -16,9 +16,9 @@ EXTERN _time_minute
 EXTERN _last_ts_hour
 EXTERN _last_ts_minute
 
-; 2B transient scratch in the free printer-buffer tail ($5BE7-$5BFF).
+; 2B transient scratch in the free printer-buffer tail ($5BE5-$5BFF).
 ; Only live inside main_print_wrapped_ram()'s scan, before render/BPE calls.
-defc mpwr_last_space = 0x5BE7
+defc mpwr_last_space = 0x5BE5
 
 ; -----------------------------------------------------------------------------
 ; void main_print(const char *s) __z88dk_fastcall
@@ -837,7 +837,7 @@ puts_bpe_expand:
     ld c, a                 ; save token while comparing fixed-page rsp low byte
     ld hl, (bpe_rsp)
     ld a, l
-    cp 0xE5                 ; low byte of bpe_rstack + 16
+    cp 0xE3                 ; low byte of bpe_rstack + 16
     jr nc, puts_bpe_overflow
     ld a, c                 ; restore token
     ; Push continuation address (DE) onto BPE return stack
@@ -870,7 +870,7 @@ puts_bpe_pop:
     ; Check if BPE stack has entries
     ld hl, (bpe_rsp)
     ld a, l
-    cp 0xD5                 ; low byte of bpe_rstack
+    cp 0xD3                 ; low byte of bpe_rstack
     jr z, puts_opt_done     ; stack empty -> real end of string
     ; Pop continuation address from BPE stack
     dec hl

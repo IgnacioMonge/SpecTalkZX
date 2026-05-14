@@ -661,6 +661,15 @@ _main_newline:
     xor a
     ld (_main_col), a
 
+    ; If real output advanced from the row reserved just after a channel
+    ; divider, that row is no longer reusable for separator repaint/erase.
+    ld hl, _channel_context_next_row
+    ld a, (_main_line)
+    cp (hl)
+    jr nz, mn_ctx_keep
+    ld (hl), 0
+mn_ctx_keep:
+
     ; if (pagination_active)
     ld a, (_pagination_active)
     or a

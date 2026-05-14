@@ -144,6 +144,13 @@ void local_setting_cmd_ovl(void)
     case 7:
         set_or_toggle_flag_ovl(&autojoin, "Autojoin: ", args);
         break;
+    case 8:
+        set_or_toggle_flag_ovl(&show_channel_separators, "Divider: ", args);
+        if (!show_channel_separators) {
+            channel_context_next_row = 0;
+            channel_context_pending = 0;
+        }
+        break;
     }
 
 done:

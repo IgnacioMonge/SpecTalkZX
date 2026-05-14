@@ -78,6 +78,7 @@ void config_render_ovl(void)
     cfg_item(K_CLICK, keyclick_enabled ? cv_on : cv_off);
     cfg_item(cl_ncol, nick_color_mode ? cv_on : cv_off);
     cfg_item(K_TRAFFIC, show_traffic ? cv_on : cv_off);
+    cfg_item(K_DIVIDER, show_channel_separators ? cv_on : cv_off);
     cfg_item(K_TS, show_timestamps == 0 ? cv_off :
                     show_timestamps == 1 ? cv_on : cv_smart);
     cfg_item(K_AUTOCONN, autoconnect ? cv_on : cv_off);

@@ -68,7 +68,7 @@ UART_CONSTANTS = {
     'S_AT_CIFSR', 'S_AT_GMR', 'S_QUIT_CMD',
     # Config keys — written to .CFG file as plain text by cfg_kv/cfg_put
     'K_NICK', 'K_SERVER', 'K_PORT', 'K_PASS', 'K_NKPASS',
-    'K_AUTOCONN', 'K_THEME', 'K_AUTOAWAY', 'K_BEEP', 'K_TRAFFIC',
+    'K_AUTOCONN', 'K_THEME', 'K_AUTOAWAY', 'K_BEEP', 'K_TRAFFIC', 'K_DIVIDER',
     'K_TS', 'K_TZ', 'K_TOPIC',
     # File paths — used by esx_fopen (must be plain ASCII for esxDOS)
     'K_CFG_PRI', 'K_CFG_ALT', 'K_DAT',

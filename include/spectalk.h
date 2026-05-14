@@ -255,6 +255,7 @@ extern uint8_t keyclick_enabled;
 extern uint8_t has_esxdos;
 extern uint8_t nick_color_mode;
 extern uint8_t show_traffic;
+extern uint8_t show_channel_separators;
 extern int8_t sntp_tz;
 extern int8_t sntp_tz_last;
 extern char irc_pass[IRC_PASS_SIZE];
@@ -490,7 +491,6 @@ extern const char S_JOIN_CMD[];
 extern const char S_PART_CMD[];     // D19: "PART"
 extern const char S_TCP[];          // D19: "TCP"
 extern const char S_AUTOAWAY[];     // D11: "Auto-away"
-extern const char S_SWITCHED[];     // S1: "Switched to "
 extern const char S_ALREADY[];      // S2: "Already in "
 extern const char S_YOU_LEFT[];
 extern const char S_MODE_SP_SCR[];     // S3: "You have left "

@@ -11,6 +11,7 @@
 !save	Save config/session
 !clear	Clear chat screen
 !traffic	Toggle join/part msgs
+!divider	Toggle separators
 !timestamps	Toggle time display
 !nickcolor	Toggle nick colors
 !autoconnect	Toggle auto-connect

@@ -62,3 +62,73 @@ Current experimental build:
   `deploy/channel-context-visual/SPECTALK.OVL`
 - Build size: TAP `36001B`, BSS guard `0xF443 < 0xF500` (`189B` free),
   overlays `1808/1846/1547/1992/2001/1733`.
+
+## Implemented Follow-Up: Inverted Channel Label
+
+Implemented 2026-05-11 in `experimentos/channel-separator-polish`.
+
+- `channel_context_ink()` returns just the cue ink. Server labels use
+  `ATTR_MSG_SERVER & 7`. Mono themes where `nick_color_mode=0` use
+  `ATTR_MSG_CHAN & 7`, avoiding multicolor separators in the Terminal theme.
+  Color themes keep the existing stateless cleaned-name hash.
+- `channel_context_banner()` splits the attrs. The timestamp and horizontal
+  line use cue ink on `ATTR_MAIN_BG` PAPER. The right-side label is inverted:
+  label PAPER = cue ink; label INK = main-area background PAPER.
+- Keep the existing stateless hash and do not allocate per-channel color
+  storage.
+- Measured shrink accepted after external review: `channel_context_banner()`
+  uses pointer increments for pixel/attr line fill, local HH:MM composition,
+  and pointer-based label copy. `channel_context_ink()` uses compact
+  `c|=0x20` folding plus a modulo loop. This preserves common alpha-only
+  channel color samples but can change deterministic hash color for punctuation
+  such as `_`; do not depend on exact hash color for such names.
+- Separator display is configurable through the global persisted `divider=`
+  config key. Default is ON. `!divider [on|off]` toggles it, `!config` displays
+  it, and config save writes it to SD.
+- When disabled, no future separators are drawn and any pending divider state is
+  cleared, but rows already visible on the screen are left untouched.
+- The setting is global only; do not add per-channel separator state.
+- Keep this independent from `!traffic` and `!notif`: those affect IRC event
+  text and notification routing, not the context divider.
+- Treat active-window removal as an active-context change. After
+  `remove_channel()` has compacted slots and selected the fallback active slot,
+  rerun the divider path. This covers `/part`, `/close`, switcher BACKSPACE,
+  self `KICK`, query close on `QUIT`/`401`, and join-error zombie cleanup.
+- Before changing/removing the active slot, drain deferred wrapped output while
+  no overlay is active, so previous-context wrapped text finishes before the new
+  separator is considered.
+- If overlay, pagination, or deferred-wrap blocks drawing, keep a single pending
+  divider flag and flush it from the main loop when safe. Do not draw while
+  blocked and do not add per-channel row ownership.
+- `_main_newline()` must clear `channel_context_next_row` when the current
+  `main_line` equals it. This catches the bottom-row scroll case: after printing
+  a real line on `MAIN_END`, scrolling leaves `main_line` numerically unchanged,
+  so `channel_context_banner()` would otherwise think no transcript output
+  happened below the previous divider and would reuse/erase the message row.
+- When `remove_channel()` compacts slots, adjust `channel_context_anchor_idx`
+  like navigation history; if the anchor slot was deleted, invalidate it with
+  `0xFF` to prevent false erase-on-return behavior.
+- Server-confirmed self `PART` should notify before removing the slot, matching
+  local `/part`; otherwise the leave notification is emitted in the fallback
+  context.
+- Verification needed when implemented: compare at least two channels whose hash
+  colors differ, server/query labels, and one non-default theme/background if
+  available. Rebuild with `make NO_COLOR=1`; hardware visual check is the real
+  gate because this touches attribute composition.
+
+## Mockup TAP
+
+- `tools/channel_separator_preview.c` is a standalone z88dk mockup, not linked
+  into SpecTalkZX.
+- Output: `deploy/channel-separator-polish/channel_separator_preview.tap`.
+- Controls: SPACE cycles pages; any other key exits.
+- Pages: one page per current theme (`DEFAULT`, `TERMINAL`, `COMMANDER`) using
+  the actual 20 theme attributes loaded from the current `SPECTALK.DAT`.
+- The mockup intentionally renders multiple sample separators per page so label
+  inversion can be judged across channel-hash colors, server, and query labels.
+- Terminal theme is deliberately mono: because the theme's nick and channel INK
+  match, the preview keeps channel/query separators green/black instead of using
+  the multicolor hash palette. This mirrors `apply_theme()` setting
+  `nick_color_mode=0` for mono themes.
+- The mockup labels the intended swap explicitly: the inverted label uses the
+  channel cue as PAPER and the main background PAPER color as INK.

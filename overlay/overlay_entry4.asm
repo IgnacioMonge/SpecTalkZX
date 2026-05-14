@@ -23,10 +23,10 @@ _cfg_put:
     ex de, hl
 ovl4_cfg_put_loop:
     ld a, (de)
+    inc de
     or a
     ret z
     call ovl4_put_a_hl
-    inc de
     jr ovl4_cfg_put_loop
 
 ; A=byte, HL=destination. Returns HL=destination+1, or overlay_slot+513

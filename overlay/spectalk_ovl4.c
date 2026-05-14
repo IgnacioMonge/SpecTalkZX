@@ -174,6 +174,7 @@ void save_config_ovl(void)
     p = cfg_kv(p, K_CLICK, (const char *)(uint16_t)keyclick_enabled);
     p = cfg_kv(p, K_NCOLOR, (const char *)(uint16_t)nick_color_mode);
     p = cfg_kv(p, K_TRAFFIC, (const char *)(uint16_t)show_traffic);
+    p = cfg_kv(p, K_DIVIDER, (const char *)(uint16_t)show_channel_separators);
     p = cfg_kv(p, K_TS, (const char *)(uint16_t)show_timestamps);
     p = cfg_kv(p, K_AUTOCONN, (const char *)(uint16_t)autoconnect);
     p = cfg_kv(p, K_AUTOJOIN, (const char *)(uint16_t)autojoin);

@@ -41,6 +41,7 @@ static const char K_CLICK[]    = "click=";
 static const char K_NCOLOR[]   = "nickcolor=";
 static const char K_TRAFFIC[]  = "traffic=";
 static const char K_TS[]       = "timestamps=";
+static const char K_DIVIDER[]  = "divider=";
 static const char K_CHANNELS[] = "channels=";
 static const char K_TOPIC[]    = "TOPIC";
 static const char K_MODE_SP[]  = "MODE ";
@@ -713,12 +714,13 @@ static void cmd_msg(const char *args) __z88dk_fastcall
     char *msg = split_at_space(p);
     if (!msg) { ui_usage(S_USAGE_MSG); return; }
 
-    if (target[0] != '#') {
-        int8_t idx = add_query(target);
-        if (idx >= 0) switch_to_channel((uint8_t)idx);
-    }
-
     irc_send_privmsg(target, msg);
+
+    if (target[0] != '#') {
+        int8_t idx = find_query(target);
+        if (idx >= 0 && (uint8_t)idx != current_channel_idx)
+            switch_to_channel((uint8_t)idx);
+    }
 }
 
 static void cmd_reply(const char *args) __z88dk_fastcall
@@ -1246,6 +1248,11 @@ static void cmd_traffic(const char *args) __z88dk_fastcall
     cmd_local_setting(3, args);
 }
 
+static void cmd_divider(const char *args) __z88dk_fastcall
+{
+    cmd_local_setting(8, args);
+}
+
 static void cmd_notif(const char *args) __z88dk_fastcall
 {
     cmd_local_setting(4, args);
@@ -1366,7 +1373,7 @@ typedef struct {
 static void sys_help(const char *args) __z88dk_fastcall;
 
 #define CMD_IDX_NONE  ((uint8_t)0xFF)
-#define SYS_CMDS_COUNT 20
+#define SYS_CMDS_COUNT 21
 
 // Command names/aliases pool (help strings moved to /SYS/SPECTALK.HLP)
 static const char cmd_pool[] =
@@ -1375,7 +1382,7 @@ static const char cmd_pool[] =
     "\0away\0autoaway\0aa\0raw\0whois\0wi\0who\0list\0ls\0names\0topic\0sea"
     "rch\0ignore\0kick\0k\0channels\0w\0beep\0traffic\0timestamps\0ts\0clear\0cls\0"
     "save\0sv\0autoconnect\0ac\0tz\0friend\0nickcolor\0nc\0notif\0nf\0"
-    "changelog\0click\0mode\0reply\0notice\0autojoin\0"
+    "changelog\0click\0mode\0reply\0notice\0autojoin\0divider\0"
 ;
 
 static const PackedCmd USER_COMMANDS[] = {
@@ -1399,6 +1406,7 @@ static const PackedCmd USER_COMMANDS[] = {
     {  53, 255, cmd_tz },
     {  54, 255, cmd_friend },
     {  55,  56, cmd_nickcolor },
+    {  65, 255, cmd_divider },
     {  60, 255, cmd_click },
     // --- IRC commands (/ prefix) ---
     {  10,  11, cmd_connect_retry },

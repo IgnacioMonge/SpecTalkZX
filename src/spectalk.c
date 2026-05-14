@@ -115,7 +115,6 @@ const char S_PART_CMD[] = "PART";                    // D19: dedup (2 uses, UART
 const char S_TCP[] = "TCP";                          // D19: dedup (2 uses, UART - no BPE)
 const char S_AUTOAWAY[] = "Auto-away";            // D11: dedup (5 uses)
 // OPT-SHRINK-S1/S2/S3: cross-module string dedup
-const char S_SWITCHED[] = "Switched to ";         // S1: dedup (4 uses)
 const char S_ALREADY[] = "Already in ";           // S2: dedup (4 uses)
 const char S_YOU_LEFT[] = "You have left ";       // S3: dedup (3 uses)
 const char S_MODE_SP_SCR[] = "Mode ";             // screen-side (2 uses in irc_handlers)
@@ -169,6 +168,7 @@ uint8_t beep_enabled = 1;   // 0 = silent mode
 uint8_t keyclick_enabled;   // 0 = off (default), 1 = key click sound
 uint8_t nick_color_mode = 1;  // 0 = theme fixed, 1 = per-nick hash color
 uint8_t show_traffic = 1;     // 0 = hide JOIN/PART/QUIT messages
+uint8_t show_channel_separators = 1; // 0 = hide future channel separators
 uint8_t notif_enabled = 1;    // 1 = ikkle notifications, 0 = classic inline messages
 uint8_t show_timestamps = 2; // 0=off, 1=always, 2=on-change
 // big_status removed (big mode eliminated)
@@ -220,6 +220,19 @@ uint8_t search_mode;
 char    search_pattern[SEARCH_PATTERN_SIZE];  // Scratch: busquedas, snapshots de !config
 char    autojoin_channels[SEARCH_PATTERN_SIZE]; // channels= persistente cargado desde config
 uint16_t search_index;
+uint8_t channel_context_next_row;
+uint8_t channel_context_pending;
+static uint8_t channel_context_anchor_idx;
+
+void deferred_wrap_step(void);
+static void channel_context_banner(void);
+
+static void channel_context_drain_wrap(void)
+{
+    if (!overlay_mode) {
+        while (deferred_wrap_active) deferred_wrap_step();
+    }
+}
 
 void draw_status_bar(void)
 {
@@ -232,6 +245,8 @@ void clear_main(void)
     clear_zone(MAIN_START, MAIN_LINES, ATTR_MAIN_BG);
     main_line = MAIN_START;
     main_col = 0;
+    channel_context_next_row = 0;
+    channel_context_pending = 0;
 }
 
 static void overlay_exit_maybe_discard(void)
@@ -517,6 +532,8 @@ void remove_channel(uint8_t idx) __z88dk_fastcall
     if (idx >= MAX_CHANNELS || !(channels[idx].flags & CH_FLAG_ACTIVE)) return;
     if (idx == 0) return;
 
+    if (was_current) channel_context_drain_wrap();
+
     // 1. Si cerramos la ventana actual, buscar a dónde ir (usando índices ORIGINALES)
     if (was_current) {
         // Buscar en historial hacia atrás el último slot válido que no sea el que cerramos
@@ -539,10 +556,16 @@ void remove_channel(uint8_t idx) __z88dk_fastcall
     if (sw_active) sw_dirty = 1;
 
     // 3. Ajustar índices DESPUÉS de defragmentar
+    if (channel_context_anchor_idx < MAX_CHANNELS) {
+        if (channel_context_anchor_idx == idx) channel_context_anchor_idx = 0xFF;
+        else if (channel_context_anchor_idx > idx) channel_context_anchor_idx--;
+    }
     if (was_current) {
         // Ajustar next_idx si apuntaba a un slot que se movió
         if (next_idx > idx) next_idx--;
         current_channel_idx = next_idx;
+        if (main_col || main_line != channel_context_next_row)
+            channel_context_anchor_idx = next_idx;
     } else if (current_channel_idx > idx) {
         current_channel_idx--;
     }
@@ -552,49 +575,64 @@ void remove_channel(uint8_t idx) __z88dk_fastcall
     nav_fix_on_delete(idx);
 
     draw_status_bar();
-    if (was_current) redraw_input_full();
+    if (was_current) {
+        channel_context_banner();
+        redraw_input_full();
+    }
 }
 
-static uint8_t channel_context_attr(const char *name) __z88dk_fastcall
+static uint8_t channel_context_ink(const char *name) __z88dk_fastcall
 {
     uint8_t h = 0;
     uint8_t c;
     static const uint8_t cc_inks[] = { 2, 5, 6, 4, 3, 7 };
 
-    if (current_channel_idx == 0) return 0x47;
+    if (current_channel_idx == 0) return (uint8_t)(ATTR_MSG_SERVER & 7);
+    if (!nick_color_mode) return (uint8_t)(ATTR_MSG_CHAN & 7);
 
     while ((c = (uint8_t)*name++) != 0) {
         if (c <= 32 || c == '@') continue;
-        if (c >= 'A' && c <= 'Z') c += 32;
+        c |= 0x20;
         h += (uint8_t)((c ^ (c >> 3)) & 7);
         if (h >= 6) h -= 6;
         if (h >= 6) h -= 6;
     }
 
-    return (uint8_t)(0x40 | cc_inks[h]);
+    return cc_inks[h];
 }
-
-static uint8_t channel_context_next_row;
-static uint8_t channel_context_anchor_idx;
 
 static void channel_context_banner(void)
 {
     uint8_t row;
-    uint8_t attr;
+    uint8_t ink;
+    uint8_t divider_attr;
+    uint8_t label_attr;
     uint8_t start_byte;
     uint8_t end_byte;
     uint8_t name_col;
     uint8_t name_len;
     uint8_t i;
     uint8_t erase_only = 0;
+    uint8_t v;
     const char *src;
     char *p;
     char *name;
     uint8_t *pix;
     uint8_t *ap;
 
-    if (overlay_mode || pagination_active || deferred_wrap_active) return;
-    if (!irc_channel[0]) return;
+    if (!show_channel_separators) {
+        channel_context_next_row = 0;
+        channel_context_pending = 0;
+        return;
+    }
+    if (overlay_mode || pagination_active || deferred_wrap_active) {
+        channel_context_pending = 1;
+        return;
+    }
+    if (!irc_channel[0]) {
+        channel_context_pending = 0;
+        return;
+    }
 
     if (main_col) {
         channel_context_next_row = 0;
@@ -607,26 +645,42 @@ static void channel_context_banner(void)
     }
 
     p = temp_input;
-    fast_u8_to_str(p, time_hour); p += 2;
+    i = '0';
+    v = time_hour;
+    while (v >= 10) { v -= 10; i++; }
+    *p++ = (char)i;
+    *p++ = (char)('0' + v);
     *p++ = ':';
-    fast_u8_to_str(p, time_minute); p += 2;
+    i = '0';
+    v = time_minute;
+    while (v >= 10) { v -= 10; i++; }
+    *p++ = (char)i;
+    *p++ = (char)('0' + v);
     *p = 0;
 
     name = temp_input + 8;
     p = name;
     if (current_channel_idx == 0 || (chan_flags & CH_FLAG_QUERY)) *p++ = ' ';
     src = irc_channel;
-    for (i = 0; src[i] && (uint8_t)(p - name) < 28; i++)
-        *p++ = (src[i] == '#' || src[i] == '&') ? ' ' : src[i];
+    while (*src && (uint8_t)(p - name) < 28) {
+        v = (uint8_t)*src++;
+        *p++ = (v == '#' || v == '&') ? ' ' : (char)v;
+    }
     *p = 0;
     name_len = (uint8_t)(p - name);
-    if (!name_len) return;
+    if (!name_len) {
+        channel_context_pending = 0;
+        return;
+    }
 
     row = main_line;
-    attr = channel_context_attr(name);
+    ink = channel_context_ink(name);
+    divider_attr = (uint8_t)((ATTR_MAIN_BG & 0x38) | 0x40 | ink);
+    label_attr = (uint8_t)(0x40 | (ink << 3) | ((ATTR_MAIN_BG >> 3) & 7));
     clear_line(row, ATTR_MAIN_BG);
     if (erase_only) {
         channel_context_next_row = 0;
+        channel_context_pending = 0;
         return;
     }
 
@@ -637,18 +691,22 @@ static void channel_context_banner(void)
     pix = (uint8_t *)(SCREEN_ROW_ADDR(row) + 0x0400); /* scanline 4 */
     ap = (uint8_t *)(0x5800 + ((uint16_t)row << 5));
     if (end_byte >= start_byte) {
-        for (i = start_byte; i <= end_byte; i++) {
-            pix[i] = 0xFF;
-            ap[i] = attr;
+        i = (uint8_t)(end_byte - start_byte + 1);
+        pix += start_byte;
+        ap += start_byte;
+        while (i--) {
+            *pix++ = 0xFF;
+            *ap++ = divider_attr;
         }
     }
 
-    ikkle_draw(row, 0, temp_input, attr);
-    ikkle_draw(row, name_col, name, attr);
+    ikkle_draw(row, 0, temp_input, divider_attr);
+    ikkle_draw(row, name_col, name, label_attr);
     last_ts_hour = time_hour;
     last_ts_minute = time_minute;
     main_newline();
     channel_context_next_row = main_line;
+    channel_context_pending = 0;
 }
 
 void switch_to_channel(uint8_t idx) __z88dk_fastcall
@@ -656,6 +714,7 @@ void switch_to_channel(uint8_t idx) __z88dk_fastcall
     if (idx >= MAX_CHANNELS || !(channels[idx].flags & CH_FLAG_ACTIVE)) return;
     if (idx == current_channel_idx) return;
 
+    channel_context_drain_wrap();
     if (main_col || main_line != channel_context_next_row) {
         channel_context_anchor_idx = current_channel_idx;
     }
@@ -804,6 +863,7 @@ void reset_all_channels(void)
     current_channel_idx = 0;
     cur_chan_ptr = channels;
     channel_context_next_row = 0;
+    channel_context_pending = 0;
     channel_context_anchor_idx = 0;
     channel_count = 1;
     other_channel_activity = 0;  // FIX: limpiar indicador de actividad
@@ -873,9 +933,9 @@ uint8_t deferred_wrap_attr;
 char *deferred_wrap_p;
 
 // Shared scratch buffer for u16-to-string conversions (8 bytes).
-// Lives in the free Printer Buffer tail; $5BE7-$5BE8 is mpwr_last_space.
+// Lives in the free Printer Buffer tail; $5BE5-$5BE6 is mpwr_last_space.
 // Used by draw_clock, draw_status_bar_real and search index rendering (never simultaneously).
-#define fmt_buf ((char *)0x5BE9)
+#define fmt_buf ((char *)0x5BE7)
 
 // COMMAND HISTORY
 #define HISTORY_SIZE    4
@@ -2523,6 +2583,8 @@ static void cfg_apply(char *key, char *val) __z88dk_callee {
         show_timestamps = (v > 2) ? 1 : v;
     } else if (k0 == 't' && k1 == 'z') {
         cfg_tz_apply(key);
+    } else if (k0 == 'd' && k1 == 'i') {
+        cfg_b(&show_channel_separators);
     } else if (k0 == 'n' && k1 == 'o') cfg_b(&notif_enabled);
 }
 
@@ -3039,6 +3101,8 @@ void main(void)
                 }
                 c = 0;
             }
+
+            if (channel_context_pending) channel_context_banner();
 
             // PD2: cache shared input-enabled condition (3 sites below)
             uint8_t input_enabled = !pagination_active && search_mode == SEARCH_NONE && !autoconnect_delay;

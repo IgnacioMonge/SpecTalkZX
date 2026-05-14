@@ -215,6 +215,7 @@ EXTERN _pagination_pause
 ; EXTERN _main_newline
 EXTERN _main_col
 EXTERN _main_line
+EXTERN _channel_context_next_row
 EXTERN _wrap_indent
 
 ; Ring buffer ? fixed address outside BSS (between BSS and stack)
@@ -253,16 +254,16 @@ DEFC RB_MASK_H = 0x07   ; High byte mask for 2048 (0x0800)
 ; =============================================================================
 defc glyph_buffer    = 0x5BC0  ; 7B  scratch unpack_glyph
 defc plf_left_buf    = 0x5BC8  ; 8B  scratch print_line64_fast (nibbles izq)
-defc plf_attr_val    = 0x5BD2  ; 1B  scratch print_line64_fast
-defc plf_y_val       = 0x5BD3  ; 1B  scratch print_line64_fast
+defc plf_attr_val    = 0x5BD0  ; 1B  scratch print_line64_fast
+defc plf_y_val       = 0x5BD1  ; 1B  scratch print_line64_fast
 PUBLIC _plf_start_byte
-defc _plf_start_byte = 0x5BD4  ; 1B  wrap_indent/2 (seteado por callers ASM)
-defc bpe_rstack      = 0x5BD5  ; 16B BPE return stack (8 niveles x 2B)
-defc bpe_rsp         = 0x5BE5  ; 2B  BPE stack pointer
-; $5BE7-$5BE8 2B  main_print_wrapped_ram() last-space scratch
-; $5BE9-$5BF0 8B  C fmt_buf transient decimal/time scratch
-defc plf_pair_count  = 0x5BF1  ; 1B  optional print_line64_fast pair limit
-; $5BF2-$5BFF (14B libres para futuro scratch transitorio)
+defc _plf_start_byte = 0x5BD2  ; 1B  wrap_indent/2 (seteado por callers ASM)
+defc bpe_rstack      = 0x5BD3  ; 16B BPE return stack (8 niveles x 2B)
+defc bpe_rsp         = 0x5BE3  ; 2B  BPE stack pointer
+; $5BE5-$5BE6 2B  main_print_wrapped_ram() last-space scratch
+; $5BE7-$5BEE 8B  C fmt_buf transient decimal/time scratch
+defc plf_pair_count  = 0x5BEF  ; 1B  optional print_line64_fast pair limit
+; $5BF0-$5BFF (16B libres para futuro scratch transitorio)
 
 ; =============================================================================
 ; VARIABLES BSS (solo las que deben sobrevivir a llamadas esxDOS RST 8)
