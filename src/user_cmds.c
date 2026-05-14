@@ -224,7 +224,6 @@ uint8_t check_status(uint8_t level) __z88dk_fastcall
 }
 
 
-#define IS_CHAN_PREFIX(c) ((c) == '#' || (c) == '&')
 #define REQUIRE_CHAN() do { if (!IS_CHAN_PREFIX(irc_channel[0])) { ui_err(S_MUST_CHAN); return; } } while(0)
 
 // ensure_args: frameless ASM in spectalk_asm.asm
@@ -716,7 +715,7 @@ static void cmd_msg(const char *args) __z88dk_fastcall
 
     irc_send_privmsg(target, msg);
 
-    if (target[0] != '#') {
+    if (!IS_CHAN_PREFIX(target[0])) {
         int8_t idx = find_query(target);
         if (idx >= 0 && (uint8_t)idx != current_channel_idx)
             switch_to_channel((uint8_t)idx);

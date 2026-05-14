@@ -113,6 +113,7 @@
 #define NAV_HIST_SIZE 6
 #define MAX_FRIENDS 5
 #define MAX_IGNORES 5
+#define IS_CHAN_PREFIX(c) ((c) == '#' || (c) == '&')
 
 // Channel flags defined above (lines 77-80)
 

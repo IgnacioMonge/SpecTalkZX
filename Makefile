@@ -124,7 +124,7 @@ endef
 # ------------------------------------------------------------
 # Phony targets
 # ------------------------------------------------------------
-.PHONY: all check clean bpe build restore_bpe trim overlay info help release RELEASE nobpe copydat
+.PHONY: all check clean bpe build restore_bpe trim overlay overlay_build info help release RELEASE nobpe copydat
 
 # ------------------------------------------------------------
 # Default pipeline
@@ -197,6 +197,7 @@ clean:
 		cp $(BUILD_DIR)/bpe_originals/spectalk.h include/ 2>/dev/null || true; \
 		cp $(BUILD_DIR)/bpe_originals/overlay_api.h overlay/ 2>/dev/null || true; \
 		cp $(BUILD_DIR)/bpe_originals/overlay_entry2.asm overlay/ 2>/dev/null || true; \
+		cp $(BUILD_DIR)/bpe_originals/earth_about_render.asm overlay/ 2>/dev/null || true; \
 		cp $(BUILD_DIR)/bpe_originals/SPECTALK.DAT src/ 2>/dev/null || true; \
 	fi
 	@rm -f "$(OUTPUT)" "$(OUTPUT).tap" "$(TAP)" "$(MAP)" "$(LOG)" "$(BUILD_DIR)/SPECTALK.DAT" *.o *.bin *.sym 2>/dev/null || true
@@ -317,7 +318,14 @@ OVL_API   = overlay/overlay_api.h
 OVL_OUT   = $(BUILD_DIR)/SPCTLK1.OVL
 OVL_DEFS  = $(BUILD_DIR)/overlay_defs.asm
 
-overlay: $(MAP)
+overlay:
+	@status=0; \
+	if [ "$(SKIP_BPE)" != "1" ]; then $(MAKE) --no-print-directory $(BPE_STAMP) || status=$$?; fi; \
+	if [ "$$status" -eq 0 ]; then $(MAKE) --no-print-directory overlay_build || status=$$?; fi; \
+	if [ "$(SKIP_BPE)" != "1" ]; then $(MAKE) --no-print-directory restore_bpe || exit $$?; fi; \
+	exit $$status
+
+overlay_build: $(TAP)
 	$(call STEP,OVL,Building overlay)
 	@SLOT=$$(grep '_ring_buffer ' $(MAP) | sed -n 's/.*= \$$\([0-9A-Fa-f]*\).*/\1/p' | head -1); \
 	if [ -z "$$SLOT" ]; then \

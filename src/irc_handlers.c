@@ -364,7 +364,7 @@ static void h_mode(void)
     }
 
     // --- MODE de canal ---
-    if (target[0] == '#') {
+    if (IS_CHAN_PREFIX(target[0])) {
         int8_t idx = find_channel(target);
         const char *modes;
         if (idx < 0) return;
@@ -436,7 +436,7 @@ static void h_privmsg_notice(void)
         pkt_txt = (char *)body;
     }
     if ((target[0] == '@' || target[0] == '+' || target[0] == '%' || target[0] == '~') &&
-        target[1] == '#') {
+        IS_CHAN_PREFIX(target[1])) {
         target++;
     }
     badge_flash_on();
@@ -454,7 +454,7 @@ static void h_privmsg_notice(void)
 
     // Auto-IDENTIFY: detect "identify" in NOTICE from NickServ-like service
     // Security (audit C02): validate sender before sending password
-    if (nickserv_pass[0] && is_notice && target[0] != '#' && st_stristr(pkt_txt, "identify")) {
+    if (nickserv_pass[0] && is_notice && !IS_CHAN_PREFIX(target[0]) && st_stristr(pkt_txt, "identify")) {
         uint8_t ok = nickserv_nick[0] ? (st_stricmp(pkt_usr, nickserv_nick) == 0)
                                       : (st_stristr(pkt_usr, "Serv") != 0);
         if (ok) {
@@ -525,7 +525,7 @@ static void h_privmsg_notice(void)
         return;
     }
 
-    if (target[0] == '#') {
+    if (IS_CHAN_PREFIX(target[0])) {
         int8_t idx = find_channel(target);
         if (idx < 0) return;
         mark_channel_activity((uint8_t)idx);
@@ -552,7 +552,7 @@ static void h_privmsg_notice(void)
                     char *end = strchr(act, 1);
                     if (end) *end = 0;
 
-                    if (target[0] == '#') {
+                    if (IS_CHAN_PREFIX(target[0])) {
                         set_attr_chan();
                     } else {
                         int8_t query_idx = add_query(pkt_usr);
@@ -593,7 +593,7 @@ static void h_privmsg_notice(void)
 
     // Service messages (NickServ, NiCK, ChanServ, etc.): always main area
     // Prevents long service text from being truncated in ikkle notifications
-    if (target[0] != '#' && !is_server) {
+    if (!IS_CHAN_PREFIX(target[0]) && !is_server) {
         if (st_stricmp(pkt_usr, S_NICKSERV) == 0 ||
             st_stricmp(pkt_usr, S_CHANSERV) == 0 ||
             (nickserv_nick[0] && st_stricmp(pkt_usr, nickserv_nick) == 0)) {
@@ -626,7 +626,7 @@ static void h_privmsg_notice(void)
         return;
     }
 
-    if (target[0] == '#') {
+    if (IS_CHAN_PREFIX(target[0])) {
         set_attr_chan();
         main_print_time_prefix();
 
@@ -692,7 +692,7 @@ static void h_join(void)
     // (some servers send ":nick JOIN :#chan" where chan goes to trailing)
     // IRCv3 extended-join: ":nick JOIN #chan account :realname" — pkt_txt is realname
     const char *p0 = irc_param(0);
-    char *chan = (char *)((p0[0] == '#' || p0[0] == '&') ? p0 : pkt_txt);
+    char *chan = (char *)(IS_CHAN_PREFIX(p0[0]) ? p0 : pkt_txt);
     if (*chan == ':') chan++;
     if (!*chan) return;  // audit W09: reject malformed JOIN
 

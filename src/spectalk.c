@@ -2179,7 +2179,7 @@ void irc_send_privmsg(const char *target, const char *msg) __z88dk_callee
     }
 
     // 2. MOSTRAR EN screen
-    if (target[0] == '#') {
+    if (IS_CHAN_PREFIX(target[0])) {
         // Mensaje en canal: hora, nick dedicado, mensaje del canal
         main_print_time_prefix();
 
