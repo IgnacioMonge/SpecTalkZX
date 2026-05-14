@@ -18,6 +18,7 @@
 static void print_topic_line(char *text) __z88dk_fastcall;
 static char *pkt_usr;
 static char *pkt_par;
+static char *pkt_rest;
 static char *pkt_txt;
 static char *pkt_cmd;
 
@@ -25,6 +26,7 @@ static char *pkt_cmd;
 static uint16_t last_cmd_id;
 
 // Empty string sentinel to keep parser globals valid even on malformed lines.
+// Must remain zero: parser initialization aliases all empty packet fields here.
 static char pkt_empty[1];
 
 // Friend accumulator for NAMES (353→366 batch notification)
@@ -71,14 +73,33 @@ spn_prefix_loop:
     or a
     ret z
     cp 33
-    jp c,split_next_param_found
+    jr c,spn_sep
     jr z,spn_bang
     inc hl
     jr spn_prefix_loop
 spn_bang:
     ld (hl),0
     inc hl
-    jr spn_prefix_loop
+spn_host_loop:
+    ld a,(hl)
+    or a
+    ret z
+    cp 33
+    jr c,spn_sep
+    inc hl
+    jr spn_host_loop
+spn_sep:
+    ld (hl),0
+spn_skip:
+    inc hl
+    ld a,(hl)
+    or a
+    ret z
+    cp 33
+    jr c,spn_skip
+    cp 127
+    jr nc,spn_skip
+    ret
     __endasm;
 }
 
@@ -103,6 +124,59 @@ split_next_param_skip:
     ret z
     cp 33
     jr c,split_next_param_skip
+    ret
+    __endasm;
+}
+
+static char *split_head_param(char *p) __z88dk_fastcall ST_NAKED
+{
+    (void)p;
+    __asm
+split_head_param_scan:
+    ld a,(hl)
+    or a
+    ret z
+    cp 33
+    jr c,split_head_param_found
+    cp 127
+    jr nc,split_head_param_found
+    inc hl
+    jr split_head_param_scan
+split_head_param_found:
+    ld (hl),0
+split_head_param_skip:
+    inc hl
+    ld a,(hl)
+    or a
+    ret z
+    cp 33
+    jr c,split_head_param_skip
+    ret
+    __endasm;
+}
+
+static uint8_t is_irc_numeric_cmd(const char *cmd) __z88dk_fastcall ST_NAKED
+{
+    (void)cmd;
+    __asm
+    inc hl                  ; c[0] already known to be a digit
+    ld a,(hl)
+    sub '0'
+    cp 10
+    jr nc,inc_bad
+    inc hl
+    ld a,(hl)
+    sub '0'
+    cp 10
+    jr nc,inc_bad
+    inc hl
+    ld a,(hl)
+    or a
+    jr nz,inc_bad
+    ld l,1
+    ret
+inc_bad:
+    ld l,0
     ret
     __endasm;
 }
@@ -222,24 +296,18 @@ static void h_nick(void)
 
 static void h_cap(void)
 {
-    // pkt_par: "* LS :..." or "nick LS :..." depending on server
-    // Search for " LS" or " L " anywhere in params to handle both formats
     const char *p = pkt_par;
-    if (!p) return;
-    while (*p) {
-        if (p[0] == 'L' && p[1] == 'S') {
-            uart_send_line(S_CAP_END);
-            return;
-        }
-        p++;
+    if (!(p[0] == 'L' && (p[1] == 'S' || p[1] == 0))) {
+        p = irc_param(1);
+        if (!(p[0] == 'L' && (p[1] == 'S' || p[1] == 0))) return;
     }
+    uart_send_line(S_CAP_END);
 }
 
 static void h_ping(void)
 {
     const char *token = pkt_txt;
-    if (!token || !*token) token = irc_param(0);
-    if (!token) token = "";
+    if (!*token) token = irc_param(0);
     irc_send_pong(token);
 }
 
@@ -361,7 +429,16 @@ is_ctcp_action_tail_key:
 static void h_privmsg_notice(void)
 {
     char *target = pkt_par;
-    if (!target || !*target || !pkt_txt || !*pkt_txt) return;
+    if (!*target) return;
+    if (!*pkt_txt) {
+        const char *body = irc_param(1);
+        if (!*body) return;
+        pkt_txt = (char *)body;
+    }
+    if ((target[0] == '@' || target[0] == '+' || target[0] == '%' || target[0] == '~') &&
+        target[1] == '#') {
+        target++;
+    }
     badge_flash_on();
 
     uint8_t is_notice = (pkt_cmd[0] == 'N');
@@ -1394,16 +1471,19 @@ print_tail:
 
 static void h_default_cmd(void)
 {
-    // Ignore numerics and single-char commands
-    if ((pkt_cmd[0] >= '0' && pkt_cmd[0] <= '9') || !pkt_cmd[1]) return;
-    
+    const char *p = pkt_cmd;
+    // Ignore single-char command tails
+    if (!p[1]) return;
+
     // Ignore corrupted/fragmented lines: IRC commands are ALL UPPERCASE
     // If any lowercase letter exists, it's likely a fragment (e.g., "PublicWiFi", "spectalk")
-    const char *p = pkt_cmd;
     while (*p) {
-        if (*p >= 'a' && *p <= 'z') return;
+        if ((uint8_t)(*p - 'a') <= 25) return;
         p++;
     }
+
+    // Unknown no-prefix commands are mid-line fragments (e.g. RIVMSG tails).
+    if (pkt_usr == irc_server) return;
 
     // FIX: Suprimir output de comandos no reconocidos durante búsqueda activa
     // (incluye fase de drenaje donde search_mode es SEARCH_NONE) y durante la
@@ -1414,6 +1494,7 @@ static void h_default_cmd(void)
     main_print_time_prefix();
     main_puts2(">< ", pkt_cmd);
     if (*pkt_par) { main_putc(' '); main_puts(pkt_par); }
+    if (*pkt_rest) { main_putc(' '); main_puts(pkt_rest); }
     if (*pkt_txt) { main_puts2(S_SP_COLON, pkt_txt); }
     main_newline();
 }
@@ -1519,16 +1600,20 @@ void parse_irc_message(char *line) __z88dk_fastcall
     // Populate Globals directly (always initialize to safe values)
     pkt_usr = irc_server;
     pkt_par = pkt_empty;
+    pkt_rest = pkt_empty;
     pkt_txt = pkt_empty;
     pkt_cmd = pkt_empty;
     irc_param_count = 0;
+    irc_params_dirty = 0;
     
     if (!line || !*line) return;
 
-    while (*line) {
-        uint8_t c = line[0];
-        if ((uint8_t)c > 32 && c != '>' && c != '@') break;
-        line = split_next_param(line);
+    while (*line && (line[0] == '>' || (uint8_t)*line <= 32 || (uint8_t)*line >= 127)) line++;
+
+    if (line[0] == '@') {
+        while ((uint8_t)*line > 32) line++;
+        while (*line && ((uint8_t)*line <= 32 || (uint8_t)*line >= 127)) line++;
+        if (line[0] == '@') return;
     }
     if (!*line) return;
 
@@ -1540,29 +1625,48 @@ void parse_irc_message(char *line) __z88dk_fastcall
     } else {
         cmd_start = line;
     }
+
     pkt_cmd = cmd_start;
 
-    pkt_par = split_next_param(cmd_start);
-    pkt_txt = pkt_par;
-
-    // Trailing logic
-    char *p = pkt_txt;
-    while (*p) {
-        if (p[0] == ':' && (p == pkt_txt || p[-1] == ' ')) {
-            if (p > pkt_txt && p[-1] == ' ') p[-1] = 0;
-            *p++ = 0;
-            pkt_txt = p;
-            break;
+    {
+        char *params = split_head_param(cmd_start);
+        if (*params) {
+            if (params[0] == ':') {
+                *params++ = 0;
+                pkt_txt = params;
+            } else {
+                char *rest;
+                pkt_par = params;
+                rest = split_next_param(params);
+                irc_params[0] = pkt_par;
+                irc_param_count = 1;
+                if (*rest) {
+                    if (rest[0] == ':') {
+                        *rest = 0;
+                        pkt_txt = rest + 1;
+                    } else {
+                        char *p = rest;
+                        while (*p) {
+                            if (p[0] == ' ' && p[1] == ':') {
+                                *p = 0;
+                                pkt_txt = p + 2;
+                                break;
+                            }
+                            p++;
+                        }
+                        irc_params_dirty = 1;
+                    }
+                    pkt_rest = rest;
+                }
+            }
         }
-        p++;
     }
-
-    irc_params_dirty = 1;
 
     const char *c = pkt_cmd;
 
     // Sanitize only text that can reach display/BPE paths. NAMES payloads are
-    // protocol ASCII and hot during JOIN bursts.
+    // protocol ASCII and hot during JOIN bursts. c[2] is only read after the
+    // short-circuit proves the command starts with "35".
     if (*pkt_txt && !overlay_mode &&
         (c[0] != '3' || c[1] != '5' ||
          (c[2] != '3' && c[2] != '6'))) {
@@ -1573,14 +1677,16 @@ void parse_irc_message(char *line) __z88dk_fastcall
     {
         uint16_t cmd_id;
         uint8_t c0 = c[0];
-        if (c0 >= '0' && c0 <= '9') {
+        uint8_t c1 = c[1];
+        if ((uint8_t)(c0 - '0') <= 9) {
+            if (!is_irc_numeric_cmd(c)) return;
             cmd_id = str_to_u16(pkt_cmd);
-        } else if (c0 && c[1]) {
+        } else if ((uint8_t)((c0 | 0x20) - 'a') <= 25 &&
+                   (uint8_t)((c1 | 0x20) - 'a') <= 25) {
             // Normalize to uppercase: 0xDF clears bit 5 (a→A, A→A, \0→\0)
-            pkt_cmd[0] &= 0xDF; pkt_cmd[1] &= 0xDF;
+            pkt_cmd[0] = c0 & 0xDF; pkt_cmd[1] = c1 & 0xDF;
             cmd_id = ((uint16_t)pkt_cmd[0] << 8) | pkt_cmd[1];
         } else {
-            h_default_cmd();
             return;
         }
         

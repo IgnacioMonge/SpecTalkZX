@@ -1,79 +1,20 @@
 # IRC Parser Space-Split Fastpath
 
-## Rule
+## Superseded
 
-- In the hot IRC parser, replace repeated `strchr(' ')`, `skip_to(' ')`, and `skip_spaces()` combinations only when the helper preserves all token mutation semantics:
-  - write NUL at the first command-token separator,
-  - treat bytes `1..32` as separators on the prefix/tag/command path,
-  - return the next byte greater than `32`,
-  - return a pointer to NUL when there is no next token,
-  - do not trim payload text where leading spaces are meaningful.
-- Do not patch `h_default_cmd()` to hide numeric leaks first. Clean or
-  whitespace-polluted numerics such as `002/003/004` should be normalized before
-  dispatch and handled by `CMD_TABLE`/`h_ignore`.
-- Keep topic and trailing-text paths separate unless the visible text contract is proven unchanged.
-- Measure every arithmetic specialization. SDCC may turn simple-looking `*100 + *10` numeric code into much larger output than a call to the existing generic ASM parser.
+This pattern described the old space-split parser and repeated IRCv3 line-head cleanup. It is intentionally superseded by `.mex/patterns/irc-parser-canonical.md`.
 
-## Current Example
+Do not revive the old model where `pkt_par` sometimes meant the whole raw param tail and handlers repaired IRCv3 shapes locally. Current parser policy is one canonical parse before dispatch:
 
-- `parse_irc_message()` uses local `ST_NAKED` ASM `split_next_param()` for IRCv3 tag removal, prefix-to-command split, and command-to-params split. The helper now treats `1..32` as separators and skips following `<=32` bytes so a polluted `002` still reaches the numeric table.
-- `parse_irc_message()` deliberately reuses `split_next_param()` at line start
-  instead of keeping a separate normalization helper. The cleanup is now a loop:
-  repeatedly skip leading control/space tokens, raw ESP/debug `>` marker tokens,
-  and IRCv3 `@tags` tokens until the real prefix/command starts. This preserves
-  tagged `PRIVMSG`/`NOTICE` dispatch even when hardware feeds repeated markers
-  such as `> > @time=...` or `>> @time=...`. Do not hide these leaks in
-  `h_default_cmd()` first.
-- Channel-targeted `PRIVMSG` must not fall through to the current window when
-  the target starts with `#` but `find_channel(target)` fails. Return instead;
-  otherwise a malformed tagged line or transient channel-state mismatch can
-  display `PRIVMSG #other ...` in the active channel. Keep `h_privmsg_notice()`
-  on the optimized direct `pkt_par` path for valid `PRIVMSG #target :text` /
-  `NOTICE target :text`; trailing isolation has already NUL-terminated `pkt_par`
-  at the target. Do not force `irc_param(0)` here unless hardware proves
-  direct `pkt_par` still leaks, because that reintroduces full param
-  tokenization on the hottest IRC command path.
-- `tokenize_params()` is a single-callsite parser helper. Keep its ABI as
-  `void tokenize_params(char *par) __z88dk_fastcall`: `parse_irc_message()`
-  always uses the default 10 IRC params, `split_next_param()` already removes
-  leading whitespace before `pkt_par`, and trailing `:` text is isolated before
-  tokenization. The tokenizer can therefore use fixed `B=10`, compute
-  `_irc_param_count` once at exit as `10-B`, use `DE` as the `_irc_params`
-  cursor, and skip old cdecl/max-param/IY/leading-colon/NULL-pointer guards.
-- If deferring tokenization, keep it lazy and central rather than open-coding
-  calls in every handler. `parse_irc_message()` should mark params dirty after
-  trailing-text isolation; `irc_param()` should ensure tokenization before
-  returning a param. Audit non-`irc_param()` dependencies: `JOIN` still needs
-  the first param split for IRCv3 extended-join, and direct `irc_params[]`
-  loops such as network `005` and generic numeric display must explicitly
-  ensure before reading the array. Raw-param handlers such as `CAP` should not
-  force tokenization. This lazy shape was HW OK and produced a large perceived
-  parser speedup.
-- For prefixed IRC lines, keep prefix split and nick isolation fused in
-  `split_prefix_nick()` rather than doing `split_next_param(pkt_usr)` followed
-  by a second `isolate_nick(pkt_usr)` walk. The helper must:
-  - start at `pkt_usr` (`line + 1`),
-  - write NUL at the first `!` if present,
-  - continue scanning until the first byte `<33`,
-  - write NUL at that separator and skip following separators,
-  - return the command start or a pointer to NUL when no command exists.
-  The compact measured form reuses `split_next_param_found` for the separator
-  tail; duplicating that skip logic grew the build. Use an absolute `jp` for
-  the cross-helper branch into that shared tail; keep `jr` only for local loops
-  where range/layout fragility is intentional and measured. Final measured build in
-  `codex/irc-parser-improve`: TAP `35191B`, BSS free `1001B`, overlays
-  unchanged, `-4B` versus the lazy-tokenizer baseline.
-- Inline 3-digit numeric parsing was rejected after build: it grew TAP by 331 bytes.
-- Replacing the hot-ordered `CMD_TABLE` linear dispatcher with a large C
-  `switch(cmd_id)` was rejected after build. In the lazy-tokenizer layout, SDCC
-  grew the TAP by 371 bytes instead of shrinking it. Keep the table unless a
-  future hand-written dispatcher is measured independently.
-- Removing `parse_irc_message()`'s `!line` guard was rejected after build
-  because it grew the TAP sharply in this layout. Keep the original
-  `if (!line || !*line)` guard unless a fresh compiler layout proves otherwise.
-- In the lazy-tokenization shape, keeping `irc_params_ensure()` as a normal C
-  helper measured smaller than inlining it into `irc_param()` or rewriting it
-  as a naked ASM tail-call.
+- one optional transport marker (`>` or contiguous `>>`),
+- one optional IRCv3 `@tags` block,
+- optional prefix with nick isolation,
+- `pkt_par` as first param,
+- `pkt_rest` as remaining middle params,
+- `pkt_txt` as trailing text only,
+- lazy append tokenization from `pkt_rest`.
+
+Historical measurements from this file still apply only as warnings: the C `switch(cmd_id)` dispatcher grew sharply, inline 3-digit numeric parsing grew sharply, and `irc_params_ensure()` measured smaller as a normal C helper than as an inline/naked ASM rewrite.
 
 ## Applies To
 

@@ -761,18 +761,31 @@ mci6_scan:
 ; void tokenize_params(char *par) __z88dk_fastcall
 ; Trocea un string IRC separando por espacios y rellenando el array global irc_params
 ; Modifica el string 'par' in-situ (reemplaza espacios por NULLs)
-; HL = par. The only caller uses the default IRC_MAX_PARAMS=10 budget.
+; HL = par. Appends after the parser-preloaded params up to IRC_MAX_PARAMS=10.
 ; =============================================================================
 _tokenize_params:
-    ld b, 10                ; B = slots restantes (IRC_MAX_PARAMS)
+    ld a, (_irc_param_count)
+    cp 10
+    ret nc
+    ld b, a                 ; B = count inicial
 
     ; Comprobar string vacio
     ld a, (hl)
     or a
-    jr z, tp_exit               ; OPT: jp?jr
+    ret z
 
-    ; DE = puntero al array de punteros (_irc_params)
+    ; DE = &_irc_params[irc_param_count]
+    push hl
+    ld h, 0
+    ld l, b
+    add hl, hl
     ld de, _irc_params
+    add hl, de
+    ex de, hl
+    pop hl
+    ld a, 10
+    sub b
+    ld b, a                 ; B = slots restantes
 
     ; --- BUCLE PRINCIPAL DE TOKENIZADO ---
     ; HL = puntero actual en el string

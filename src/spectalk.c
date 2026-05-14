@@ -414,6 +414,20 @@ void nav_fix_on_delete(uint8_t deleted_idx) __z88dk_fastcall {
     nav_hist_ptr = j;
 }
 
+static void refresh_other_channel_activity(void)
+{
+    uint8_t i;
+    ChannelInfo *ch = channels;
+    other_channel_activity = 0;
+    for (i = 0; i < channel_count; i++, ch++) {
+        if (i != current_channel_idx &&
+            (ch->flags & (CH_FLAG_ACTIVE | CH_FLAG_UNREAD)) == (CH_FLAG_ACTIVE | CH_FLAG_UNREAD)) {
+            other_channel_activity = 1;
+            return;
+        }
+    }
+}
+
 // =============================================================================
 // IGNORE LIST
 // =============================================================================
@@ -570,6 +584,8 @@ void remove_channel(uint8_t idx) __z88dk_fastcall
         current_channel_idx--;
     }
     cur_chan_ptr = &channels[current_channel_idx];
+    if (was_current) channels[current_channel_idx].flags &= (uint8_t)~(CH_FLAG_UNREAD | CH_FLAG_MENTION);
+    refresh_other_channel_activity();
 
     // 4. Limpiar historial (ajustar índices y eliminar el borrado)
     nav_fix_on_delete(idx);
@@ -739,6 +755,7 @@ void switch_or_notify(uint8_t idx) __z88dk_fastcall
 {
     if (idx != current_channel_idx) {
         switch_to_channel(idx);
+        if (!show_channel_separators) notify2("Switched to ", irc_channel, ATTR_MSG_JOIN);
     } else {
         notify2(S_ALREADY, irc_channel, ATTR_MSG_SYS);
     }
@@ -890,7 +907,7 @@ void irc_params_ensure(void)
 {
     if (irc_params_dirty) {
         irc_params_dirty = 0;
-        tokenize_params(pkt_par);
+        tokenize_params(pkt_rest);
     }
 }
 
