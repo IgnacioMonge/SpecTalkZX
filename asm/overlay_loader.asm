@@ -89,9 +89,8 @@ ovl_read_ok:
     or a
     sbc hl, de          ; HL = entry - ring_buffer
     jr c, ovl_bad_entry
-    ld de, 2048
-    ; CF=0 guaranteed (jr c not taken, ld de preserves flags)
-    sbc hl, de          ; offset >= 2048?
+    ld a, h
+    cp 8                ; offset >= 2048?
     jr nc, ovl_bad_entry
     pop de
     push de             ; preserve entry address while RX cleanup uses DE
@@ -103,17 +102,17 @@ ovl_read_ok:
     ld (_rb_tail), hl
     or a
     sbc hl, de
-    ld a, (_rx_overflow)
-    jr z, ovl_check_rx_pos
-    ld a, 1
-ovl_check_rx_pos:
+    ld a, h
+    or l
     ld hl, (_rx_pos)
     or h
     or l
+    ld hl, _rx_overflow
+    or (hl)
     jr z, ovl_write_rx_overflow
     ld a, 1
 ovl_write_rx_overflow:
-    ld (_rx_overflow), a
+    ld (hl), a
 
     ; Callee cleanup: restore IX, remove params, jump to overlay
     pop hl              ; HL = entry address
@@ -181,9 +180,8 @@ _overlay_call:
     or      a
     sbc     hl, de
     jr      c, ovl_call_bad
-    ld      de, 2048
-    ; CF=0 guaranteed (jr c not taken, ld de preserves flags)
-    sbc     hl, de
+    ld      a, h
+    cp      8
     jr      nc, ovl_call_bad
     pop     hl
     jp      (hl)             ; jump — overlay's ret returns to caller
