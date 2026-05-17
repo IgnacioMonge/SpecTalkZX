@@ -712,13 +712,13 @@ static void cmd_msg(const char *args) __z88dk_fastcall
     char *msg = split_at_space(p);
     if (!msg) { ui_usage(S_USAGE_MSG); return; }
 
-    irc_send_privmsg(target, msg);
-
     if (!IS_CHAN_PREFIX(target[0])) {
         int8_t idx = find_query(target);
-        if (idx >= 0 && (uint8_t)idx != current_channel_idx)
+        if (idx > 0 && (uint8_t)idx != current_channel_idx)
             switch_to_channel((uint8_t)idx);
     }
+
+    irc_send_privmsg(target, msg);
 }
 
 static void cmd_reply(const char *args) __z88dk_fastcall

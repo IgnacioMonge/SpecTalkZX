@@ -2190,12 +2190,7 @@ void irc_send_privmsg(const char *target, const char *msg) __z88dk_callee
         set_attr_chan();
         main_print_wrapped_ram((char*)msg);
     } else {
-        // FIX: detectar creación de query para forzar refresh de status bar
         int8_t query_idx = find_query(target);
-        if (query_idx < 0) {
-            query_idx = add_query(target);
-            if (query_idx >= 0) status_bar_dirty = 1;  // slot nuevo (o rename de slot 0 en servicios)
-        }
 
         main_print_time_prefix();
 
