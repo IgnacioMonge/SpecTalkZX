@@ -237,21 +237,16 @@ stu16_loop:
     cp 10
     ret nc                  ; non-digit (including < '0' after underflow)
     
-    ; HL = HL * 10 + A
+    ; HL = HL * 10 + A, keeping DE as the string pointer
+    add hl, hl              ; *2
+    ld c, l
+    ld b, h                 ; BC = original HL * 2
+    add hl, hl              ; *4
+    add hl, hl              ; *8
+    add hl, bc              ; *10
     ld c, a
     ld b, 0
-    
-    push de                 ; save string pointer
-    ld d, h
-    ld e, l                 ; DE = HL (original)
-    ; HL * 10 = (HL * 2 * 2 + HL) * 2 = HL * 5 * 2
-    add hl, hl              ; *2
-    add hl, hl              ; *4
-    add hl, de              ; *5
-    add hl, hl              ; *10
-    
-    add hl, bc
-    pop de                  ; restore string pointer
+    add hl, bc              ; + digit
     inc de
     jr stu16_loop
 
