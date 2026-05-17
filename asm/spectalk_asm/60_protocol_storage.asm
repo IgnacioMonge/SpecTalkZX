@@ -410,9 +410,10 @@ _esx_fclose:
 ; -----------------------------------------------------------------------------
 ; uint8_t esx_fseek_set(uint16_t offset) __z88dk_fastcall
 ; Input:  HL = absolute offset from file start
-; Output: L = 1 on success, 0 on error. Preserves IX.
+; Output: L = 1 on success, 0 on error. Preserves IX/IY.
 ; -----------------------------------------------------------------------------
 _esx_fseek_set:
+    push iy
     push ix
     ld e, l
     ld d, h
@@ -422,6 +423,7 @@ _esx_fseek_set:
     rst 8
     defb 0x9F           ; F_SEEK, mode=SET in IXL
     pop ix
+    pop iy
     sbc hl, hl
     inc hl
     ret

@@ -12,6 +12,7 @@ EXTERN _rx_pos
 EXTERN _esx_fopen
 EXTERN _esx_fread
 EXTERN _esx_fclose
+EXTERN _esx_fseek_set
 EXTERN _esx_handle
 EXTERN _esx_buf
 EXTERN _esx_count
@@ -143,16 +144,9 @@ ovl_seek_block:
     add a, a
     add a, a
     add a, a            ; A = ovl_id * 8, high byte of low word
-    ld d, a
-    ld e, 0
-    ld bc, 0
-    ld a, (_esx_handle)
-    push ix
-    ld ix, 0
-    rst 8
-    defb 0x9F           ; F_SEEK
-    pop ix
-    ret
+    ld h, a
+    ld l, 0             ; HL = ovl_id * 2048
+    jp _esx_fseek_set   ; preserves IX/IY and Carry from F_SEEK
 
 ; void overlay_call(uint8_t entry_id) __z88dk_fastcall
 ; Call entry in ALREADY-LOADED overlay (ring_buffer). No disk I/O.

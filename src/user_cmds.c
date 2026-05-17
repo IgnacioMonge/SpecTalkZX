@@ -698,7 +698,6 @@ static void cmd_part(const char *args) __z88dk_fastcall
     remove_channel((uint8_t)idx);
 }
 
-
 static void cmd_msg(const char *args) __z88dk_fastcall
 {
     // Nivel 2: Requiere estar registrado para enviar PRIVMSG
@@ -714,8 +713,13 @@ static void cmd_msg(const char *args) __z88dk_fastcall
 
     if (!IS_CHAN_PREFIX(target[0])) {
         int8_t idx = find_query(target);
-        if (idx > 0 && (uint8_t)idx != current_channel_idx)
+        if (idx > 0 && (uint8_t)idx != current_channel_idx) {
+            st_copy_n(line_buffer, msg, sizeof(line_buffer));
             switch_to_channel((uint8_t)idx);
+            irc_send_privmsg(irc_channel, line_buffer);
+            line_buffer[0] = 0;
+            return;
+        }
     }
 
     irc_send_privmsg(target, msg);
