@@ -75,10 +75,8 @@ ovl_read_ok:
 
     ; Look up entry point: ring_buffer[2 + entry_id*2]
     add a, a            ; *2
-    ld e, a
-    ld d, 0
-    ld hl, _ring_buffer + 2
-    add hl, de
+    add a, 2
+    ld l, a             ; H already high(_ring_buffer) from entry_count check
     ld e, (hl)
     inc hl
     ld d, (hl)          ; DE = absolute entry address
@@ -166,10 +164,8 @@ _overlay_call:
     cp      (hl)             ; entry_id < entry_count?
     ret     nc               ; invalid/corrupt table -> ignore safely
     add     a, a             ; *2 (entry table is word-indexed)
-    ld      e, a
-    ld      d, 0
-    ld      hl, _ring_buffer + 2
-    add     hl, de
+    add     a, 2
+    ld      l, a             ; H already high(_ring_buffer) from entry_count check
     ld      e, (hl)
     inc     hl
     ld      d, (hl)          ; DE = entry function address
