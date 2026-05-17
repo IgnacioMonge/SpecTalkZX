@@ -83,6 +83,7 @@
 #define CH_FLAG_UNREAD     0x04
 #define CH_FLAG_MENTION    0x08
 #define CH_FLAG_NAMING     0x10
+#define CH_FLAG_COUNT_DIRTY 0x20
 
 // =============================================================================
 // buffer SIZES
@@ -363,6 +364,9 @@ void names_finish_incomplete(void);
 extern uint16_t server_silence_frames;
 extern uint8_t  keepalive_ping_sent;
 extern uint16_t keepalive_timeout;
+extern uint8_t count_sync_enabled;
+extern uint8_t count_sync_idle_frames;
+extern uint8_t count_sync_quits;
 
 // Pagination
 extern uint8_t pagination_active;

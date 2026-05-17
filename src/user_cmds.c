@@ -49,6 +49,7 @@ static const char K_CFG_PRI[]  = "/SYS/CONFIG/SPECTALK.CFG";
 static const char K_CFG_ALT[]  = "/SYS/SPECTALK.CFG";
 static const char K_TZ[]       = "tz=";
 static const char K_NOTIF[]    = "notif=";
+static const char K_COUNTSYNC[] = "countsync=";
 
 // PD1: cut_at_space() removed — split_at_space() does same buffer cut
 
@@ -1270,6 +1271,11 @@ static void cmd_autojoin(const char *args) __z88dk_fastcall
     cmd_local_setting(7, args);
 }
 
+static void cmd_countsync(const char *args) __z88dk_fastcall
+{
+    cmd_local_setting(9, args);
+}
+
 static void cmd_tz(const char *args) __z88dk_fastcall
 {
     uint16_t had_partial = rx_pos;
@@ -1370,7 +1376,7 @@ typedef struct {
 static void sys_help(const char *args) __z88dk_fastcall;
 
 #define CMD_IDX_NONE  ((uint8_t)0xFF)
-#define SYS_CMDS_COUNT 21
+#define SYS_CMDS_COUNT 22
 
 // Command names/aliases pool (help strings moved to /SYS/SPECTALK.HLP)
 static const char cmd_pool[] =
@@ -1379,7 +1385,7 @@ static const char cmd_pool[] =
     "\0away\0autoaway\0aa\0raw\0whois\0wi\0who\0list\0ls\0names\0topic\0sea"
     "rch\0ignore\0kick\0k\0channels\0w\0beep\0traffic\0timestamps\0ts\0clear\0cls\0"
     "save\0sv\0autoconnect\0ac\0tz\0friend\0nickcolor\0nc\0notif\0nf\0"
-    "changelog\0click\0mode\0reply\0notice\0autojoin\0divider\0"
+    "changelog\0click\0mode\0reply\0notice\0autojoin\0divider\0countsync\0cs\0"
 ;
 
 static const PackedCmd USER_COMMANDS[] = {
@@ -1404,6 +1410,7 @@ static const PackedCmd USER_COMMANDS[] = {
     {  54, 255, cmd_friend },
     {  55,  56, cmd_nickcolor },
     {  65, 255, cmd_divider },
+    {  66,  67, cmd_countsync },
     {  60, 255, cmd_click },
     // --- IRC commands (/ prefix) ---
     {  10,  11, cmd_connect_retry },

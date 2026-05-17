@@ -529,6 +529,7 @@ static void h_privmsg_notice(void)
         int8_t idx = find_channel(target);
         if (idx < 0) return;
         mark_channel_activity((uint8_t)idx);
+        if (!is_server && count_sync_enabled) count_sync_idle_frames = 0;
 
         // Mención en canal NO activo: marcar flag y salir
         if (!overlay_mode && (uint8_t)idx != current_channel_idx && irc_nick[0] && st_stristr(pkt_txt, irc_nick)) {
@@ -539,6 +540,8 @@ static void h_privmsg_notice(void)
         }
 
         if ((uint8_t)idx != current_channel_idx) return;
+    } else if (!is_server && count_sync_enabled) {
+        count_sync_idle_frames = 0;
     }
 
     // --- CTCP HANDLING ---
@@ -803,20 +806,28 @@ static void h_quit(void)
 
     // Decrementar user_count si solo hay 1 canal
     // NOTA: Con múltiples canales no decrementamos porque IRC QUIT no indica
-    // en qué canales estaba el usuario. El contador se resincroniza con NAMES
-    // (al hacer /names o cuando otro usuario hace JOIN). Limitación aceptable
-    // para evitar mantener listas de miembros por canal (prohibitivo en 48K).
+    // en qué canales estaba el usuario. Marcamos los canales como sucios para
+    // una resincronización ligera por LIST #canal cuando el runtime esté quieto.
     {
         uint8_t joined_cnt = 0, target_idx = 0;
         ChannelInfo *ch = &channels[1];
         uint8_t i;
-        for (i = 1; i < MAX_CHANNELS && joined_cnt < 2; i++, ch++) {
+        for (i = 1; i < MAX_CHANNELS; i++, ch++) {
             if ((ch->flags & (CH_FLAG_ACTIVE | CH_FLAG_QUERY)) == CH_FLAG_ACTIVE) {
                 joined_cnt++;
                 target_idx = i;
+                if (count_sync_enabled) ch->flags |= CH_FLAG_COUNT_DIRTY;
             }
         }
-        if (joined_cnt == 1) channel_dec_users(target_idx);
+        if (joined_cnt == 1) {
+            if (count_sync_enabled) {
+                channels[target_idx].flags &= (uint8_t)~CH_FLAG_COUNT_DIRTY;
+                count_sync_quits = 0;
+            }
+            channel_dec_users(target_idx);
+        } else if (count_sync_enabled && joined_cnt > 1 && count_sync_quits != 255) {
+            count_sync_quits++;
+        }
     }
     draw_status_bar();
 }
@@ -1210,12 +1221,30 @@ static void search_render_index(void) {
     set_attr_nick();
 }
 
+static void list_count_update(const char *chan, const char *users) __z88dk_callee
+{
+    int8_t ci;
+    ci = find_channel(chan);
+    if (ci >= 0) {
+        channels[ci].user_count = str_to_u16(users);
+        channels[ci].flags &= (uint8_t)~CH_FLAG_COUNT_DIRTY;
+        if ((uint8_t)ci == current_channel_idx) draw_status_bar();
+    }
+}
+
 static void h_numeric_322_352(void)
 {
     const char *chan, *users, *nick, *user, *host, *t;
     uint8_t len;
 
-    if (!pagination_active) return;
+    if (!pagination_active) {
+        if (!count_sync_enabled) return;
+        if (pkt_cmd[1] == '2') { // 322 from silent count LIST
+            list_count_update(irc_param(1), irc_param(2));
+        }
+        return;
+    }
+
     if (search_mode == SEARCH_NONE) return;
     if (search_flush_state == 1) return;
 
@@ -1230,7 +1259,14 @@ static void h_numeric_322_352(void)
         users = irc_param(2);
 
         if (!chan[0]) return;
-        if (search_pattern[0] && !st_stristr(chan, search_pattern)) return;
+        if (search_pattern[0]) {
+            if (IS_CHAN_PREFIX(search_pattern[0])) {
+                if (st_stricmp(chan, search_pattern) == 0)
+                    list_count_update(chan, users);
+            } else if (!st_stristr(chan, search_pattern)) {
+                return;
+            }
+        }
 
         search_render_index();
         main_puts(chan);

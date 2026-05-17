@@ -84,6 +84,7 @@ void config_render_ovl(void)
     cfg_item(K_AUTOCONN, autoconnect ? cv_on : cv_off);
     cfg_item(K_AUTOJOIN, autojoin ? cv_on : cv_off);
     cfg_item(K_NOTIF, notif_enabled ? cv_on : cv_off);
+    cfg_item(K_COUNTSYNC, count_sync_enabled ? cv_on : cv_off);
 
     if (autoaway_minutes) {
         fast_u8_to_str(buf, autoaway_minutes); buf[2] = 'm'; buf[3] = 0;

@@ -118,6 +118,9 @@ extern uint8_t  keyclick_enabled;
 extern uint8_t  nick_color_mode;
 extern uint8_t  show_traffic;
 extern uint8_t  show_channel_separators;
+extern uint8_t  count_sync_enabled;
+extern uint8_t  count_sync_idle_frames;
+extern uint8_t  count_sync_quits;
 extern uint8_t  channel_context_next_row;
 extern uint8_t  channel_context_pending;
 extern uint8_t  show_timestamps;
@@ -170,6 +173,7 @@ extern const char K_CFG_PRI[];
 extern const char K_CFG_ALT[];
 extern const char K_TZ[];
 extern const char K_NOTIF[];
+extern const char K_COUNTSYNC[];
 extern const char S_ANYKEY[];
 
 /* ===== Theme attribute indices (must match spectalk.h) ===== */

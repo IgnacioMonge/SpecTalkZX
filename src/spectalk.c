@@ -187,6 +187,9 @@ uint16_t server_silence_frames;      // Frames since last server activity
 uint8_t  keepalive_ping_sent;        // 1 = waiting for PONG
 uint16_t keepalive_timeout;          // Timeout counter after PING sent
 uint16_t lagmeter_counter;           // Counter for periodic lag measurement
+uint8_t count_sync_enabled = 1;
+uint8_t count_sync_idle_frames;
+uint8_t count_sync_quits;
 uint8_t ping_latency;               // 0=good, 1=medium, 2=high
 
 // Pagination for long LIST/WHO results
@@ -1197,7 +1200,8 @@ static void send_pending_search_command(void)
         uart_send_string("*\r\n");
     } else {
         irc_send_cmd1(is_chan ? "LIST" : "WHO", search_pattern);
-        if (search_pending_type == PEND_LIST || search_pending_type == PEND_WHO) 
+        if (search_pending_type == PEND_WHO ||
+            (search_pending_type == PEND_LIST && !IS_CHAN_PREFIX(search_pattern[0])))
             search_pattern[0] = 0;
     }
 }
@@ -1236,6 +1240,8 @@ void start_search_command(uint8_t type, const char *arg) __z88dk_callee
     search_flush_stable = 0;  // Contador de frames estables
     pagination_timeout = 0;
 }
+
+extern void count_sync_tick(void);
 
 // STATUS BAR
 
@@ -2586,6 +2592,8 @@ static void cfg_apply(char *key, char *val) __z88dk_callee {
     } else if (k0 == 'c' && k1 == 'h') {
         cfg_s(autojoin_channels, SEARCH_PATTERN_SIZE);
         cfg_s(search_pattern, SEARCH_PATTERN_SIZE);
+    } else if (k0 == 'c' && k1 == 'o') {
+        cfg_b(&count_sync_enabled);
     } else if (k0 == 'b' && k1 == 'e') cfg_b(&beep_enabled);
       else if (k0 == 'c' && k1 == 'l') cfg_b(&keyclick_enabled);
       else if (k0 == 't' && k1 == 'r') cfg_b(&show_traffic);
@@ -3034,7 +3042,11 @@ void main(void)
             }
 
             // Any keypress resets auto-away counter and badge flash
-            if (c) { autoaway_counter = 0; badge_flash_off(); }
+            if (c) {
+                autoaway_counter = 0;
+                badge_flash_off();
+                if (count_sync_enabled) count_sync_idle_frames = 0;
+            }
 
             // D2: SHIFT+5/6/7/8 => cursor keys via lookup table
             // H14: short-circuit (shift first) + 8-bit underflow range check
@@ -3276,6 +3288,7 @@ void main(void)
                     process_irc_data();
                 }
             }
+            count_sync_tick();
         }
     }
 }

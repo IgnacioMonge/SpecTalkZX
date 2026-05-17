@@ -179,6 +179,7 @@ void save_config_ovl(void)
     p = cfg_kv(p, K_AUTOCONN, (const char *)(uint16_t)autoconnect);
     p = cfg_kv(p, K_AUTOJOIN, (const char *)(uint16_t)autojoin);
     p = cfg_kv(p, K_NOTIF, (const char *)(uint16_t)notif_enabled);
+    p = cfg_kv(p, K_COUNTSYNC, (const char *)(uint16_t)count_sync_enabled);
 
     if (autoaway_minutes) {
         fast_u8_to_str(tmp, autoaway_minutes); tmp[2] = 0;

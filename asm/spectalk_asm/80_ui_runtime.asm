@@ -724,6 +724,141 @@ homm_yes:
     ld l, 1
     ret
 
+; void count_sync_tick(void)
+; Silent LIST user-count resync gate:
+; - only after human idle
+; - only while still multichannel
+; - size bucket: >=2048 users -> 4 quits, >=1024 -> 8,
+;   >=256 -> 16, smaller -> 32.
+; - each extra open channel above two adds one quit to the threshold.
+PUBLIC _count_sync_tick
+EXTERN _connection_state
+EXTERN _line_len
+EXTERN _overlay_mode
+EXTERN _pagination_active
+EXTERN _names_pending
+EXTERN _buffer_pressure
+EXTERN _count_sync_enabled
+EXTERN _count_sync_idle_frames
+EXTERN _count_sync_quits
+EXTERN _irc_send_cmd1
+_count_sync_tick:
+    ld a, (_count_sync_enabled)
+    or a
+    ret z
+    ld a, (_connection_state)
+    cp 3                        ; STATE_IRC_READY
+    ret nz
+    ld a, (_current_channel_idx)
+    or a
+    ret z
+    ld a, (_line_len)
+    or a
+    jp nz, cst_reset_idle
+    ld a, (_overlay_mode)
+    ld hl, _pagination_active
+    or (hl)
+    ld hl, _names_pending
+    or (hl)
+    ld hl, _buffer_pressure
+    or (hl)
+    jp nz, cst_reset_idle
+
+    ld hl, _count_sync_idle_frames
+    inc (hl)
+
+    ld hl, (_cur_chan_ptr)
+    ld de, 30                   ; flags offset
+    add hl, de
+    ld a, (hl)
+    and 0x22                    ; CH_FLAG_QUERY | CH_FLAG_COUNT_DIRTY
+    cp 0x20                     ; dirty channel, not query
+    ret nz
+    ld a, (_count_sync_idle_frames)
+    cp 150
+    ret c
+    xor a
+    ld (_count_sync_idle_frames), a
+
+    ld hl, _channels + 32 + 30  ; flags for channels[1]
+    ld de, 32
+    ld b, 9
+    ld c, 0
+cst_find_other:
+    ld a, (hl)
+    and 0x03                    ; CH_FLAG_ACTIVE | CH_FLAG_QUERY
+    cp 0x01
+    jr nz, cst_next_slot
+    inc c
+cst_next_slot:
+    add hl, de
+    djnz cst_find_other
+
+    ld a, c
+    cp 2
+    jr nc, cst_have_other
+    ld hl, (_cur_chan_ptr)
+    ld de, 30
+    add hl, de
+    res 5, (hl)                 ; clear CH_FLAG_COUNT_DIRTY
+    xor a
+    ld (_count_sync_quits), a
+    ret
+
+cst_have_other:
+    ld b, c                     ; active channel count
+    ld a, (_count_sync_quits)
+    or a
+    ret z
+
+    ld hl, (_cur_chan_ptr)
+    ld de, 28                   ; user_count offset
+    add hl, de
+    ld e, (hl)
+    inc hl
+    ld d, (hl)                  ; DE = current user_count
+    ld a, d
+    or e
+    ret z
+
+    ld c, 32                    ; threshold default: <256 users
+    ld a, d
+    or a
+    jr z, cst_have_threshold
+    ld c, 16
+    cp 4                        ; <1024 users
+    jr c, cst_have_threshold
+    ld c, 8
+    cp 8                        ; <2048 users
+    jr c, cst_have_threshold
+    ld c, 4                     ; >=2048 users
+cst_have_threshold:
+    ld a, b
+    sub 2
+    add a, c
+    ld c, a
+    ld a, (_count_sync_quits)
+    cp c
+    ret c
+
+    xor a
+    ld (_count_sync_quits), a
+    inc hl                      ; HL was at user_count MSB, now flags
+    res 5, (hl)                 ; clear CH_FLAG_COUNT_DIRTY
+    ld hl, (_cur_chan_ptr)      ; channel name is at offset 0
+    push hl
+    ld hl, cst_list_cmd
+    push hl
+    call _irc_send_cmd1
+    ret
+cst_reset_idle:
+    xor a
+    ld (_count_sync_idle_frames), a
+    ret
+
+cst_list_cmd:
+    DEFM "LIST", 0
+
 ; =============================================================================
 ; FRAME WAIT ? Wait for next frame (50Hz sync via IM1 ROM ISR)
 ; ROM ISR at $0038 increments FRAMES (23672) and scans keyboard.

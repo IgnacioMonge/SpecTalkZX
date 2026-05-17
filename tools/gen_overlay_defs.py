@@ -137,6 +137,7 @@ REQUIRED_VARIABLES = [
     "_K_CFG_ALT",
     "_K_TZ",
     "_K_NOTIF",
+    "_K_COUNTSYNC",
     "_S_ANYKEY",
     # Config variables (read-only from overlay)
     "_irc_nick",
@@ -152,6 +153,9 @@ REQUIRED_VARIABLES = [
     "_nick_color_mode",
     "_show_traffic",
     "_show_channel_separators",
+    "_count_sync_enabled",
+    "_count_sync_idle_frames",
+    "_count_sync_quits",
     "_channel_context_next_row",
     "_channel_context_pending",
     "_show_timestamps",

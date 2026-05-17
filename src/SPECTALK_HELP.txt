@@ -12,6 +12,7 @@
 !clear	Clear chat screen
 !traffic	Toggle join/part msgs
 !divider	Toggle separators
+!countsync	Toggle count resync
 !timestamps	Toggle time display
 !nickcolor	Toggle nick colors
 !autoconnect	Toggle auto-connect

@@ -151,6 +151,13 @@ void local_setting_cmd_ovl(void)
             channel_context_pending = 0;
         }
         break;
+    case 9:
+        set_or_toggle_flag_ovl(&count_sync_enabled, "Count sync: ", args);
+        if (!count_sync_enabled) {
+            count_sync_idle_frames = 0;
+            count_sync_quits = 0;
+        }
+        break;
     }
 
 done:
