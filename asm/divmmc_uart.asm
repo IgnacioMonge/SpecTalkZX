@@ -34,8 +34,8 @@ uartRead:
     inc b
 
     in a, (c)
-    and UART_BYTE_RECIVED
-    ret z
+    add a, a        ; RX-ready bit -> Carry; port-select/read ops below preserve CF
+    ret nc
 
     dec b
     ld a, UART_DATA_REG
@@ -45,7 +45,6 @@ uartRead:
     inc b
     
     in a, (c)
-    scf             ; CF=1 (Data)
     ret
 
 ; -----------------------------------------------------------------------------
