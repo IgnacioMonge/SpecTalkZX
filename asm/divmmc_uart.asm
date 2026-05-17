@@ -37,7 +37,7 @@ uartRead:
     and UART_BYTE_RECIVED
     ret z
 
-    ld bc, ZXUNO_ADDR
+    dec b
     ld a, UART_DATA_REG
     out (c), a
     
@@ -107,7 +107,7 @@ _ay_uart_send:
     ; Un hang permanente aquí solo ocurriría por fallo físico del hardware UART.
 uartSend_wait_tx:
     in a, (c)
-    bit 6, a
+    and UART_BYTE_SENDING
     jr nz, uartSend_wait_tx
 
 uartSend_tx_ready:
