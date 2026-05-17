@@ -60,7 +60,7 @@ rb_pop_empty:
 ; Retorna: L=1 (?xito), L=0 (Buffer Lleno)
 ; -----------------------------------------------------------------------------
 _rb_push:
-    push hl             ; Guardamos el dato (L) en la pila moment?neamente
+    ld a, l             ; Keep byte in A; OR A below clears Carry without changing it
     
     ; 1. Calcular d?nde ir?a el NUEVO Head = (head + 1) & MASK
     ld hl, (_rb_head)
@@ -91,14 +91,12 @@ _rb_push_ok:
     ld hl, _ring_buffer
     add hl, de              ; HL = direcci?n de escritura (buffer + head_viejo)
     
-    pop de                  ; Recuperamos el dato original de la pila (estaba en L, ahora en E)
-    ld (hl), e              ; Escribimos en memoria
+    ld (hl), a              ; Escribimos en memoria
     
     ld l, 1                 ; Retornar 1 (?xito)
     ret
 
 _rb_push_full:
-    pop hl              ; Limpiar la pila (tiramos el dato que quer?amos guardar)
     ld l, 0             ; Retornar 0 (Fallo/Lleno)
     ret
 
