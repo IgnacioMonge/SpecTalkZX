@@ -171,6 +171,7 @@ typedef struct {
 // =============================================================================
 // Wait for next frame (50Hz sync via IM1 ROM ISR: ei;halt;di).
 extern void frame_wait(void);
+extern void frame_wait_drain(void);
 extern void fatal_msg(const char *msg) __z88dk_fastcall;  // never returns
 
 // =============================================================================

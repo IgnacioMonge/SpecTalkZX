@@ -1720,6 +1720,8 @@ void process_irc_data(void)
     uint8_t lines_this_call = 0;
     uint8_t max_lines;
     uint16_t backlog;
+    uint8_t refill_limit;
+    uint8_t refills_left;
 
     if (connection_state == STATE_WIFI_OK && sntp_waiting) {
         uart_drain_to_buffer();
@@ -1750,12 +1752,26 @@ void process_irc_data(void)
     else                     { max_lines = 6;  }
 
     // Raw peek only; read_key() still owns debounce/consumption.
-    if (in_inkey()) max_lines = 4;
+    refill_limit = 4;
+    if (in_inkey()) { max_lines = 4; refill_limit = 1; }
+    refills_left = refill_limit;
 
     // FIX P0-2: Variable para detectar CLOSED sin actuar dentro del bucle
     uint8_t closed_detected = 0;
 
-    while (try_read_line_nodrain()) {
+    while (1) {
+        if (!try_read_line_nodrain()) {
+            if (!rx_pos || !refills_left || deferred_wrap_active) break;
+
+            backlog = rb_head;
+            uart_drain_to_buffer();
+            if (rb_head == backlog) break;
+
+            --refills_left;
+            continue;
+        }
+
+        refills_left = refill_limit;
 
         if (pagination_active) pagination_timeout = 0;
 
@@ -1790,7 +1806,8 @@ void process_irc_data(void)
         lines_this_call++;
 
         {
-            uint16_t current_budget = pagination_active ? (RX_TICK_PARSE_BYTE_BUDGET * 8) : RX_TICK_PARSE_BYTE_BUDGET;
+            uint16_t current_budget = RX_TICK_PARSE_BYTE_BUDGET;
+            if (pagination_active) current_budget = RX_TICK_PARSE_BYTE_BUDGET * 8;
             bytes_this_call += (rx_last_len + 1);
             if (bytes_this_call >= current_budget) break;  // FIX P0-2: break en vez de return
         }

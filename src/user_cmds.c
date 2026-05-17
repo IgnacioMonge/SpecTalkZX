@@ -154,8 +154,7 @@ static uint8_t prompt_yn(const char *q) __z88dk_fastcall
     main_puts(q);
     while (tmout--) {
         uint8_t k = in_inkey();
-        frame_wait();
-        uart_drain_to_buffer();
+        frame_wait_drain();
         while (try_read_line_nodrain());
         if (k == KEY_BREAK) { main_newline(); return 0; }
         k |= 32;
@@ -236,10 +235,8 @@ static uint8_t wait_for_connection_result(uint16_t max_frames) __z88dk_fastcall
     rx_pos = 0;
 
     while (frames < max_frames) {
-        frame_wait();
+        frame_wait_drain();
         if (in_inkey() == KEY_BREAK) { ui_err(S_CANCELLED); return 0; }
-
-        uart_drain_to_buffer();
 
         if (try_read_line_nodrain()) {
             // FIX P0-1: Verificar longitud antes de acceder a índices fijos
@@ -433,11 +430,11 @@ do_connect:
         irc_send_cmd1(S_NICK_CMD, irc_nick);
         uart_send_string("USER "); uart_send_string(irc_nick); 
         uart_send_string(" 0 * :"); uart_send_line(irc_nick);
-        
+
         rx_pos = 0;
         
         while (!loop_done) {
-            frame_wait(); uart_drain_to_buffer();
+            frame_wait_drain();
             if (in_inkey() == KEY_BREAK) {
                 abort_msg = "Aborted.";
                 abort_disc = 1;

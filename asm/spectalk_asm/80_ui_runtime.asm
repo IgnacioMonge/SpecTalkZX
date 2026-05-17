@@ -729,6 +729,8 @@ homm_yes:
 ; ROM ISR at $0038 increments FRAMES (23672) and scans keyboard.
 ; =============================================================================
 PUBLIC _frame_wait
+PUBLIC _frame_wait_drain
+EXTERN _uart_drain_to_buffer
 _frame_wait:
     push iy
     ld iy, 0x5C3A      ; ROM ISR expects IY = system variables
@@ -736,6 +738,27 @@ _frame_wait:
     halt                ; wait for next frame interrupt (exact 50Hz)
     di
     pop iy              ; restore IY for SDCC
+    ret
+
+; Resident-safe frame wait that drains UART while waiting for the next ROM frame.
+; Do not call from overlays or pagination pauses: it writes to ring_buffer and
+; can fill it if the parser is deliberately stopped.
+_frame_wait_drain:
+    push iy
+    ld iy, 0x5C3A
+    ld a, (0x5C78)      ; FRAMES low byte
+    push af             ; keep frame snapshot across UART drain clobbers
+    ei
+fwd_loop:
+    call _uart_drain_to_buffer
+    pop bc              ; B = saved FRAMES byte
+    push bc
+    ld a, (0x5C78)
+    cp b
+    jr z, fwd_loop
+    pop bc
+    di
+    pop iy
     ret
 
 ; =============================================================================

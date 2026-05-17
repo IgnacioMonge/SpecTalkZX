@@ -18,23 +18,13 @@ UART_BYTE_SENDING EQU 0x40
 ZXUNO_ADDR        EQU 0xFC3B
 ZXUNO_REG         EQU 0xFD3B
 
-SECTION bss_user
-
-_is_recv:    DEFS 1
-
 SECTION code_user
 
 ; -----------------------------------------------------------------------------
 ; Internal helper: uartRead
 ; Return: CF=1 and A=byte if data available, CF=0 otherwise.
-; _is_recv latches an earlier RX-ready observation so we can read the data
-; register directly without re-reading status first.
 ; -----------------------------------------------------------------------------
 uartRead:
-    ld a, (_is_recv)
-    or a
-    jr nz, uartRead_do_read
-
     ; Check Hardware
     ld bc, ZXUNO_ADDR
     ld a, UART_STAT_REG
@@ -47,7 +37,6 @@ uartRead:
     and UART_BYTE_RECIVED
     ret z
 
-uartRead_do_read:
     ld bc, ZXUNO_ADDR
     ld a, UART_DATA_REG
     out (c), a
@@ -56,10 +45,6 @@ uartRead_do_read:
     inc b
     
     in a, (c)
-
-    ; Clear latch without touching A; return the received byte.
-    ld hl, _is_recv
-    ld (hl), 0
     scf             ; CF=1 (Data)
     ret
 
@@ -68,9 +53,6 @@ uartRead_do_read:
 ; OPTIMIZACIÓN: Reducción de tiempos de espera y bucle de flush ajustado
 ; -----------------------------------------------------------------------------
 _ay_uart_init:
-    xor a
-    ld (_is_recv), a
-
     ; Prime reads
     ld bc, ZXUNO_ADDR
     ld a, UART_STAT_REG
@@ -114,28 +96,21 @@ uartInit_flush:
 _ay_uart_send:
     ; L = byte to send (fastcall), preserved until out (c), l at end
 
-    ; Check receive flag update while sending
+    ; Select status register for TX-ready polling.
     ld bc, ZXUNO_ADDR
     ld a, UART_STAT_REG
     out (c), a
     
     inc b           ; OPTIMIZACIÓN
-    
-    in a, (c)
-    and UART_BYTE_RECIVED
-    jr z, uartSend_checkSent
 
-    ld a, 1
-    ld (_is_recv), a
-
-uartSend_checkSent:
     ; NOTE-M13: loop sin timeout. A 115200 baud tarda ~7 iteraciones (~300 T-states).
     ; Un hang permanente aquí solo ocurriría por fallo físico del hardware UART.
 uartSend_wait_tx:
     in a, (c)
-    and UART_BYTE_SENDING
+    bit 6, a
     jr nz, uartSend_wait_tx
 
+uartSend_tx_ready:
     ; OPT: dec b switches BC from ZXUNO_REG (FD3B) to ZXUNO_ADDR (FC3B)
     dec b
     ld a, UART_DATA_REG

@@ -135,6 +135,7 @@ uint8_t current_theme = 1;  // 1=DEFAULT, 2=TERMINAL, 3=COLORFUL
 //   12=MSG_TIME 13=MSG_TOPIC 14=MSG_MOTD 15=ERROR 16=IND_RED 17=IND_YELLOW
 //   18=IND_GREEN 19=BORDER
 uint8_t theme_attrs[20];
+static uint8_t theme_badge_marker;
 
 // =============================================================================
 // UI STATE FLAGS
@@ -287,13 +288,11 @@ uint8_t rx_overflow;             // Flag for ASM access (0 or 1)
 
 uint8_t uart_drain_limit = DRAIN_NORMAL;
 
-
 // Wait frames while draining UART - prevents buffer overflow during waits
 void wait_drain(uint8_t frames) __z88dk_fastcall
 {
     while (frames--) {
-        frame_wait();
-        uart_drain_to_buffer();
+        frame_wait_drain();
     }
 }
 
@@ -1827,11 +1826,9 @@ uint8_t wait_for_response(const char *expected, uint16_t max_frames) __z88dk_cal
     rx_pos = 0;
     
     while (frames < max_frames) {
-        frame_wait();
+        frame_wait_drain();
         
         if (in_inkey() == KEY_BREAK) return 0;  // BREAK = cancel
-
-        uart_drain_to_buffer();
 
         if (try_read_line_nodrain()) {
             // FIX P0-1: Verificar longitud antes de acceder a índices fijos
@@ -1863,11 +1860,9 @@ uint8_t wait_for_prompt_char(uint8_t prompt_ch, uint16_t max_frames) __z88dk_cal
     uint8_t wp = 0;
 
     while (frames < max_frames) {
-        frame_wait();
+        frame_wait_drain();
 
         if (in_inkey() == KEY_BREAK) { rx_line[0] = '\0'; return 0; }
-
-        uart_drain_to_buffer();
 
         while ((c = rb_pop()) != -1) {
             if ((uint8_t)c == prompt_ch) { rx_line[wp] = '\0'; return 1; }
@@ -1932,8 +1927,7 @@ uint8_t esp_init(void)
     
     // Timeout ~3 segundos
     for (frames = 0; frames < 150; frames++) {
-        frame_wait();
-        uart_drain_to_buffer();
+        frame_wait_drain();
         
         if (try_read_line_nodrain()) {
             // FIX P0-1: Verificar longitud antes de acceder a índices
@@ -1945,7 +1939,7 @@ uint8_t esp_init(void)
                     uint8_t has_ip = 0;
                     uint8_t w;
                     for (w = 0; w < 100; w++) {
-                        frame_wait(); uart_drain_to_buffer();
+                        frame_wait_drain();
                         if (try_read_line_nodrain()) {
                             // FIX P0-1: Verificar longitud
                             if (rx_last_len >= 1 && rx_line[0] == '+' && st_stristr(rx_line, "STAIP")) {
@@ -1964,7 +1958,7 @@ uint8_t esp_init(void)
                         {
                             uint8_t w2;
                             for (w2 = 0; w2 < 100; w2++) {
-                                frame_wait(); uart_drain_to_buffer();
+                                frame_wait_drain();
                                 if (try_read_line_nodrain()) {
                                     // FIX P0-1: Verificar longitud antes de índices fijos
                                     if (rx_last_len >= 4) {
@@ -2234,6 +2228,7 @@ void apply_theme(void)
 
     // Copy 20 attribute bytes from theme_raw into theme_attrs[]
     memcpy(theme_attrs, t, 20);
+    theme_badge_marker = t[21];
 
     // Auto-detect nick coloring: mono theme if nick INK == chan INK
     nick_color_mode = ((theme_attrs[11] & 7) != (theme_attrs[2] & 7)) ? 1 : 0;
@@ -2264,8 +2259,7 @@ static uint8_t flash_timer;
 
 void badge_flash_on(void)
 {
-    uint8_t *t = theme_raw + (current_theme - 1) * 25;
-    if (t[21] != 0x40 || ((ATTR_BANNER >> 3) & 0x07)) return;
+    if (theme_badge_marker != 0x40 || ((ATTR_BANNER >> 3) & 0x07)) return;
     badge_flashing = 1;
     flash_timer = 0;
 }
@@ -2738,8 +2732,8 @@ void main(void)
             if (retries) {
                 ui_sys("Press any key to retry...");
                 // FIX: Drenar la UART mientras esperamos la tecla
-                do { frame_wait(); uart_drain_to_buffer(); } while (!in_inkey());
-                do { frame_wait(); uart_drain_to_buffer(); } while (in_inkey());
+                do { frame_wait_drain(); } while (!in_inkey());
+                do { frame_wait_drain(); } while (in_inkey());
             }
         }
     }

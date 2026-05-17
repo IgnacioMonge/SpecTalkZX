@@ -407,9 +407,13 @@ _main_hline:
 ; Lee bytes del UART y los mete en el Ring Buffer lo m?s r?pido posible.
 ; CR?TICO: Minimiza la latencia entre bytes para evitar p?rdida de datos en AY.
 ; OPTIMIZED: loop counter in B, protected across call chain with PUSH/POP BC.
-; divMMC hot path calls uartRead directly: one backend call per byte instead of
-; public ready+read wrappers.
+; P11D2: P5-style inline read plus 2-poll inter-byte dwell after non-empty drains.
 ; =============================================================================
+
+DRAIN_ZXUNO_ADDR        EQU 0xFC3B
+DRAIN_UART_DATA_REG     EQU 0xC6
+DRAIN_UART_STAT_REG     EQU 0xC7
+DRAIN_UART_BYTE_RECIVED EQU 0x80
 
 _uart_drain_to_buffer:
     ld a, (_uart_drain_limit)
@@ -422,26 +426,69 @@ _uart_drain_to_buffer:
 drain_set_limit:
     ; Caso con l?mite (ej: 32 bytes)
     ld b, a
+    ld c, 0                 ; C=1 once this call has pushed at least one byte
 
 drain_loop_start:
     push bc                 ; preserve loop counter across calls
 
     ; 2. Leer byte si hay datos
-    call uartRead           ; CF=1 and A=byte if data available
-    jr nc, drain_exit_pop   ; no hay m?s datos -> Salir
+drain_poll_status:
+    ld bc, DRAIN_ZXUNO_ADDR
+    ld a, DRAIN_UART_STAT_REG
+    out (c), a
+    inc b
+    in a, (c)
+    and DRAIN_UART_BYTE_RECIVED
+    jr z, drain_maybe_wait  ; no hay m?s datos -> maybe wait after a byte
+
+drain_read_ready:
+    ; B is $FD after a ready status read; restore address port $FC3B.
+    dec b
+    ld a, DRAIN_UART_DATA_REG
+    out (c), a
+    inc b
+    in a, (c)
     ld l, a
 
     ; 4. Meter en Ring Buffer
     call _rb_push           ; Retorna L=1 (?xito) o 0 (Fallo/Lleno)
     dec l
-    jr nz, drain_exit_pop   ; Si buffer lleno (L era 0 -> 255), PARAR
+    jr nz, drain_exit_full   ; Si buffer lleno (L era 0 -> 255), PARAR
 
     ; Decrementar contador
     pop bc
+    ld c, 1
     djnz drain_loop_start
     ret
 
-drain_exit_pop:
+drain_maybe_wait:
+    pop bc
+    ld a, c
+    or a
+    jr z, drain_exit_empty
+
+    ; We already moved at least one byte. The inline path can re-poll before the
+    ; next serial byte becomes visible, so wait about one 115200-baud byte time.
+    push bc
+    ld bc, DRAIN_ZXUNO_ADDR
+    ld e, 2
+drain_wait_next:
+    ld a, DRAIN_UART_STAT_REG
+    out (c), a
+    inc b
+    in a, (c)
+    and DRAIN_UART_BYTE_RECIVED
+    jr nz, drain_read_ready
+    dec b
+    dec e
+    jr nz, drain_wait_next
+    pop bc
+    ret
+
+drain_exit_empty:
+    ret
+
+drain_exit_full:
     pop bc
     ret
 
