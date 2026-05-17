@@ -70,7 +70,7 @@ _l_channel_flags_ptr:
 
 ; -----------------------------------------------------------------------------
 ; IX load helpers: HL = (ix+N/ix+N+1) ? 7 bytes each, saves 3 bytes per site
-; Safe: IX is frame pointer, unchanged across call. call uses stack, not IX.
+; Safe: callers using (ix+N) explicitly set IX via ___sdcc_enter_ix.
 ; -----------------------------------------------------------------------------
 _ld_hl_ix4:
     ld l,(ix+4)

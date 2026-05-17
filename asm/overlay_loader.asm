@@ -20,6 +20,7 @@ EXTERN _ui_err
 EXTERN _uart_drain_to_buffer
 EXTERN _rx_overflow
 EXTERN _overlay_exit_full
+EXTERN _input_cache_invalidate
 EXTERN ___sdcc_enter_ix
 
 ; void overlay_exec(uint8_t ovl_id, uint8_t entry_id) __z88dk_callee
@@ -56,6 +57,7 @@ ovl_read:
     ; Read the actual OVL block (2048B into ring_buffer)
     call _esx_fread
     call _esx_fclose
+    call _input_cache_invalidate
 
     ; Overlay blocks are fixed-size; never execute a partial/stale ring load.
     ld hl, (_esx_result)

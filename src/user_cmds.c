@@ -157,6 +157,7 @@ static uint8_t prompt_yn(const char *q) __z88dk_fastcall
         frame_wait();
         uart_drain_to_buffer();
         while (try_read_line_nodrain());
+        if (k == KEY_BREAK) { main_newline(); return 0; }
         k |= 32;
         if (k == 'y' || k == 'n') {
             main_putc(' ');
