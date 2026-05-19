@@ -216,30 +216,11 @@ static void print_reason_and_newline(void)
     main_newline();
 }
 
-// Helper: comprobar si un nick está en la lista de amigos (friend1..friend3)
-static uint8_t is_tracked_friend(const char *nick) __z88dk_fastcall
-{
-    uint8_t i;
-    uint8_t n0, f0;
-    char *fn;
-    if (!friend_count) return 0;
-    if (!nick || !(n0 = *nick)) return 0;
+// ASM helper: comprobar si un nick está en la lista de amigos (friend1..friend5).
+uint8_t is_tracked_friend(const char *nick) __z88dk_fastcall;
 
-    n0 |= 0x20;
-
-    for (i = 0, fn = friend_nicks[0]; i < MAX_FRIENDS; i++, fn += IRC_NICK_SIZE) {
-        f0 = *fn;
-        if (!f0) continue;
-        if ((f0 | 0x20) == n0 && st_stricmp(fn, nick) == 0) return 1;
-    }
-    return 0;
-}
-
-// Helper: Decrementar user_count de un canal si > 0
-static void channel_dec_users(uint8_t idx) __z88dk_fastcall
-{
-    if (channels[idx].user_count > 0) channels[idx].user_count--;
-}
+// ASM helper: decrement channels[idx].user_count if > 0.
+void channel_dec_users(uint8_t idx) __z88dk_fastcall;
 
 // Helper: Respuesta CTCP optimizada
 static void send_ctcp_reply(const char *target, const char *tag, const char *data) __z88dk_callee

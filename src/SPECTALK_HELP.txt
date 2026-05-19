@@ -13,6 +13,7 @@
 !traffic	Toggle join/part msgs
 !divider	Toggle separators
 !countsync	Toggle count resync
+!bm	IRC bookmarks
 !timestamps	Toggle time display
 !nickcolor	Toggle nick colors
 !autoconnect	Toggle auto-connect

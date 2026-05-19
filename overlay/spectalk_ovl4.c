@@ -36,22 +36,23 @@ static const char ss_lag[]   = "Latency:";
 static const char ss_up[]    = "Uptime:";
 static const char ss_chans[] = "Channels:";
 
+static uint8_t status_row(uint8_t r, const char *lbl, const char *val) __z88dk_callee
+{
+    print_str64(r, 2, lbl, theme_attrs[TATTR_MSG_NICK]);
+    print_str64(r, 11, val, theme_attrs[TATTR_MSG_CHAN]);
+    return (uint8_t)(r + 1);
+}
+
 void status_render_ovl(void)
 {
     uint8_t r = overlay_header("Status");
     uint8_t a_nick = theme_attrs[TATTR_MSG_NICK];
     uint8_t a_chan  = theme_attrs[TATTR_MSG_CHAN];
 
-    print_str64(r, 2, ss_nick, a_nick);
-    print_str64(r++, 11, irc_nick[0] ? (const char *)irc_nick : "(none)", a_chan);
+    r = status_row(r, ss_nick, irc_nick[0] ? (const char *)irc_nick : "(none)");
+    r = status_row(r, ss_srv, irc_server[0] ? (const char *)irc_server : "(none)");
+    r = status_row(r, ss_net, network_name[0] ? (const char *)network_name : "-");
 
-    print_str64(r, 2, ss_srv, a_nick);
-    print_str64(r++, 11, irc_server[0] ? (const char *)irc_server : "(none)", a_chan);
-
-    print_str64(r, 2, ss_net, a_nick);
-    print_str64(r++, 11, network_name[0] ? (const char *)network_name : "-", a_chan);
-
-    print_str64(r, 2, ss_state, a_nick);
     { const char *st;
       switch (connection_state) {
           case STATE_IRC_READY:     st = "IRC ready"; break;
@@ -59,22 +60,20 @@ void status_render_ovl(void)
           case STATE_WIFI_OK:       st = "WiFi OK"; break;
           default:                  st = "Offline"; break;
       }
-      print_str64(r++, 11, st, a_chan);
+      r = status_row(r, ss_state, st);
     }
 
     /* Latency */
-    print_str64(r, 2, ss_lag, a_nick);
     { const char *lag;
       switch (ping_latency) {
           case 0:  lag = "Good"; break;
           case 1:  lag = "Medium"; break;
           default: lag = "High"; break;
       }
-      print_str64(r++, 11, lag, a_chan);
+      r = status_row(r, ss_lag, lag);
     }
 
     /* Uptime */
-    print_str64(r, 2, ss_up, a_nick);
     { char ubuf[12];
       char *p = ubuf;
       uint16_t m = uptime_minutes;
@@ -87,7 +86,7 @@ void status_render_ovl(void)
       p += 2;
       *p++ = 'm';
       *p = 0;
-      print_str64(r++, 11, ubuf, a_chan);
+      r = status_row(r, ss_up, ubuf);
     }
 
     r++; /* blank line before channels */
@@ -101,14 +100,11 @@ void status_render_ovl(void)
         if (flags & CH_FLAG_ACTIVE) {
             char idx[4];
             uint8_t attr = (flags & CH_FLAG_QUERY) ? theme_attrs[TATTR_MSG_TIME] : a_chan;
+            uint8_t *tr = (c_idx < '5') ? &rl : &rr;
+            uint8_t col = (c_idx < '5') ? 2 : 33;
             idx[0] = ' '; idx[1] = c_idx; idx[2] = '.'; idx[3] = 0;
-            if (c_idx < '5') {
-                print_str64(rl, 2, idx, a_nick);
-                print_str64(rl++, 6, (const char *)ch, attr);
-            } else {
-                print_str64(rr, 33, idx, a_nick);
-                print_str64(rr++, 37, (const char *)ch, attr);
-            }
+            print_str64(*tr, col, idx, a_nick);
+            print_str64((*tr)++, (uint8_t)(col + 4), (const char *)ch, attr);
         }
       }
     }
@@ -152,10 +148,30 @@ static void format_tz_tmp(char *tmp, int8_t tz)
     }
 }
 
+typedef struct {
+    const char *k;
+    const uint8_t *v;
+} CfgItem;
+
 void save_config_ovl(void)
 {
     char *p = (char *)overlay_slot;
     char tmp[4];
+    uint8_t i;
+
+    static const CfgItem flags[] = {
+        { K_THEME, &current_theme },
+        { K_BEEP, &beep_enabled },
+        { K_CLICK, &keyclick_enabled },
+        { K_NCOLOR, &nick_color_mode },
+        { K_TRAFFIC, &show_traffic },
+        { K_DIVIDER, &show_channel_separators },
+        { K_TS, &show_timestamps },
+        { K_AUTOCONN, &autoconnect },
+        { K_AUTOJOIN, &autojoin },
+        { K_NOTIF, &notif_enabled },
+        { K_COUNTSYNC, &count_sync_enabled }
+    };
 
     p = cfg_put(p, CK_HDR);
 
@@ -169,17 +185,8 @@ void save_config_ovl(void)
     /* W15: cfg_kv small-int trick — values 0-9 passed as (const char*)(uint16_t)N.
      * cfg_kv ASM detects D==0 && E<10 and writes single ASCII digit.
      * CONSTRAINT: all values below MUST be 0-9. */
-    p = cfg_kv(p, K_THEME, (const char *)(uint16_t)current_theme);
-    p = cfg_kv(p, K_BEEP, (const char *)(uint16_t)beep_enabled);
-    p = cfg_kv(p, K_CLICK, (const char *)(uint16_t)keyclick_enabled);
-    p = cfg_kv(p, K_NCOLOR, (const char *)(uint16_t)nick_color_mode);
-    p = cfg_kv(p, K_TRAFFIC, (const char *)(uint16_t)show_traffic);
-    p = cfg_kv(p, K_DIVIDER, (const char *)(uint16_t)show_channel_separators);
-    p = cfg_kv(p, K_TS, (const char *)(uint16_t)show_timestamps);
-    p = cfg_kv(p, K_AUTOCONN, (const char *)(uint16_t)autoconnect);
-    p = cfg_kv(p, K_AUTOJOIN, (const char *)(uint16_t)autojoin);
-    p = cfg_kv(p, K_NOTIF, (const char *)(uint16_t)notif_enabled);
-    p = cfg_kv(p, K_COUNTSYNC, (const char *)(uint16_t)count_sync_enabled);
+    for (i = 0; i < 11; i++)
+        p = cfg_kv(p, flags[i].k, (const char *)(uint16_t)*(flags[i].v));
 
     if (autoaway_minutes) {
         fast_u8_to_str(tmp, autoaway_minutes); tmp[2] = 0;
@@ -204,8 +211,10 @@ void save_config_ovl(void)
     p = cfg_put_friends(p);
     p = cfg_put_ignores(p);
 
-    set_attr_sys();
-    main_puts("Saving config... ");
+    if (overlay_mode != OVERLAY_BOOKMARKS) {
+        set_attr_sys();
+        main_puts("Saving config... ");
+    }
 
     /* Bounded helpers return CFG_TOO_LARGE before any out-of-slot write. */
     if (p > CFG_END) {
@@ -230,7 +239,7 @@ void save_config_ovl(void)
         if (!write_ok) {
             ui_err("Write error");
         } else {
-            main_print("OK");
+            if (overlay_mode != OVERLAY_BOOKMARKS) main_print("OK");
             config_dirty = 0;
         }
     }

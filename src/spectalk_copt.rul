@@ -70,6 +70,41 @@
 	EXTERN _l_channel_flags_ptr
 %0call%1_l_channel_flags_ptr
 
+;; OPT-COPT-40: channels[HL].name/base pointer (offset 0)
+	EXTERN _hl_mul32
+%0call%1_hl_mul32
+%0ld%1de,_channels
+%0add%1hl, de
+=
+	EXTERN _channel_name_ptr
+%0call%1_channel_name_ptr
+
+;; OPT-COPT-41: fixed irc_param(0..2) call sites
+%0ld%1l,0x00
+%0call%1_irc_param
+=
+	EXTERN _irc_param_0
+%0call%1_irc_param_0
+
+%0ld%1l,0x01
+%0call%1_irc_param
+=
+	EXTERN _irc_param_1
+%0call%1_irc_param_1
+
+%0ld%1l,0x02
+%0call%1_irc_param
+=
+	EXTERN _irc_param_2
+%0call%1_irc_param_2
+
+;; OPT-COPT-45: main_putc(' ')
+%0ld%1l,0x20
+%0call%1_main_putc
+=
+	EXTERN _main_putc_space
+%0call%1_main_putc_space
+
 ;; OPT-COPT-2: rx_pos = 0 -> call _rx_pos_reset (6 -> 3 bytes)
 %0ld%1hl,0x0000
 %0ld%1(_rx_pos),hl

@@ -91,6 +91,9 @@ REQUIRED_VARIABLES = [
     "_config_dirty",
     "_notif_enabled",
     "_status_bar_dirty",
+    "_bookmark_sel",
+    "_bookmark_active_slot",
+    "_bookmark_rows",
     # Buffers
     "_overlay_slot",
     "_ring_buffer",

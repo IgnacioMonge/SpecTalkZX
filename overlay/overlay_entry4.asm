@@ -3,6 +3,7 @@ SECTION code_user
 EXTERN _status_render_ovl
 EXTERN _save_config_ovl
 EXTERN _overlay_slot
+EXTERN _overlay_mode
 EXTERN _K_CHANNELS
 PUBLIC _cfg_put
 PUBLIC _cfg_kv
@@ -88,6 +89,9 @@ _cfg_put_autojoin:
     ld (ovl4_cpa_dest), hl
     xor a
     ld (ovl4_cpa_any), a
+    ld a, (_overlay_mode)
+    cp 6
+    jr z, ovl4_cpa_saved
     ld hl, _channels + 32
     ld b, 9
 ovl4_cpa_loop:
@@ -123,6 +127,7 @@ ovl4_cpa_next:
     or a
     jr nz, ovl4_cpa_crlf
 
+ovl4_cpa_saved:
     ld hl, _autojoin_channels
     ld a, (hl)
     cp '#'

@@ -11,6 +11,7 @@ static const char cl_nkp[]   = "nick pass=";
 static const char cl_ncol[]  = "nick color=";
 static const char cl_away[]  = "auto away=";
 static const char cl_tz[]    = "timezone=";
+static const char cl_alogin[] = "autologin=";
 
 static const char cv_on[]     = "on";
 static const char cv_off[]    = "off";
@@ -82,7 +83,7 @@ void config_render_ovl(void)
     cfg_item(K_TS, show_timestamps == 0 ? cv_off :
                     show_timestamps == 1 ? cv_on : cv_smart);
     cfg_item(K_AUTOCONN, autoconnect ? cv_on : cv_off);
-    cfg_item(K_AUTOJOIN, autojoin ? cv_on : cv_off);
+    cfg_item(cl_alogin, autojoin ? cv_on : cv_off);
     cfg_item(K_NOTIF, notif_enabled ? cv_on : cv_off);
     cfg_item(K_COUNTSYNC, count_sync_enabled ? cv_on : cv_off);
 
@@ -100,9 +101,6 @@ void config_render_ovl(void)
         buf[0] = '+'; fast_u8_to_str(buf + 1, (uint8_t)sntp_tz); buf[3] = 0;
     }
     cfg_item(cl_tz, buf);
-
-    if (cfg_col == 34) { g_ps64_y++; cfg_col = 2; }
-    cfg_item(K_CHANNELS, (search_pattern[0] == '#' || search_pattern[0] == '&') ? (const char *)search_pattern : cv_notset);
 
     if (cfg_col == 34) { g_ps64_y++; cfg_col = 2; }
     {

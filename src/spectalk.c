@@ -33,6 +33,19 @@
 #error "RX_LINE_SIZE must be 512 (sync with spectalk_asm.asm:421)"
 #endif
 
+#define ATTR_BASE_ADDR 0x5800
+#define SCREEN_ROW2_SCAN0_ADDR 0x4040
+#define FRAMES_ADDR ((volatile uint8_t *)23672)
+#define FMT_BUF_ADDR 0x5BE7
+
+#define POST_CANCEL_QUIET_FRAMES 100
+#define NOTIF_TIMEOUT_FRAMES 250
+#define AUTOCONNECT_DELAY_FRAMES 250
+#define PAGINATION_FLUSH_TIMEOUT_FRAMES 150
+#define PAGINATION_RESPONSE_TIMEOUT_FRAMES 250
+#define HELP_TIMEOUT_FRAMES 4500
+#define SWITCHER_TIMEOUT_FRAMES 1000
+
 // Theme data loaded from SPECTALK.DAT at startup (in ASM bss_user, contiguous with font)
 extern uint8_t theme_raw[75];
 
@@ -336,7 +349,7 @@ void names_finish_incomplete(void)
 {
     if (names_was_manual) {
         flush_all_rx_buffers();
-        post_cancel_quiet = 100;
+        post_cancel_quiet = POST_CANCEL_QUIET_FRAMES;
         if (show_names_list && pagination_active) names_print_summary(1);
     }
 
@@ -463,22 +476,7 @@ uint8_t remove_ignore(const char *nick) __z88dk_fastcall
     return 0;
 }
 
-// Find channel by name, returns index or -1 if not found
-int8_t find_channel(const char *name) __z88dk_fastcall
-{
-    uint8_t i;
-    // OPT-08: channel_count nunca excede MAX_CHANNELS por diseño (guarded en add_slot_internal)
-    ChannelInfo *ch = channels;
-
-    for (i = 0; i < channel_count; i++, ch++) {
-        if ((ch->flags & CH_FLAG_ACTIVE) && st_stricmp(ch->name, name) == 0) {
-            return (int8_t)i;
-        }
-    }
-    return -1;
-}
-
-// find_query is implemented in spectalk_asm.asm for size optimization
+// find_channel/find_query are implemented in ASM for size optimization
 
 // find_empty_channel_slot() moved to spectalk_asm.asm (OPT: 46 -> 23 bytes)
 
@@ -707,7 +705,7 @@ static void channel_context_banner(void)
     end_byte = (uint8_t)((name_col >> 1) - 1);
 
     pix = (uint8_t *)(SCREEN_ROW_ADDR(row) + 0x0400); /* scanline 4 */
-    ap = (uint8_t *)(0x5800 + ((uint16_t)row << 5));
+    ap = (uint8_t *)(ATTR_BASE_ADDR + ((uint16_t)row << 5));
     if (end_byte >= start_byte) {
         i = (uint8_t)(end_byte - start_byte + 1);
         pix += start_byte;
@@ -857,8 +855,8 @@ static void switcher_close(void)
     sw_active = 0;
     clear_line(2, ATTR_MAIN_BG);
     // Redraw 1px separator (row 2, scanline 0)
-    memset((void *)0x4040, 0xFF, 32);
-    last_frames_lo = *(volatile uint8_t *)23672;
+    memset((void *)SCREEN_ROW2_SCAN0_ADDR, 0xFF, 32);
+    last_frames_lo = *FRAMES_ADDR;
 }
 
 
@@ -954,7 +952,7 @@ char *deferred_wrap_p;
 // Shared scratch buffer for u16-to-string conversions (8 bytes).
 // Lives in the free Printer Buffer tail; $5BE5-$5BE6 is mpwr_last_space.
 // Used by draw_clock, draw_status_bar_real and search index rendering (never simultaneously).
-#define fmt_buf ((char *)0x5BE7)
+#define fmt_buf ((char *)FMT_BUF_ADDR)
 
 // COMMAND HISTORY
 #define HISTORY_SIZE    4
@@ -1114,7 +1112,7 @@ uint8_t pagination_pause(void)
         // Ventana de silencio en h_default_cmd para evitar "><" garbage
         // de residuos de la lista cancelada (IRC no permite cancelar LIST
         // server-side). No usar drenajes fijos que bloqueen input.
-        post_cancel_quiet = 100;
+        post_cancel_quiet = POST_CANCEL_QUIET_FRAMES;
         return 1;
     }
 
@@ -2365,7 +2363,7 @@ void notify(const char *msg, uint8_t attr) __z88dk_callee
         notif_slide_len = st_strlen(notif_buf);
         notif_slide_pos = 0;
         notif_attr = attr;
-        notif_timeout = 250;  // ~5s at 50 Hz; 150f proved too short in practice
+        notif_timeout = NOTIF_TIMEOUT_FRAMES;  // ~5s at 50 Hz; 150f proved too short in practice
     } else {
         if (main_col) main_newline();
         current_attr = attr;
@@ -2373,18 +2371,6 @@ void notify(const char *msg, uint8_t attr) __z88dk_callee
         if (msg == temp_input) main_print_wrapped_clean((char *)msg);
         else main_print(msg);
     }
-}
-
-void ui_err(const char *s) __z88dk_fastcall
-{
-    set_attr_err();
-    main_print(s);
-}
-
-void ui_sys(const char *s) __z88dk_fastcall
-{
-    set_attr_sys();
-    main_print(s);
 }
 
 void ui_usage(const char *a) __z88dk_fastcall
@@ -2790,7 +2776,7 @@ void main(void)
         uint8_t prev_caps_mode = caps_lock_mode;
         uint8_t prev_shift_held = 0;
         uint8_t sntp_timer = 75;  // first SNTP query after ~0.5s (not 2s)
-        uint8_t autoconnect_delay = can_autoconnect ? 250 : 0;  // ~5 sec (SNTP needs time)
+        uint8_t autoconnect_delay = can_autoconnect ? AUTOCONNECT_DELAY_FRAMES : 0;  // ~5 sec (SNTP needs time)
 
         // FIX: Ocultar cursor durante autoconnect countdown
         if (autoconnect_delay) { cursor_visible = 0; redraw_input_full(); }
@@ -2802,7 +2788,7 @@ void main(void)
         static uint8_t about_anim_last = 0;  /* FRAMES low byte at last globe tick */
 
         // Sync frame counter before entering main loop
-        last_frames_lo = *(volatile uint8_t *)23672;
+        last_frames_lo = *FRAMES_ADDR;
         tick_accum = 0;
 
         while (1) {
@@ -2811,7 +2797,7 @@ void main(void)
             // Read system FRAMES (23672) low byte and compute elapsed frames.
             // This correctly accounts for frames lost during long processing.
             {
-            uint8_t now_lo = *(volatile uint8_t *)23672;
+            uint8_t now_lo = *FRAMES_ADDR;
             uint8_t elapsed = now_lo - last_frames_lo;  // wraps correctly (uint8)
             last_frames_lo = now_lo;
             tick_accum += elapsed;
@@ -2991,7 +2977,7 @@ void main(void)
                         // Timeout solo cuando hay datos persistentes (~3s).
                         // Flush final antes de enviar nuevo LIST para evitar
                         // basura residual de listado previo rendering en main area.
-                        if (++pagination_timeout > 150) {
+                        if (++pagination_timeout > PAGINATION_FLUSH_TIMEOUT_FRAMES) {
                             search_flush_state = 2;
                             flush_all_rx_buffers();
                             send_pending_search_command();
@@ -3001,7 +2987,7 @@ void main(void)
                 }
                 // Fase de espera de resultados
                 else if (search_flush_state == 2) {
-                    if (++pagination_timeout > 250) {
+                    if (++pagination_timeout > PAGINATION_RESPONSE_TIMEOUT_FRAMES) {
                         search_data_lost = 1;
                         ui_err("Timeout (incomplete)");
                         cancel_search_state();
@@ -3029,10 +3015,10 @@ void main(void)
                 if (flash_timer >= 240) {
                     badge_flash_off();
                 } else {
-                    *(uint8_t *)(0x5800 + 30) ^= 0x04;
-                    *(uint8_t *)(0x5800 + 31) ^= 0x04;
-                    *(uint8_t *)(0x5820 + 30) ^= 0x04;
-                    *(uint8_t *)(0x5820 + 31) ^= 0x04;
+                    *(uint8_t *)(ATTR_BASE_ADDR + 30) ^= 0x04;
+                    *(uint8_t *)(ATTR_BASE_ADDR + 31) ^= 0x04;
+                    *(uint8_t *)(ATTR_BASE_ADDR + 32 + 30) ^= 0x04;
+                    *(uint8_t *)(ATTR_BASE_ADDR + 32 + 31) ^= 0x04;
                 }
             }
 
@@ -3089,6 +3075,9 @@ void main(void)
                     cursor_visible = 0;
                     overlay_exec(4, 0);
                     c = 0;
+                } else if (overlay_mode == OVERLAY_BOOKMARKS) {
+                    bookmark_selector_key(c);
+                    c = 0;
                 } else if (c == KEY_BREAK || (c && overlay_mode != OVERLAY_HELP)) {
                     // BREAK always exits; any key exits single-page overlays
                     if (overlay_mode == OVERLAY_ABOUT) {
@@ -3104,7 +3093,7 @@ void main(void)
                     if (!overlay_mode) {
                         overlay_exit_maybe_discard();
                     }
-                } else if (overlay_mode == OVERLAY_HELP && ++sw_timeout >= 4500) {
+                } else if (overlay_mode == OVERLAY_HELP && ++sw_timeout >= HELP_TIMEOUT_FRAMES) {
                     /* W14: auto-close help after ~90s to prevent PING timeout */
                     overlay_exit_maybe_discard();
                     continue;
@@ -3167,7 +3156,7 @@ void main(void)
                     }
                 } else if (sw_active) {
                     // No key this frame — auto-close after ~10s (500 frames)
-                    if (++sw_timeout >= 1000) switcher_close();
+                    if (++sw_timeout >= SWITCHER_TIMEOUT_FRAMES) switcher_close();
 
                     // Live refresh: detect flag CHANGES via snapshot
                     {
@@ -3282,8 +3271,8 @@ void main(void)
                 } else {
                     process_irc_data();
                 }
+                count_sync_tick();
             }
-            count_sync_tick();
         }
     }
 }

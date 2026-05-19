@@ -185,6 +185,11 @@ mptp_div_done:
 ; L = c
 ; -----------------------------------------------------------------------------
 PUBLIC _main_putc
+PUBLIC _main_putc_space
+_main_putc_space:
+    ld l, 0x20
+    jp _main_putc
+
 _main_putc:
     ; Suppress output during help overlay
     ld a, (_overlay_mode)

@@ -149,7 +149,7 @@ is_ban_numeric_at_yes:
 // Caller is responsible for any "Cancelled"/"Aborted" message on a 0 return.
 static uint8_t prompt_yn(const char *q) __z88dk_fastcall
 {
-    uint8_t tmout = 250;  // ~5s
+    uint16_t tmout = 500;
 
     set_attr_err();
     main_puts(q);
@@ -163,9 +163,14 @@ static uint8_t prompt_yn(const char *q) __z88dk_fastcall
             main_putc(' ');
             main_putc(k);
             main_newline();
+            while (in_inkey()) {
+                frame_wait();
+                uart_drain_to_buffer();
+            }
             return (k == 'y');
         }
     }
+    main_print(" Timeout!");
     main_newline();
     return 0;
 }
@@ -195,6 +200,9 @@ static void err_maxwin(void)
 uint8_t overlay_mode;
 uint8_t help_page;              // current page (0-based) — non-static for overlay access
 uint8_t config_dirty;           // 1 = unsaved config changes exist
+uint8_t bookmark_sel;
+uint8_t bookmark_active_slot;
+uint8_t bookmark_rows[5];
 
 // NIVELES DE VALIDACIÓN JERÁRQUICA
 #define LVL_TCP  1  // Conectado a Internet (Socket abierto)
@@ -572,6 +580,132 @@ static void cmd_connect_retry(const char *args) __z88dk_fastcall
     }
 }
 
+static void overlay_exec_rx(uint8_t group, uint8_t entry)
+{
+    uint16_t had_partial = rx_pos;
+    overlay_exec(group, entry);
+    if (had_partial) rx_overflow = 1;
+}
+
+#define BOOKMARK_TOTAL 5
+#define BOOKMARK_AUTOLOGIN 0x80
+#define BOOKMARK_OCCUPIED 0x80
+#define bookmark_save_config() cmd_save(NULL)
+#define bookmark_close_overlay() overlay_exit_full()
+
+#define bookmark_render() overlay_exec_rx(7, 0)
+#define bookmark_render_list() overlay_exec_rx(7, 2)
+
+static void bookmark_render_rows(uint8_t prev_slot) __z88dk_fastcall
+{
+    overlay_slot[0] = prev_slot;
+    overlay_exec_rx(7, 1);
+}
+
+static void bookmark_render_cursor(uint8_t prev_slot) __z88dk_fastcall
+{
+    overlay_slot[0] = prev_slot;
+    overlay_exec_rx(7, 4);
+}
+
+static void bookmark_load_current(void)
+{
+    uint8_t was_connected = (connection_state >= STATE_TCP_CONNECTED);
+
+    if (!(bookmark_rows[bookmark_sel] & BOOKMARK_OCCUPIED)) return;
+    if (was_connected) {
+        bookmark_close_overlay();
+        if (!confirm_disconnect()) return;
+    }
+
+    overlay_slot[0] = 0;
+    overlay_exec(2, 1);
+    if (overlay_slot[0] != 1) return;
+
+    if (!was_connected) bookmark_close_overlay();
+    if (was_connected) {
+        set_attr_sys();
+        main_print("Disconnecting...");
+        force_disconnect();
+        draw_status_bar();
+    }
+    cmd_connect_retry(NULL);
+}
+
+static void bookmark_save_current(void)
+{
+    uint8_t slot = bookmark_sel + 1;
+    snapshot_autojoin_channels();
+    st_copy_n(autojoin_channels, search_pattern, SEARCH_PATTERN_SIZE);
+    overlay_exec(2, 2);
+    if (overlay_slot[0]) {
+        bookmark_render_list();
+        if ((bookmark_active_slot & 0x7F) == slot) config_dirty = 1;
+    }
+}
+
+static void bookmark_activate_current(void)
+{
+    uint8_t slot = bookmark_sel + 1;
+    uint8_t active = bookmark_active_slot & 0x7F;
+    uint8_t prev_slot = active ? (uint8_t)(active - 1) : 0xFF;
+
+    if (active == slot && (bookmark_active_slot & BOOKMARK_AUTOLOGIN)) {
+        bookmark_active_slot = 0;
+        autoconnect = 0;
+        autojoin = 0;
+        autojoin_channels[0] = 0;
+        search_pattern[0] = 0;
+        config_dirty = 1;
+        bookmark_render_rows(0xFF);
+        return;
+    }
+
+    overlay_slot[0] = (active == slot) ? 2 : 1;
+    overlay_exec_rx(2, 1);
+    if (overlay_slot[0] == 1) {
+        bookmark_render_rows(prev_slot);
+    }
+}
+
+void bookmark_selector_key(uint8_t c) __z88dk_fastcall
+{
+    if (c == KEY_UP || c == KEY_DOWN) {
+        uint8_t prev_slot = bookmark_sel;
+        if (c == KEY_UP) {
+            bookmark_sel = bookmark_sel ? bookmark_sel - 1 : BOOKMARK_TOTAL - 1;
+        } else if (++bookmark_sel >= BOOKMARK_TOTAL) {
+            bookmark_sel = 0;
+        }
+        bookmark_render_cursor(prev_slot);
+    } else if (c == KEY_ENTER) {
+        bookmark_load_current();
+    } else if ((c | 0x20) == 's') {
+        bookmark_save_current();
+    } else if ((c | 0x20) == 'a') {
+        bookmark_activate_current();
+    } else if ((c | 0x20) == 'd') {
+        uint8_t active = bookmark_active_slot & 0x7F;
+        overlay_exec(7, 3);
+        if (overlay_slot[0]) {
+            if (active == bookmark_sel + 1) config_dirty = 1;
+        }
+    } else if (c == KEY_BREAK) {
+        if (config_dirty) bookmark_save_config();
+        bookmark_close_overlay();
+    }
+}
+
+static void cmd_bookmarks(const char *args) __z88dk_fastcall
+{
+    (void)args;
+    bookmark_sel = 0;
+    overlay_mode = OVERLAY_BOOKMARKS;
+    cursor_visible = 0;
+    redraw_input_full();
+    bookmark_render();
+}
+
 
 static void cmd_nick(const char *args) __z88dk_fastcall
 {
@@ -607,15 +741,17 @@ static void cmd_nick(const char *args) __z88dk_fastcall
     }
 }
 
-static void cmd_pass(const char *args) __z88dk_fastcall
+static void cmd_str_ovl(const char *args, uint8_t entry) __z88dk_callee
 {
-    uint16_t had_partial = rx_pos;
-
     if (args && *args) st_copy_n((char *)overlay_slot, args, 64);
     else overlay_slot[0] = 0;
 
-    overlay_exec(6, 1);
-    if (had_partial) rx_overflow = 1;
+    overlay_exec_rx(6, entry);
+}
+
+static void cmd_pass(const char *args) __z88dk_fastcall
+{
+    cmd_str_ovl(args, 1);
 }
 
 static void cmd_join(const char *args) __z88dk_fastcall
@@ -1056,13 +1192,7 @@ static void cmd_search(const char *args) __z88dk_fastcall
 
 static void cmd_ignore(const char *args) __z88dk_fastcall
 {
-    uint16_t had_partial = rx_pos;
-
-    if (args && *args) st_copy_n((char *)overlay_slot, args, 64);
-    else overlay_slot[0] = 0;
-
-    overlay_exec(6, 0);
-    if (had_partial) rx_overflow = 1;
+    cmd_str_ovl(args, 0);
 }
 
 static void cmd_kick(const char *args) __z88dk_fastcall
@@ -1130,7 +1260,6 @@ uint8_t overlay_header(const char *title) __z88dk_fastcall
 static void sys_config(const char *args) __z88dk_fastcall
 {
     (void)args;
-    if (snapshot_autojoin_channels()) config_dirty = 1;
     enter_overlay_mode(OVERLAY_CONFIG);
     overlay_exec(4, 0);
 }
@@ -1212,101 +1341,130 @@ theme_usage:
 
 static void cmd_autoaway(const char *args) __z88dk_fastcall
 {
-    uint16_t had_partial = rx_pos;
     st_copy_n((char *)overlay_slot, args ? args : "", 16);
-    overlay_exec(6, 3);
-    if (had_partial) rx_overflow = 1;
+    overlay_exec_rx(6, 3);
 }
 
-static void cmd_local_setting(uint8_t id, const char *args) __z88dk_callee
+static void cmd_local_setting(const char *args) __z88dk_fastcall
 {
-    uint16_t had_partial = rx_pos;
-
-    overlay_slot[0] = id;
     if (args && *args) st_copy_n((char *)overlay_slot + 1, args, 16);
     else overlay_slot[1] = 0;
 
-    overlay_exec(6, 2);
-    if (had_partial) rx_overflow = 1;
+    overlay_exec_rx(6, 2);
 }
 
-static void cmd_beep(const char *args) __z88dk_fastcall
+static void cmd_beep(const char *args) __z88dk_fastcall ST_NAKED
 {
-    cmd_local_setting(0, args);
+    (void)args;
+    __asm
+    xor a
+cmd_local_setting_a:
+    ld (_overlay_slot),a
+    jp _cmd_local_setting
+    __endasm;
 }
 
-static void cmd_click(const char *args) __z88dk_fastcall
+static void cmd_click(const char *args) __z88dk_fastcall ST_NAKED
 {
-    cmd_local_setting(1, args);
+    (void)args;
+    __asm
+    ld a,1
+    jr cmd_local_setting_a
+    __endasm;
 }
 
-static void cmd_nickcolor(const char *args) __z88dk_fastcall
+static void cmd_nickcolor(const char *args) __z88dk_fastcall ST_NAKED
 {
-    cmd_local_setting(2, args);
+    (void)args;
+    __asm
+    ld a,2
+    jr cmd_local_setting_a
+    __endasm;
 }
 
-static void cmd_traffic(const char *args) __z88dk_fastcall
+static void cmd_traffic(const char *args) __z88dk_fastcall ST_NAKED
 {
-    cmd_local_setting(3, args);
+    (void)args;
+    __asm
+    ld a,3
+    jr cmd_local_setting_a
+    __endasm;
 }
 
-static void cmd_divider(const char *args) __z88dk_fastcall
+static void cmd_divider(const char *args) __z88dk_fastcall ST_NAKED
 {
-    cmd_local_setting(8, args);
+    (void)args;
+    __asm
+    ld a,8
+    jr cmd_local_setting_a
+    __endasm;
 }
 
-static void cmd_notif(const char *args) __z88dk_fastcall
+static void cmd_notif(const char *args) __z88dk_fastcall ST_NAKED
 {
-    cmd_local_setting(4, args);
+    (void)args;
+    __asm
+    ld a,4
+    jr cmd_local_setting_a
+    __endasm;
 }
 
-static void cmd_timestamps(const char *args) __z88dk_fastcall
+static void cmd_timestamps(const char *args) __z88dk_fastcall ST_NAKED
 {
-    cmd_local_setting(5, args);
+    (void)args;
+    __asm
+    ld a,5
+    jr cmd_local_setting_a
+    __endasm;
 }
 
-static void cmd_autoconnect(const char *args) __z88dk_fastcall
+static void cmd_autoconnect(const char *args) __z88dk_fastcall ST_NAKED
 {
-    cmd_local_setting(6, args);
+    (void)args;
+    __asm
+    ld a,6
+    jr cmd_local_setting_a
+    __endasm;
 }
 
-static void cmd_autojoin(const char *args) __z88dk_fastcall
+static void cmd_autojoin(const char *args) __z88dk_fastcall ST_NAKED
 {
-    cmd_local_setting(7, args);
+    (void)args;
+    __asm
+    ld a,7
+    jr cmd_local_setting_a
+    __endasm;
 }
 
-static void cmd_countsync(const char *args) __z88dk_fastcall
+static void cmd_countsync(const char *args) __z88dk_fastcall ST_NAKED
 {
-    cmd_local_setting(9, args);
+    (void)args;
+    __asm
+    ld a,9
+    jr cmd_local_setting_a
+    __endasm;
 }
 
 static void cmd_tz(const char *args) __z88dk_fastcall
 {
-    uint16_t had_partial = rx_pos;
-
     if (args && (args[0] | 0x20) == 'r' && (args[1] | 0x20) == 't' &&
         (args[2] | 0x20) == 'c' && args[3] == 0) {
-        overlay_exec(4, 2);
+        overlay_exec_rx(4, 2);
     } else {
         st_copy_n((char *)overlay_slot, args ? args : "", 8);
-        overlay_exec(4, 3);
+        overlay_exec_rx(4, 3);
     }
-
-    if (had_partial) rx_overflow = 1;
 }
 
 static void cmd_friend(const char *args) __z88dk_fastcall
 {
-    uint16_t had_partial = rx_pos;
-
     if (args && *args) {
         split_at_space((char *)args);
         st_copy_n((char *)overlay_slot, args, IRC_NICK_SIZE);
     } else {
         overlay_slot[0] = 0;
     }
-    overlay_exec(6, 4);
-    if (had_partial) rx_overflow = 1;
+    overlay_exec_rx(6, 4);
 }
 
 // cmd_save — moved to overlay (SPCTLK4.OVL entry 1)
@@ -1316,7 +1474,7 @@ void cmd_save(const char *args) __z88dk_fastcall
 {
     uint8_t discard = (rx_pos != 0) || rx_overflow;
     (void)args;
-    snapshot_autojoin_channels();
+    if (overlay_mode != OVERLAY_BOOKMARKS) snapshot_autojoin_channels();
     overlay_exec(3, 1);
     uart_drain_to_buffer();
     if (discard || rb_head != rb_tail) rx_overflow = 1;
@@ -1355,11 +1513,8 @@ static void cmd_close_wrapper(const char *a) __z88dk_fastcall {
 
 static void cmd_windows_wrapper(const char *a) __z88dk_fastcall
 {
-    uint16_t had_partial;
     (void)a;
-    had_partial = rx_pos;
-    overlay_exec(0, 2);
-    if (had_partial) rx_overflow = 1;
+    overlay_exec_rx(0, 2);
 }
 
 
@@ -1380,7 +1535,7 @@ typedef struct {
 static void sys_help(const char *args) __z88dk_fastcall;
 
 #define CMD_IDX_NONE  ((uint8_t)0xFF)
-#define SYS_CMDS_COUNT 22
+#define SYS_CMDS_COUNT 23
 
 // Command names/aliases pool (help strings moved to /SYS/SPECTALK.HLP)
 static const char cmd_pool[] =
@@ -1390,6 +1545,7 @@ static const char cmd_pool[] =
     "rch\0ignore\0kick\0k\0channels\0w\0beep\0traffic\0timestamps\0ts\0clear\0cls\0"
     "save\0sv\0autoconnect\0ac\0tz\0friend\0nickcolor\0nc\0notif\0nf\0"
     "changelog\0click\0mode\0reply\0notice\0autojoin\0divider\0countsync\0cs\0"
+    "bookmarks\0bm\0"
 ;
 
 static const PackedCmd USER_COMMANDS[] = {
@@ -1416,6 +1572,7 @@ static const PackedCmd USER_COMMANDS[] = {
     {  65, 255, cmd_divider },
     {  66,  67, cmd_countsync },
     {  60, 255, cmd_click },
+    {  68,  69, cmd_bookmarks },
     // --- IRC commands (/ prefix) ---
     {  10,  11, cmd_connect_retry },
     {  12, 255, cmd_nick },
@@ -1471,9 +1628,7 @@ const char K_DAT[] = "SPECTALK.DAT";
 // help_render_page — moved to overlay (SPECTALK.OVL entry 0)
 static void help_render_page(void)
 {
-    uint16_t had_partial = rx_pos;
-    overlay_exec(0, 0);
-    if (had_partial) rx_overflow = 1;
+    overlay_exec_rx(0, 0);
 }
 
 static void sys_help(const char *args) __z88dk_fastcall

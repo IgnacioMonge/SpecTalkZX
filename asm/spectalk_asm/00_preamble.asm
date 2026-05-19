@@ -104,8 +104,14 @@ PUBLIC _esx_detect
 PUBLIC _hl_mul32
 PUBLIC _a_sext_mul32
 PUBLIC _l_mul32
+PUBLIC _channel_name_ptr
 PUBLIC _channel_flags_ptr
 PUBLIC _l_channel_flags_ptr
+PUBLIC _channel_dec_users
+PUBLIC _is_tracked_friend
+PUBLIC _irc_param_0
+PUBLIC _irc_param_1
+PUBLIC _irc_param_2
 PUBLIC _rx_pos_reset
 PUBLIC _reset_rx_state
 PUBLIC _leave_ix

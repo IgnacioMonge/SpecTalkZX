@@ -66,6 +66,7 @@ done:
 void pass_cmd_ovl(void)
 {
     const char *args = (const char *)overlay_slot;
+    const char *msg;
 
     if (!*args) {
         sys_puts_print("Server password: ", irc_pass[0] ? "(set)" : "(not set)");
@@ -74,13 +75,13 @@ void pass_cmd_ovl(void)
 
     if (st_stricmp(args, "clear") == 0 || st_stricmp(args, "none") == 0) {
         irc_pass[0] = '\0';
-        notify("Password cleared", ATTR_MSG_SYS);
-        config_dirty = 1;
-        goto done;
+        msg = "Password cleared";
+    } else {
+        st_copy_n(irc_pass, args, IRC_PASS_SIZE);
+        msg = "Password set";
     }
 
-    st_copy_n(irc_pass, args, IRC_PASS_SIZE);
-    notify("Password set", ATTR_MSG_SYS);
+    notify(msg, ATTR_MSG_SYS);
     config_dirty = 1;
 
 done:
@@ -100,28 +101,30 @@ static void set_or_toggle_flag_ovl(uint8_t *flag, const char *label, const char 
     config_dirty = 1;
 }
 
+typedef struct {
+    uint8_t *ptr;
+    const char *label;
+} FlagDef;
+
 void local_setting_cmd_ovl(void)
 {
     uint8_t id = overlay_slot[0];
     const char *args = (const char *)overlay_slot + 1;
 
-    switch (id) {
-    case 0:
-        set_or_toggle_flag_ovl(&beep_enabled, "Beep: ", args);
-        break;
-    case 1:
-        set_or_toggle_flag_ovl(&keyclick_enabled, "Click: ", args);
-        break;
-    case 2:
-        set_or_toggle_flag_ovl(&nick_color_mode, "Nick color: ", args);
-        break;
-    case 3:
-        set_or_toggle_flag_ovl(&show_traffic, "Show traffic: ", args);
-        break;
-    case 4:
-        set_or_toggle_flag_ovl(&notif_enabled, "Notifications: ", args);
-        break;
-    case 5:
+    static const FlagDef flags[] = {
+        { &beep_enabled, "Beep: " },
+        { &keyclick_enabled, "Click: " },
+        { &nick_color_mode, "Nick color: " },
+        { &show_traffic, "Show traffic: " },
+        { &notif_enabled, "Notifications: " },
+        { 0, 0 },
+        { &autoconnect, "Autoconnect: " },
+        { &autojoin, "Autojoin: " },
+        { &show_channel_separators, "Divider: " },
+        { &count_sync_enabled, "Count sync: " }
+    };
+
+    if (id == 5) {
         if (*args) {
             if (args[0] == '0' || st_stricmp(args, "off") == 0) show_timestamps = 0;
             else if (args[0] == '1' || st_stricmp(args, "on") == 0) show_timestamps = 1;
@@ -137,27 +140,27 @@ void local_setting_cmd_ovl(void)
         sys_puts_print("Timestamps: ", show_timestamps == 0 ? "off" :
                        show_timestamps == 1 ? "on" : "smart");
         config_dirty = 1;
-        break;
-    case 6:
-        set_or_toggle_flag_ovl(&autoconnect, "Autoconnect: ", args);
-        break;
-    case 7:
-        set_or_toggle_flag_ovl(&autojoin, "Autojoin: ", args);
-        break;
-    case 8:
-        set_or_toggle_flag_ovl(&show_channel_separators, "Divider: ", args);
-        if (!show_channel_separators) {
+    } else if (id <= 9 && flags[id].ptr) {
+        set_or_toggle_flag_ovl(flags[id].ptr, flags[id].label, args);
+        if (id == 6 && !autoconnect) {
+            autojoin = 0;
+            bookmark_active_slot = 0;
+            autojoin_channels[0] = 0;
+            search_pattern[0] = 0;
+        } else if (id == 7) {
+            if (autojoin) {
+                autoconnect = 1;
+                if (bookmark_active_slot) bookmark_active_slot |= 0x80;
+            } else {
+                bookmark_active_slot &= 0x7F;
+            }
+        } else if (id == 8 && !show_channel_separators) {
             channel_context_next_row = 0;
             channel_context_pending = 0;
-        }
-        break;
-    case 9:
-        set_or_toggle_flag_ovl(&count_sync_enabled, "Count sync: ", args);
-        if (!count_sync_enabled) {
+        } else if (id == 9 && !count_sync_enabled) {
             count_sync_idle_frames = 0;
             count_sync_quits = 0;
         }
-        break;
     }
 
 done:

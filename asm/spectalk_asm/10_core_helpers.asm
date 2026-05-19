@@ -9,16 +9,37 @@
 ; -----------------------------------------------------------------------------
 EXTERN _channels
 _channel_flags_ptr:
-    add hl, hl
-    add hl, hl
-    add hl, hl
-    add hl, hl
-    add hl, hl
-    ld de, _channels
-    add hl, de
+    call _channel_name_ptr
     ld de, 0x001e
     add hl, de
     ret
+
+; -----------------------------------------------------------------------------
+; channel_name_ptr: HL = &channels[HL].name, same as channel slot base.
+; copt replaces: call _hl_mul32 + ld de,_channels + add hl,de
+; -----------------------------------------------------------------------------
+_channel_name_ptr:
+    call _hl_mul32
+    ld de, _channels
+    add hl, de
+    ret
+
+; -----------------------------------------------------------------------------
+; irc_param_N: fixed-index wrappers for hot irc_param(0..2) call sites.
+; COPT replaces ld l,N / call _irc_param with one call.
+; -----------------------------------------------------------------------------
+EXTERN _irc_param
+_irc_param_0:
+    ld l, 0x00
+    jp _irc_param
+
+_irc_param_1:
+    ld l, 0x01
+    jp _irc_param
+
+_irc_param_2:
+    ld l, 0x02
+    jp _irc_param
 
 ; -----------------------------------------------------------------------------
 ; a_sext_mul32: sign-extend A to HL, then HL *= 32
@@ -67,6 +88,25 @@ _leave_ix:
 _l_channel_flags_ptr:
     ld h, 0x00
     jr _channel_flags_ptr      ; shares body with _channel_flags_ptr (-9 bytes)
+
+; -----------------------------------------------------------------------------
+; channel_dec_users: decrement channels[L].user_count if non-zero.
+; -----------------------------------------------------------------------------
+_channel_dec_users:
+    call _l_channel_flags_ptr
+    dec hl
+    dec hl
+    ld e, (hl)
+    inc hl
+    ld d, (hl)
+    ld a, d
+    or e
+    ret z
+    dec de
+    ld (hl), d
+    dec hl
+    ld (hl), e
+    ret
 
 ; -----------------------------------------------------------------------------
 ; IX load helpers: HL = (ix+N/ix+N+1) ? 7 bytes each, saves 3 bytes per site

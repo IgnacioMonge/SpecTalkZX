@@ -347,6 +347,7 @@ extern uint8_t current_attr;
 extern uint8_t status_bar_dirty;
 extern uint8_t force_status_redraw;
 extern uint8_t other_channel_activity;
+extern uint8_t bookmark_active_slot;
 
 // Names tracking
 extern uint8_t names_pending;
@@ -551,6 +552,7 @@ extern uint8_t overlay_mode;
 #define OVERLAY_CONFIG 3
 #define OVERLAY_STATUS 4
 #define OVERLAY_WHATSNEW 5
+#define OVERLAY_BOOKMARKS 6
 void draw_status_bar(void);
 void clear_main(void);
 void overlay_exit_full(void);  // OPT-SHRINK-R01: common overlay exit sequence (ASM)
@@ -637,6 +639,7 @@ void process_irc_data(void);
 // FUNCTION DECLARATIONS - USER COMMANDS (user_cmds.c)
 // =============================================================================
 void parse_user_input(char *line) __z88dk_fastcall;
+void bookmark_selector_key(uint8_t c) __z88dk_fastcall;
 
 // =============================================================================
 // FUNCTION DECLARATIONS - MISC (spectalk.c)

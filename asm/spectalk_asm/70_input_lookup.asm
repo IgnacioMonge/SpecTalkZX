@@ -619,6 +619,140 @@ _print_char64:
     jp _print_str64_char        ; fastcall: L = char
 
 ; =============================================================================
+; int8_t find_channel(const char *name) __z88dk_fastcall
+; Search active channels[] by IRC case-insensitive name. Returns slot or -1.
+; HL = name pointer
+; Returns: L = slot index (0..N) or 0xFF (-1)
+; =============================================================================
+PUBLIC _find_channel
+EXTERN _channels
+EXTERN _channel_count
+EXTERN _st_stricmp_cleanup
+
+DEFC FC_CH_SIZE = 32
+DEFC FC_FLAGS_OFS = 30
+DEFC FC_FLAG_ACTIVE = 0x01
+
+_find_channel:
+    push iy
+    push hl
+    pop iy                       ; IY = target name
+
+    ld de, _channels
+    ld b, 0                      ; B = slot index
+
+fc_loop:
+    ld a, b
+    ld hl, _channel_count
+    cp (hl)
+    jr nc, fc_ret_neg1
+
+    push de
+    ld hl, FC_FLAGS_OFS
+    add hl, de
+    ld a, (hl)
+    pop de
+    and FC_FLAG_ACTIVE
+    jr z, fc_next
+
+    push de
+    push bc
+    ex de, hl                    ; HL = ch->name
+    call fc_check_name
+    pop bc
+    pop de
+    jr z, fc_found
+
+fc_next:
+    ld hl, FC_CH_SIZE
+    add hl, de
+    ex de, hl
+    inc b
+    jr fc_loop
+
+fc_found:
+    ld a, b
+    jr fc_ret_a
+
+fc_ret_neg1:
+    ld a, 0xFF
+fc_ret_a:
+    pop iy
+    ld l, a
+    ret
+
+fc_check_name:
+    push iy
+    push hl
+    call _st_stricmp_cleanup
+    ld a, l
+    or h
+    ret
+
+; =============================================================================
+; uint8_t is_tracked_friend(const char *nick) __z88dk_fastcall
+; HL = nick pointer. Returns L = 1 when nick is in friend_nicks[], else 0.
+; =============================================================================
+PUBLIC _is_tracked_friend
+EXTERN _friend_count
+EXTERN _friend_nicks
+
+DEFC ITF_MAX_FRIENDS = 5
+DEFC ITF_NICK_SIZE = 18
+
+_is_tracked_friend:
+    ld a, (_friend_count)
+    or a
+    jr z, itf_no
+    ld a, h
+    or l
+    jr z, itf_no
+    ld a, (hl)
+    or a
+    jr z, itf_no
+
+    push iy
+    push hl
+    pop iy                       ; IY = nick
+    or 0x20
+    ld c, a                      ; C = nick[0] folded like the C helper
+
+    ld b, ITF_MAX_FRIENDS
+    ld de, _friend_nicks
+itf_loop:
+    ld a, (de)
+    or a
+    jr z, itf_next
+    or 0x20
+    cp c
+    jr nz, itf_next
+
+    push de
+    push bc
+    push iy
+    push de
+    call _st_stricmp_cleanup
+    ld a, l
+    or h
+    pop bc
+    pop de
+    jr z, itf_yes
+
+itf_next:
+    ld hl, ITF_NICK_SIZE
+    add hl, de
+    ex de, hl
+    djnz itf_loop
+    pop iy
+itf_no:
+    ld l, 0
+    ret
+itf_yes:
+    pop iy
+    ld l, 1
+    ret
+
+; =============================================================================
 ; int8_t find_empty_channel_slot(void)
 ; Returns index of first inactive slot (1..9) or -1 (0xFF) if full.
 ; Scans channels[1]..channels[9] checking CH_FLAG_ACTIVE.

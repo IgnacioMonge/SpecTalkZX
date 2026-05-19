@@ -27,6 +27,7 @@ extern void clear_line(uint8_t y, uint8_t attr);
 extern void print_big_str(uint8_t y, uint8_t col, const char *s, uint8_t attr)
     __z88dk_callee;
 extern void print_line64_fast(uint8_t y, const char *s, uint8_t attr);
+extern void clear_zone(uint8_t start, uint8_t lines, uint8_t attr);
 extern void draw_badge_dither(uint8_t count) __z88dk_fastcall;
 extern void notif_draw(uint8_t start_col, const char *str, uint8_t attr);
 extern void notif_center(const char *str, uint8_t attr);
@@ -60,7 +61,9 @@ extern void puts_u8_nolz(uint8_t v) __z88dk_fastcall;
 /* ===== esxDOS file I/O ===== */
 
 extern void esx_fopen(const char *path) __z88dk_fastcall;
+extern void esx_fcreate(const char *path) __z88dk_fastcall;
 extern void esx_fread(void);
+extern void esx_fwrite(void);
 extern void esx_fclose(void);
 extern uint8_t esx_fseek_set(uint16_t offset) __z88dk_fastcall;
 
@@ -79,6 +82,9 @@ extern uint8_t  config_dirty;
 extern uint8_t  notif_enabled;
 extern uint8_t  rx_overflow;
 extern uint8_t  status_bar_dirty;
+extern uint8_t  bookmark_sel;
+extern uint8_t  bookmark_active_slot;
+extern uint8_t  bookmark_rows[];
 
 /* Buffers */
 #define OVERLAY_SLOT_SIZE 512     /* MUST match RX_LINE_SIZE (spectalk.h) — aliased */
@@ -207,6 +213,10 @@ extern const char S_ANYKEY[];
 #define MAX_IGNORES     5
 #define IRC_NICK_SIZE   18
 #define IRC_PASS_SIZE   24
+#define IRC_SERVER_SIZE 32
+#define IRC_PORT_SIZE    6
+#define SEARCH_PATTERN_SIZE 64
 #define ATTR_MSG_SYS    theme_attrs[TATTR_MSG_SYS]
+#define OVERLAY_BOOKMARKS 6
 
 #endif /* OVERLAY_API_H */

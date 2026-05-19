@@ -14,6 +14,8 @@ PUBLIC _join_puts
 PUBLIC _sys_print
 PUBLIC _err_print
 PUBLIC _priv_print
+PUBLIC _ui_sys
+PUBLIC _ui_err
 EXTERN _current_attr
 ; theme_attrs offsets: 9=SERVER/SYS 15=ERROR 4=PRIV 2=CHAN 11=NICK 10=JOIN
 
@@ -119,9 +121,11 @@ attr_puts:
 
 ; Fused set_attr + main_print (copt targets, HL = string)
 _sys_print:
+_ui_sys:
     ld a, (_theme_attrs + 9)
     jr attr_print
 _err_print:
+_ui_err:
     ld a, (_theme_attrs + 15)
     jr attr_print
 _priv_print:
@@ -734,7 +738,6 @@ homm_yes:
 PUBLIC _count_sync_tick
 EXTERN _connection_state
 EXTERN _line_len
-EXTERN _overlay_mode
 EXTERN _pagination_active
 EXTERN _names_pending
 EXTERN _buffer_pressure
@@ -755,9 +758,7 @@ _count_sync_tick:
     ld a, (_line_len)
     or a
     jp nz, cst_reset_idle
-    ld a, (_overlay_mode)
-    ld hl, _pagination_active
-    or (hl)
+    ld a, (_pagination_active)
     ld hl, _names_pending
     or (hl)
     ld hl, _buffer_pressure

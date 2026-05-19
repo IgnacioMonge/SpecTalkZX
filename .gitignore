@@ -14,3 +14,4 @@ tools/__pycache__/
 
 # Obsolete local asset
 tools/Ikkle 4.ttf
+.aider*
