@@ -334,8 +334,6 @@ _fast_fill_attr:
     ex de, hl               ; HL = byte after the filled range
     ret
 
-
-
 ; =============================================================================
 ; void cls_fast(void)
 ; Borrado completo de pantalla con estrategia "Chunked LDIR".
@@ -367,6 +365,53 @@ cls_restore_sp:
 
     ; --- ATRIBUTOS ---
     jr _reapply_screen_attributes
+
+; =============================================================================
+; uint8_t overlay_header(const char *title) __z88dk_fastcall
+; Shared overlay header renderer. Mirrors the former C implementation.
+; =============================================================================
+_overlay_header:
+    push hl                  ; title
+
+    call _clear_main
+
+    ld a, (_theme_attrs + TA_BANNER)
+    or 0x40
+    ld h, a
+    ld l, 3                 ; MAIN_START
+    push hl
+    call _clear_line
+    pop bc
+
+    ld a, (_theme_attrs + TA_BANNER)
+    and 0xBF
+    ld h, a
+    ld l, 4                 ; MAIN_START + 1
+    push hl
+    call _clear_line
+    pop bc
+
+    pop hl                  ; title
+    ld a, (_theme_attrs + TA_BANNER)
+    push af
+    inc sp                  ; attr is a 1-byte callee arg
+    push hl
+    ld bc, 0x0103           ; y=3, col=1
+    push bc
+    call _print_big_str
+
+    ld hl, 0x40A0            ; SCREEN_ROW_ADDR(5)
+    ld a, 0xFF
+    ld bc, 32
+    call _fast_fill_attr
+
+    ld hl, 0x58A0            ; ATTR row 5
+    ld a, (_theme_attrs + TA_MSG_TOPIC)
+    ld bc, 32
+    call _fast_fill_attr
+
+    ld hl, 6                 ; MAIN_START + 3
+    ret
 
 ; =============================================================================
 ; void main_hline(void)

@@ -149,6 +149,7 @@ PUBLIC _scroll_main_zone
 PUBLIC _main_print
 PUBLIC _main_newline
 PUBLIC _main_hline
+PUBLIC _overlay_header
 PUBLIC _tokenize_params
 PUBLIC _sb_append
 PUBLIC _draw_badge_dither
@@ -198,6 +199,7 @@ TA_STATUS   EQU 1
 TA_MSG_CHAN  EQU 2
 TA_MAIN_BG  EQU 5
 TA_INPUT_BG EQU 7
+TA_MSG_TOPIC EQU 13
 TA_BORDER   EQU 19
 EXTERN _current_attr
 EXTERN _irc_params

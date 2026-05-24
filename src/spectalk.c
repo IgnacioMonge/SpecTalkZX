@@ -564,8 +564,8 @@ void remove_channel(uint8_t idx) __z88dk_fastcall
     for (i = idx; i < MAX_CHANNELS - 1; i++) {
         channels[i] = channels[i + 1];
     }
-    // Limpiar último slot completo tras defragmentación
-    memset(&channels[MAX_CHANNELS - 1], 0, sizeof(ChannelInfo));
+    // Mark trailing duplicate slot inactive; add_slot_internal overwrites it on reuse.
+    channels[MAX_CHANNELS - 1].flags = 0;
     if (channel_count > 1) channel_count--;
     if (sw_active) sw_dirty = 1;
 
@@ -2218,7 +2218,8 @@ void irc_send_privmsg(const char *target, const char *msg) __z88dk_callee
 
 void apply_theme(void)
 {
-    uint8_t *t;
+    uint8_t *t, *d;
+    uint8_t i;
 
     // Protección de rango
     // PD3: underflow trick — single comparison vs dual range check
@@ -2226,8 +2227,9 @@ void apply_theme(void)
     t = theme_raw + (current_theme - 1) * 25;
 
     // Copy 20 attribute bytes from theme_raw into theme_attrs[]
-    memcpy(theme_attrs, t, 20);
-    theme_badge_marker = t[21];
+    d = theme_attrs;
+    for (i = 20; i != 0; i--) *d++ = *t++;
+    theme_badge_marker = t[1];
 
     // Auto-detect nick coloring: mono theme if nick INK == chan INK
     nick_color_mode = ((theme_attrs[11] & 7) != (theme_attrs[2] & 7)) ? 1 : 0;
@@ -3228,7 +3230,7 @@ void main(void)
                 else if (c == KEY_ENTER) {
                      if (line_len > 0) {
                         // OPT H2: reutilizar temp_input[] (estático) en lugar de cmd_copy local
-                        memcpy(temp_input, line_buffer, line_len + 1);
+                        st_copy_n(temp_input, line_buffer, sizeof(temp_input));
                         history_add(temp_input, line_len); 
                         input_clear();
                         cursor_hide();

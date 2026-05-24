@@ -1243,18 +1243,7 @@ static void sys_status(const char *args) __z88dk_fastcall
 
 static void sys_about(const char *args) __z88dk_fastcall;
 
-// !config - Muestra la configuración actual
-// Common overlay header: clear, big font title with dual brightness, separator
-uint8_t overlay_header(const char *title) __z88dk_fastcall
-{
-    clear_main();
-    clear_line(MAIN_START, ATTR_BANNER | 0x40);
-    clear_line(MAIN_START + 1, ATTR_BANNER & 0xBF);
-    print_big_str(MAIN_START, 1, title, ATTR_BANNER);
-    memset((void *)(SCREEN_ROW_ADDR(MAIN_START + 2)), 0xFF, 32);
-    memset((void *)(0x5800 + (MAIN_START + 2) * 32), ATTR_MSG_TOPIC, 32);
-    return MAIN_START + 3;
-}
+// overlay_header: frameless ASM in 40_text_numeric_screen.asm
 
 // overlay_config_render — moved to SPCTLK5.OVL entry 0
 static void sys_config(const char *args) __z88dk_fastcall
