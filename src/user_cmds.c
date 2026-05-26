@@ -182,6 +182,14 @@ static uint8_t confirm_disconnect(void)
     return 0;
 }
 
+static void disconnect_with_feedback(void)
+{
+    set_attr_sys();
+    main_print("Disconnecting...");
+    force_disconnect();
+    draw_status_bar();
+}
+
 static void err_maxwin(void)
 {
     ui_err(S_MAXWIN);
@@ -328,10 +336,8 @@ static void cmd_connect(const char *args) __z88dk_fastcall
         set_attr_err();
         main_puts("Already connected. ");
         if (!confirm_disconnect()) return;
-        set_attr_sys();
-        main_print("Disconnecting...");
-        force_disconnect();
-        draw_status_bar(); draw_status_bar_real();
+        disconnect_with_feedback();
+        draw_status_bar_real();
     }
     
     sep = strchr(args, ' ');
@@ -624,10 +630,7 @@ static void bookmark_load_current(void)
 
     if (!was_connected) bookmark_close_overlay();
     if (was_connected) {
-        set_attr_sys();
-        main_print("Disconnecting...");
-        force_disconnect();
-        draw_status_bar();
+        disconnect_with_feedback();
     }
     cmd_connect_retry(NULL);
 }
