@@ -1,12 +1,12 @@
 RTC clock support
-IRC session bookmarks + autojoin
+IRC session bookmarks
+Bookmark channel restore fix
 New /mode, /reply, /notice
 Symbol Shift word navigation
-New animated !about page
+Animated !about page
+Faster chat text rendering
 Faster SD overlay loading
-Faster render and UART paths
-Better /names for big channels
+Better /names on join
 Spanish UTF-8 support
 Search UX improvements
 Safer NickServ auto-identify
-And much much more!

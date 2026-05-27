@@ -2,7 +2,7 @@
 
 ## [v1.3.8] — Unreleased
 
-**Último build local verificado con `make` el 2026-04-26.** Todo lo posterior a `v1.3.7` forma parte de la futura `v1.3.8`; `v1.3.7` sigue siendo la última versión estable.
+**Último build local verificado con `make NO_COLOR=1` el 2026-05-27.** Todo lo posterior a `v1.3.7` forma parte de la futura `v1.3.8`; `v1.3.7` sigue siendo la última versión estable.
 Snapshots progresivos en `Development/dev-1.3.7.N/`.
 
 ### TAP size progression
@@ -21,14 +21,22 @@ Snapshots progresivos en `Development/dev-1.3.7.N/`.
 | + Search UX + split/shrink ASM + PM reply/notice + UART shrinks | 36,178 | +106 |
 | + 30_rendering audit (R01/R02) + shrink (M01-M05 + S01) | 36,136 | +64 |
 | + Printer Buffer scratch reloc + overlay exit fragment-discard fix | 36,144 | +72 |
-| current local 1.3.8 worktree after ASM/C audit passes | 35,928 | −144 |
+| 1.3.8 release-candidate after bookmark/NAMES/render latency fixes | 35,902 | −170 |
 
 ### Current local build state
 
-- Resident trimmed: **35,848B**
-- TAP: **35,928B**
-- BSS slack before `ring_buffer`: **286B**
-- Overlays: **2019 / 2037 / 1982 / 2041B**
+- Resident trimmed: **35,822B**
+- TAP: **35,902B**
+- BSS slack before `ring_buffer`: **276B**
+- Overlays: **1704 / 1774 / 1944 / 1750 / 1902 / 1651 / 1834 / 1884B**
+
+### Release-candidate fixes after the April checkpoint
+
+- **Bookmark channel isolation**: fixed the `!bm` path where loading one bookmark could connect to that bookmark's server but replay channels from another bookmark. Bookmark storage now writes its channel snapshot from overlay scratch state instead of mutating global `autojoin_channels`.
+- **BPE/raw overlay safety**: restored raw literals for direct `st_stricmp()` and direct-render overlay paths after the resident string import shrink exposed BPE-compressed strings to raw consumers.
+- **NAMES join latency**: added the HW-validated `friend_initial_match()` gate before expensive friend matching during automatic NAMES bursts. User-count semantics and final 366 handling are unchanged.
+- **Normal text render speed**: added the HW-validated `_main_puts` fast path that promotes safe even-column ASCII chunks to `_print_line64_fast`, while BPE, wrap, newline, short, odd-column, and overlay cases keep the old path.
+- **Rejected prototypes recorded**: scanline-level UART drain during scroll was rejected because it made scroll feel irregular; status-bar backlog deferral was rejected because it could delay clock/status freshness.
 
 ### Functional fixes
 

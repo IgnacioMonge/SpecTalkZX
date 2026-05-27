@@ -37,15 +37,15 @@ static const uint8_t wn_logo_packed[394] = {
 /* Packed changelog: null-terminated entries, walk with pointer */
 static const char wn_changes[] =
     "RTC clock support\0"
-    "IRC session bookmarks + autojoin\0"
+    "IRC session bookmarks\0"
+    "Bookmark channel restore fix\0"
     "New /mode, /reply, /notice\0"
     "Symbol Shift word navigation\0"
-    "New animated !about page\0"
+    "Animated !about page\0"
+    "Faster chat text rendering\0"
     "Faster SD overlay loading\0"
-    "Faster render and UART paths\0"
-    "Better /names for big channels\0"
+    "Better /names on join\0"
     "Spanish UTF-8 support\0"
     "Search UX improvements\0"
     "Safer NickServ auto-identify\0"
-    "And much much more!\0"
 ;
