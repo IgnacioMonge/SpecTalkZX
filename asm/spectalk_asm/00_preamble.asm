@@ -108,6 +108,7 @@ PUBLIC _channel_name_ptr
 PUBLIC _channel_flags_ptr
 PUBLIC _l_channel_flags_ptr
 PUBLIC _channel_dec_users
+PUBLIC _friend_initial_match
 PUBLIC _is_tracked_friend
 PUBLIC _irc_param_0
 PUBLIC _irc_param_1

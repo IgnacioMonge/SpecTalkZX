@@ -700,6 +700,39 @@ EXTERN _friend_nicks
 DEFC ITF_MAX_FRIENDS = 5
 DEFC ITF_NICK_SIZE = 18
 
+; uint8_t friend_initial_match(char c) __z88dk_fastcall
+; HL fastcall low byte holds c. Returns L=1 if any configured friend has same
+; folded first byte, else L=0. Used to avoid token mutation/casefold compare
+; for almost all NAMES nicks.
+PUBLIC _friend_initial_match
+_friend_initial_match:
+    ld a, (_friend_count)
+    or a
+    jr z, fim_no
+    ld b, a
+    ld a, l
+    or 0x20
+    ld c, a
+    ld de, _friend_nicks
+fim_loop:
+    ld a, (de)
+    or a
+    jr z, fim_next
+    or 0x20
+    cp c
+    jr z, fim_yes
+fim_next:
+    ld hl, ITF_NICK_SIZE
+    add hl, de
+    ex de, hl
+    djnz fim_loop
+fim_no:
+    ld l, 0
+    ret
+fim_yes:
+    ld l, 1
+    ret
+
 _is_tracked_friend:
     ld a, (_friend_count)
     or a

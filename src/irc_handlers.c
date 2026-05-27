@@ -44,6 +44,7 @@ static void h_numeric_default(void);
 static void session_autoidentify_done(void);
 extern uint8_t names_render_grid(char *p) __z88dk_fastcall;
 extern uint8_t names_count_line(char *p) __z88dk_fastcall;
+extern uint8_t friend_initial_match(char c) __z88dk_fastcall;
 // INTERNAL HELPERS
 // =============================================================================
 
@@ -1068,7 +1069,7 @@ static void h_numeric_353(void)
             while (*p == '@' || *p == '+' || *p == '~' || *p == '%' || *p == '&') p++;
             ns = p;
             while (*p && *p != ' ') p++;
-            if (p > ns) {
+            if (friend_initial_match(*ns) && p > ns) {
                 char sv = *p; *p = 0;
                 if (is_tracked_friend(ns)) {
                     if (names_friend_pos > 0 && names_friend_pos < 46) {
