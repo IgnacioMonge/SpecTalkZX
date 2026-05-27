@@ -284,7 +284,7 @@ pcf_validate_commit:
     ret c
     cp 60
     jr nc, pcf_fail
-    ld (_overlay_slot), a
+    ld (hl), a
 
     inc hl
     ld a, (hl)                ; minutes
@@ -293,7 +293,7 @@ pcf_validate_commit:
     ret c
     cp 60
     jr nc, pcf_fail
-    ld (_overlay_slot + 1), a
+    ld (hl), a
 
     inc hl
     ld a, (hl)                ; hours
@@ -302,7 +302,7 @@ pcf_validate_commit:
     ret c
     cp 24
     jr nc, pcf_fail
-    ld (_overlay_slot + 2), a
+    ld (hl), a
 
     inc hl
     ld a, (hl)                ; day

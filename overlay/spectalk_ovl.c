@@ -256,7 +256,7 @@ void windows_render_ovl(void)
             main_putc(':');
 
             if (i == 0) {
-                main_puts("Server");
+                main_puts(S_SERVER);
             } else {
                 if (f & CH_FLAG_MENTION) {
                     set_attr_priv();

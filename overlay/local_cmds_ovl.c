@@ -97,7 +97,7 @@ static void set_or_toggle_flag_ovl(uint8_t *flag, const char *label, const char 
     } else {
         *flag = !*flag;
     }
-    sys_puts_print(label, *flag ? "on" : "off");
+    sys_puts_print(label, *flag ? SB_ON : SB_OFF);
     config_dirty = 1;
 }
 
@@ -137,8 +137,8 @@ void local_setting_cmd_ovl(void)
             last_ts_hour = 0xFF;
             last_ts_minute = 0xFF;
         }
-        sys_puts_print("Timestamps: ", show_timestamps == 0 ? "off" :
-                       show_timestamps == 1 ? "on" : "smart");
+        sys_puts_print("Timestamps: ", show_timestamps == 0 ? SB_OFF :
+                       show_timestamps == 1 ? SB_ON : SB_SMART);
         config_dirty = 1;
     } else if (id <= 9 && flags[id].ptr) {
         set_or_toggle_flag_ovl(flags[id].ptr, flags[id].label, args);
@@ -177,9 +177,9 @@ void autoaway_cmd_ovl(void)
         main_puts(": ");
         if (autoaway_minutes) {
             puts_u8_nolz(autoaway_minutes);
-            main_print(" min");
+            main_print(SB_MIN);
         } else {
-            main_print("off");
+            main_print(SB_OFF);
         }
         goto done;
     }
@@ -196,7 +196,7 @@ void autoaway_cmd_ovl(void)
     {
         uint16_t raw = str_to_u16(args);
         if (raw < 1 || raw > 60) {
-            ui_err("Range: 1-60 minutes (0=off)");
+            ui_err(SB_RANGE_MINUTES);
             goto done;
         }
         autoaway_minutes = (uint8_t)raw;
@@ -207,7 +207,7 @@ void autoaway_cmd_ovl(void)
     main_puts(S_AUTOAWAY);
     main_puts(" set to ");
     puts_u8_nolz(autoaway_minutes);
-    main_print(" min");
+    main_print(SB_MIN);
     config_dirty = 1;
 
 done:

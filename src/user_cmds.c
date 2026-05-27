@@ -638,8 +638,10 @@ static void bookmark_load_current(void)
 static void bookmark_save_current(void)
 {
     uint8_t slot = bookmark_sel + 1;
+
+    if (connection_state < STATE_IRC_READY) search_pattern[0] = 0;
     snapshot_autojoin_channels();
-    st_copy_n(autojoin_channels, search_pattern, SEARCH_PATTERN_SIZE);
+
     overlay_exec(2, 2);
     if (overlay_slot[0]) {
         bookmark_render_list();

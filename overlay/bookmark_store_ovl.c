@@ -114,7 +114,7 @@ void bookmarks_save_ovl(void)
     p = bm_put_field(p, irc_server);
     p = bm_put_field(p, irc_port);
     p = bm_put_field(p, irc_pass);
-    p = bm_put_field(p, autojoin_channels);
+    p = bm_put_field(p, search_pattern);
     p[-1] = '\n';
 
     expected = (uint16_t)(p - (char *)overlay_slot);
