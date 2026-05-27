@@ -723,6 +723,76 @@ _main_puts:
     ld a, (_overlay_mode)
     or a
     ret nz
+
+    ; Fast path for plain ASCII chunks starting on an even column.
+    ; BPE/newline/control/wrap/odd-column cases keep the old per-char path.
+    ld a, (_main_col)
+    bit 0, a
+    jr nz, puts_slow_entry
+    cp 64
+    jr nc, puts_slow_entry
+
+    ld c, a              ; C = start column
+    ld d, h
+    ld e, l              ; DE = original string
+    ld b, 0              ; B = visible byte count
+puts_fast_scan:
+    ld a, (hl)
+    or a
+    jr z, puts_fast_ready
+    cp 10
+    jr z, puts_fast_fallback
+    cp 32
+    jr c, puts_fast_fallback
+    cp 128
+    jr nc, puts_fast_fallback
+    inc b
+    ld a, b
+    add a, c
+    cp 65
+    jr nc, puts_fast_fallback
+    inc hl
+    jr puts_fast_scan
+
+puts_fast_ready:
+    ld a, b
+    or a
+    ret z
+    cp 4
+    jr c, puts_fast_fallback
+
+    ld a, c
+    rrca                 ; even column -> byte offset
+    ld (_plf_start_byte), a
+    ld a, b
+    inc a
+    srl a
+    ld (plf_pair_count), a
+
+    ld a, c
+    add a, b
+    push af              ; final main_col
+
+    ld a, (_current_attr)
+    ld b, a
+    ld c, d
+    push bc              ; [str_hi][attr]
+    ld a, (_main_line)
+    ld c, a
+    ld b, e
+    push bc              ; [y][str_lo]
+    call _print_line64_fast
+    pop bc
+    pop bc
+    pop af
+    ld (_main_col), a
+    ret
+
+puts_fast_fallback:
+    ld h, d
+    ld l, e
+
+puts_slow_entry:
     ; HL = string pointer
     ; Initialize BPE return stack (empty)
     ; Optimizaci?n: cargar globals una vez y mantener en registros
