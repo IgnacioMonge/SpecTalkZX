@@ -30,10 +30,10 @@ static uint16_t last_cmd_id;
 static char pkt_empty[1];
 
 // Friend accumulator for NAMES (353→366 batch notification)
-// OPT: Aliased onto notif_buf[64] (spectalk.c, included later in SCU) —
+// OPT: Aliased onto notif_buf[64] (fixed at $5B80) —
 // lifetimes are disjoint: 353 accumulates friends, 366 consumes and fires
-// notify() which overwrites notif_buf. Forward-declared here for SCU order.
-static char notif_buf[64];   // forward: actual storage, spectalk.c sees same symbol
+// notify() which overwrites notif_buf.
+extern char notif_buf[];
 #define names_friend_buf notif_buf
 static uint8_t names_friend_pos;
 

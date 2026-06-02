@@ -908,8 +908,10 @@ fwd_loop:
 
 ; PRINTER BUFFER (0x5B00 - 0x5BFF: 256 bytes, unused ? no ZX Printer)
 PUBLIC _input_cache_char
+PUBLIC _notif_buf
 
 defc _input_cache_char = 0x5B00  ; 128 bytes (INPUT_LINES * SCREEN_COLS)
+defc _notif_buf        = 0x5B80  ;  64 bytes notification/NAMES friend scratch
 ; 0x5BC0-0x5BFF: scratch transitorio mapeado en 00_preamble.asm. No persistente
 ; a llamadas esxDOS; render paths no cruzan esxDOS → estable mid-render.
 ; irc_pass, nickserv_pass, network_name en BSS (deben sobrevivir esxDOS).
