@@ -453,20 +453,25 @@ overlay_build: $(TAP)
 		exit 1; \
 	fi; \
 	printf "$(C_GRN)[OK]$(C_RESET) SPCTLK8.OVL: $$ovl8_size bytes (max 2048)\n"; \
-	echo "  Packing SPECTALK.OVL..."; \
-	dd if=$(BUILD_DIR)/SPCTLK1.OVL of=$(BUILD_DIR)/SPECTALK.OVL bs=2048 conv=sync 2>/dev/null; \
-	dd if=$(BUILD_DIR)/SPCTLK2.OVL of=$(BUILD_DIR)/SPECTALK.OVL bs=2048 conv=sync seek=1 2>/dev/null; \
-	dd if=$(BUILD_DIR)/SPCTLK3.OVL of=$(BUILD_DIR)/SPECTALK.OVL bs=2048 conv=sync seek=2 2>/dev/null; \
-	dd if=$(BUILD_DIR)/SPCTLK4.OVL of=$(BUILD_DIR)/SPECTALK.OVL bs=2048 conv=sync seek=3 2>/dev/null; \
-	dd if=$(BUILD_DIR)/SPCTLK5.OVL of=$(BUILD_DIR)/SPECTALK.OVL bs=2048 conv=sync seek=4 2>/dev/null; \
-	dd if=$(BUILD_DIR)/SPCTLK6.OVL of=$(BUILD_DIR)/SPECTALK.OVL bs=2048 conv=sync seek=5 2>/dev/null; \
-	dd if=$(BUILD_DIR)/SPCTLK7.OVL of=$(BUILD_DIR)/SPECTALK.OVL bs=2048 conv=sync seek=6 2>/dev/null; \
-	dd if=$(BUILD_DIR)/SPCTLK8.OVL of=$(BUILD_DIR)/SPECTALK.OVL bs=2048 conv=sync seek=7 2>/dev/null; \
-	printf "$(C_GRN)[OK]$(C_RESET) SPECTALK.OVL: $$(wc -c < $(BUILD_DIR)/SPECTALK.OVL) bytes (8 x 2048)\n"; \
-	rm -f $(BUILD_DIR)/SPCTLK[1-8].OVL; \
+	echo "  Packing SPECTALK.OVL atlas..."; \
+	dd if=$(BUILD_DIR)/SPCTLK1.OVL of=$(BUILD_DIR)/SPECTALK.FIXED.OVL bs=2048 conv=sync 2>/dev/null; \
+	dd if=$(BUILD_DIR)/SPCTLK2.OVL of=$(BUILD_DIR)/SPECTALK.FIXED.OVL bs=2048 conv=sync seek=1 2>/dev/null; \
+	dd if=$(BUILD_DIR)/SPCTLK3.OVL of=$(BUILD_DIR)/SPECTALK.FIXED.OVL bs=2048 conv=sync seek=2 2>/dev/null; \
+	dd if=$(BUILD_DIR)/SPCTLK4.OVL of=$(BUILD_DIR)/SPECTALK.FIXED.OVL bs=2048 conv=sync seek=3 2>/dev/null; \
+	dd if=$(BUILD_DIR)/SPCTLK5.OVL of=$(BUILD_DIR)/SPECTALK.FIXED.OVL bs=2048 conv=sync seek=4 2>/dev/null; \
+	dd if=$(BUILD_DIR)/SPCTLK6.OVL of=$(BUILD_DIR)/SPECTALK.FIXED.OVL bs=2048 conv=sync seek=5 2>/dev/null; \
+	dd if=$(BUILD_DIR)/SPCTLK7.OVL of=$(BUILD_DIR)/SPECTALK.FIXED.OVL bs=2048 conv=sync seek=6 2>/dev/null; \
+	dd if=$(BUILD_DIR)/SPCTLK8.OVL of=$(BUILD_DIR)/SPECTALK.FIXED.OVL bs=2048 conv=sync seek=7 2>/dev/null; \
+	$(PYTHON) tools/overlay_atlas_probe.py \
+		--packed $(BUILD_DIR)/SPECTALK.FIXED.OVL \
+		--out $(BUILD_DIR)/SPECTALK.OVL \
+		--sizes "$$ovl_size,$$ovl2_size,$$ovl3_size,$$ovl4_size,$$ovl5_size,$$ovl6_size,$$ovl7_size,$$ovl8_size" || exit 1; \
+	printf "$(C_GRN)[OK]$(C_RESET) SPECTALK.OVL: $$(wc -c < $(BUILD_DIR)/SPECTALK.OVL) bytes (STOA atlas)\n"; \
+	rm -f $(BUILD_DIR)/SPCTLK[1-8].OVL $(BUILD_DIR)/SPECTALK.FIXED.OVL; \
 	echo "  Cleaning build intermediates..."; \
 	rm -f $(BUILD_DIR)/*.o $(BUILD_DIR)/*.asm $(BUILD_DIR)/*.bin \
 		$(BUILD_DIR)/SPECTALK $(BUILD_DIR)/SP2.OVL \
+		$(BUILD_DIR)/SPECTALK.FIXED.OVL \
 		$(BUILD_DIR)/build.log \
 		$(BUILD_DIR)/bpe_dict.bin \
 		overlay/*.o $(OUTPUT)_CODE.bin 2>/dev/null; \

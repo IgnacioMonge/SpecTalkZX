@@ -36,46 +36,83 @@ _compute_attr_base:
 ; Renderers draw one explicit blank top scanline, 6 glyph scanlines, then one
 ; explicit blank bottom scanline.
 ; Data loaded from SPECTALK.DAT at startup:
-; [576 raw glyph rows][75 theme_raw] = 651 bytes contiguous.
+; [10 LUT bytes][288 packed glyph bytes][75 theme_raw] = 373 bytes contiguous.
 SECTION bss_user
 PUBLIC _font_lut
 _font_lut:
 font_lut:
-font64_raw6:
-    defs 576              ; 96 chars * 6 rows, LUT-expanded bytes
+    defs 10               ; nibble -> expanded 4px row byte LUT
+font64_packed:
+    defs 288              ; 96 chars * 3 bytes, 2 packed rows per byte
 PUBLIC _theme_raw
 _theme_raw:
     defs 75
 PUBLIC _bpe_dict
 _bpe_dict:
 bpe_dict:
-    defs 318
+    defs 222
 
 SECTION code_user
 
 ; =============================================================================
 ; GLYPH DECOMPRESSOR
 ; Input: A = char (ASCII 32-127)
-; Output: HL = pointer to the 6 raw source rows.
+; Output: HL = glyph_buffer, containing the 6 raw source rows.
 ; Preserves: IY (required by z88dk)
+; Preserves: BC, IX, IY.
 ; Destroys: AF, DE, HL.
 ; =============================================================================
 blank_glyph:
     defb 0, 0, 0, 0, 0, 0, 0
 
 unpack_glyph:
-    ; Calculate offset: (char - 32) * 6. The raw table stores exactly the
-    ; six non-padding glyph rows, already expanded to the old LUT byte values.
+    push bc
+    ; Calculate source offset: (char - 32) * 3 packed bytes.
     sub 32
     ld l, a
     ld h, 0
-    add hl, hl          ; *2
     ld d, h
-    ld e, l             ; DE = *2
-    add hl, hl          ; *4
-    add hl, de          ; *6
-    ld de, font64_raw6
+    ld e, l
+    add hl, hl          ; *2
+    add hl, de          ; *3
+    ld de, font64_packed
+    add hl, de          ; HL = packed glyph source
+    ld de, glyph_buffer ; DE = expanded glyph destination
+    ld b, 3
+
+ug_unpack_loop:
+    ld a, (hl)
+    inc hl
+    ld c, a
+    push hl
+    rrca
+    rrca
+    rrca
+    rrca
+    and 0x0F
+    call ug_lut_lookup
+    ld (de), a
+    inc de
+    ld a, c
+    and 0x0F
+    call ug_lut_lookup
+    ld (de), a
+    inc de
+    pop hl
+    djnz ug_unpack_loop
+
+    ld hl, glyph_buffer
+    pop bc
+    ret
+
+ug_lut_lookup:
+    push de
+    ld l, a
+    ld h, 0
+    ld de, font_lut
     add hl, de
+    ld a, (hl)
+    pop de
     ret
 
 ; =============================================================================

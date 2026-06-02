@@ -453,19 +453,21 @@ def expand_token(token_idx, dictionary, depth=0):
 # Output generation
 # ============================================================================
 
-BPE_DICT_BSS_SIZE = 318  # Must match spectalk_asm.asm bpe_dict defs
+BPE_DICT_BSS_SIZE = 222  # Must match asm/spectalk_asm/30_rendering.asm bpe_dict defs
 
 def generate_dict_binary(dictionary):
     """Generate dictionary as binary data (3 bytes per entry: b1, b2, 0x00).
-    Padded to BPE_DICT_BSS_SIZE to match BSS allocation."""
+    Keep the binary exact; BSS reserve must match the generated size."""
     data = bytearray()
     for a, b in dictionary:
         data.append(a)
         data.append(b)
         data.append(0)  # null terminator for stack-based expansion
-    # Pad to BSS size to prevent help text bleeding into dict
-    while len(data) < BPE_DICT_BSS_SIZE:
-        data.append(0)
+    if len(data) != BPE_DICT_BSS_SIZE:
+        raise ValueError(
+            f"BPE dict is {len(data)} bytes, but BSS reserve is "
+            f"{BPE_DICT_BSS_SIZE}; update bpe_dict defs and BPE_DICT_BSS_SIZE together"
+        )
     return bytes(data)
 
 

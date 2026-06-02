@@ -32,7 +32,7 @@ HDR_FILES = ["spectalk.h"]
 # The 64-col renderer accepts 32..127, while BPE tokens start at 128.
 SPANISH_N_CODE = 127
 SPANISH_N_PACKED = bytes((0x47, 0x66, 0x66))
-DAT_BASE_SIZE = 651
+DAT_BASE_SIZE = 373
 EARTH_FRAME_COUNT = 24
 EARTH_FRAME0_SIZE = 587
 EARTH_ATTR0_SIZE = 44
@@ -522,12 +522,8 @@ def main():
     n_tilde_off = (SPANISH_N_CODE - 32) * 3
     packed[n_tilde_off : n_tilde_off + 3] = SPANISH_N_PACKED
 
-    header = bytearray()
-    for ch in range(96):
-        off = ch * 3
-        for b in packed[off : off + 3]:
-            header.append(lut[(b >> 4) & 0x0F])
-            header.append(lut[b & 0x0F])
+    header = bytearray(lut)
+    header.extend(packed)
     header.extend(orig[298:373])  # themes
     with open(HELP_TEXT_PATH, "rb") as f:
         help_text = f.read()  # tracked help text source

@@ -1,5 +1,5 @@
 ;; overlay_loader.asm — Load and execute overlays from esxDOS
-;; All overlays packed in SPECTALK.OVL (2048B blocks).
+;; All overlays packed in SPECTALK.OVL as a variable-length atlas.
 ;; OVL code loaded into ring_buffer (2048B) for execution.
 ;; overlay_slot (512B, aliased to rx_line) available as scratch data buffer for overlays.
 
@@ -24,6 +24,8 @@ EXTERN _overlay_exit_full
 EXTERN _input_cache_invalidate
 EXTERN ___sdcc_enter_ix
 
+OVL_ATLAS_HEADER_LEN EQU 64
+
 ; void overlay_exec(uint8_t ovl_id, uint8_t entry_id) __z88dk_callee
 ; SDCC stack: [IX+4]=ovl_id, [IX+5]=entry_id
 PUBLIC _overlay_exec
@@ -40,31 +42,39 @@ _overlay_exec:
     or a
     jr z, ovl_fail
 
-    ; Set buffer to ring_buffer, count = 2048
+    ; Read atlas header into ring_buffer.
     ld hl, _ring_buffer
     ld (_esx_buf), hl
-    ld hl, 2048
+    ld hl, OVL_ATLAS_HEADER_LEN
     ld (_esx_count), hl
+    call _esx_fread
 
-    ; Seek to ovl_id block (each 2048B). Avoid reading previous overlay
-    ; blocks into ring_buffer just to discard them.
-    ld a, (ix+4)        ; ovl_id
+    ; Header must be complete before we trust table offsets/sizes.
+    ld hl, (_esx_result)
+    ld a, h
     or a
-    jr z, ovl_read      ; ovl_id=0: already at start
-    call ovl_seek_block
+    jr nz, ovl_fail_close
+    ld a, l
+    cp OVL_ATLAS_HEADER_LEN
+    jr nz, ovl_fail_close
+
+    ; Resolve ovl_id to payload offset/size, then seek to that payload.
+    call ovl_atlas_select
+    jr c, ovl_fail_close
+    call _esx_fseek_set
     jr c, ovl_fail_close
 
 ovl_read:
-    ; Read the actual OVL block (2048B into ring_buffer)
+    ; Read the exact overlay payload into ring_buffer.
     call _esx_fread
     call _esx_fclose
     call _input_cache_invalidate
 
-    ; Overlay blocks are fixed-size; never execute a partial/stale ring load.
+    ; Never execute a partial/stale ring load.
     ld hl, (_esx_result)
-    ld a, h
-    sub 8
-    or l
+    ld de, (ovl_loaded_len)
+    or a
+    sbc hl, de
     jr nz, ovl_fail
 ovl_read_ok:
 
@@ -81,17 +91,9 @@ ovl_read_ok:
     ld e, (hl)
     inc hl
     ld d, (hl)          ; DE = absolute entry address
-    ; Reject corrupted entry pointers outside the loaded 2K overlay block.
-    push de
-    ex de, hl
-    ld de, _ring_buffer
-    or a
-    sbc hl, de          ; HL = entry - ring_buffer
-    jr c, ovl_bad_entry
-    ld a, h
-    cp 8                ; offset >= 2048?
-    jr nc, ovl_bad_entry
-    pop de
+    ; Reject corrupted entry pointers outside the loaded overlay body.
+    call ovl_entry_in_loaded
+    jr c, ovl_fail
     push de             ; preserve entry address while RX cleanup uses DE
 
     ; The overlay has overwritten ring_buffer. Drop any pre-load UART bytes
@@ -121,10 +123,6 @@ ovl_write_rx_overflow:
     push de             ; push caller's return address back
     jp (hl)             ; jump to overlay — its ret goes back to caller
 
-ovl_bad_entry:
-    pop de
-    jr ovl_fail
-
 ovl_fail_close:
     call _esx_fclose
     jr ovl_fail
@@ -138,15 +136,69 @@ ovl_fail:
     ld hl, ovl_err_msg
     jp _ui_err          ; tail call
 
-; A = ovl_id (1..n). Seek SPECTALK.OVL to ovl_id * 2048.
-; F_SEEK takes 32-bit BCDE distance and whence=SET in IXL.
-ovl_seek_block:
+; Header format: "STOA", version, count, header_len, then <offset,size> words.
+; Output: HL = payload offset, ovl_loaded_len/_esx_count = payload size.
+; Carry set means invalid atlas/ovl_id.
+ovl_atlas_select:
+    ld hl, _ring_buffer
+    ld a, (hl)
+    cp 'S'
+    jr nz, ovl_atlas_bad
+    inc hl
+    ld a, (hl)
+    cp 'T'
+    jr nz, ovl_atlas_bad
+    inc hl
+    ld a, (hl)
+    cp 'O'
+    jr nz, ovl_atlas_bad
+    inc hl
+    ld a, (hl)
+    cp 'A'
+    jr nz, ovl_atlas_bad
+    inc hl
+    ld a, (hl)
+    cp 1
+    jr nz, ovl_atlas_bad
+    inc hl
+    ld a, (ix+4)        ; ovl_id
+    cp (hl)             ; ovl_id < overlay_count?
+    jr nc, ovl_atlas_bad
+
     add a, a
-    add a, a
-    add a, a            ; A = ovl_id * 8, high byte of low word
-    ld h, a
-    ld l, 0             ; HL = ovl_id * 2048
-    jp _esx_fseek_set   ; preserves IX/IY and Carry from F_SEEK
+    add a, a            ; table offset = 8 + ovl_id * 4
+    add a, 8
+    ld l, a             ; H still high(_ring_buffer)
+    ld e, (hl)
+    inc hl
+    ld d, (hl)          ; DE = payload offset
+    inc hl
+    ld c, (hl)
+    ld a, c
+    ld (ovl_loaded_len), a
+    ld (_esx_count), a
+    inc hl
+    ld b, (hl)
+    ld a, b
+    ld (ovl_loaded_len+1), a
+    ld (_esx_count+1), a
+    or c
+    jr z, ovl_atlas_bad
+    ld a, b
+    cp 8
+    jr c, ovl_atlas_size_ok
+    jr nz, ovl_atlas_bad
+    ld a, c
+    or a
+    jr nz, ovl_atlas_bad
+ovl_atlas_size_ok:
+    ex de, hl           ; HL = payload offset
+    or a
+    ret
+
+ovl_atlas_bad:
+    scf
+    ret
 
 ; void overlay_call(uint8_t entry_id) __z88dk_fastcall
 ; Call entry in ALREADY-LOADED overlay (ring_buffer). No disk I/O.
@@ -163,22 +215,36 @@ _overlay_call:
     ld      e, (hl)
     inc     hl
     ld      d, (hl)          ; DE = entry function address
-    ; Reject corrupt entry pointers outside the resident overlay block.
+    ; Reject corrupt entry pointers outside the resident overlay body.
+    call    ovl_entry_in_loaded
+    ret     c
+    ex      de, hl
+    jp      (hl)             ; jump — overlay's ret returns to caller
+
+; DE = candidate entry address. Carry set means outside the loaded body.
+; Fixed-format overlays initialize this to 2048; atlas loading will narrow it.
+ovl_entry_in_loaded:
     push    de
     ex      de, hl
     ld      de, _ring_buffer
     or      a
+    sbc     hl, de           ; HL = entry - ring_buffer
+    jr      c, ovl_entry_bad
+    ld      de, (ovl_loaded_len)
+    or      a
     sbc     hl, de
-    jr      c, ovl_call_bad
-    ld      a, h
-    cp      8
-    jr      nc, ovl_call_bad
-    pop     hl
-    jp      (hl)             ; jump — overlay's ret returns to caller
-
-ovl_call_bad:
+    jr      nc, ovl_entry_bad ; offset >= loaded_len
     pop     de
+    or      a
     ret
+
+ovl_entry_bad:
+    pop     de
+    scf
+    ret
+
+ovl_loaded_len:
+    DEFW    2048
 
 ; void overlay_call_timed(uint8_t entry_id) __z88dk_fastcall
 ; Same ABI as overlay_call, but enables IM1 interrupts while the overlay entry
