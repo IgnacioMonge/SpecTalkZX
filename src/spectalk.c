@@ -2053,6 +2053,7 @@ void force_disconnect(void)
     away_reply_cd = 0;
     autoaway_counter = 0;
     autoaway_active = 0;
+    ping_latency = 0;
     
     // sntp_init_sent NOT reset — AT+CIPSNTPCFG persists in ESP8266
     sntp_waiting = 0;
@@ -2072,6 +2073,9 @@ void force_disconnect(void)
     autojoin_ident_grace = 0;
     
     cancel_search_state();
+    post_cancel_quiet = 0;
+    count_sync_idle_frames = 0;
+    count_sync_quits = 0;
     
     reset_rx_state();
 
