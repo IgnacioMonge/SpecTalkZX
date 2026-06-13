@@ -38,6 +38,7 @@ _compute_attr_base:
 ; Data loaded from SPECTALK.DAT at startup:
 ; [10 LUT bytes][288 packed glyph bytes][75 theme_raw] = 373 bytes contiguous.
 SECTION bss_user
+; Not CRT-zeroed: this block is populated from SPECTALK.DAT before first use.
 PUBLIC _font_lut
 _font_lut:
 font_lut:
@@ -168,29 +169,29 @@ cli_px_loop:
     ret
 
 ; -----------------------------------------------------------------------------
-; void clear_line(uint8_t y, uint8_t attr)
-; Stack: [IX+4]=y, [IX+5]=attr
+; void clear_line(uint8_t y, uint8_t attr) __z88dk_callee
+; Stack: [ret][y][attr]
 ; -----------------------------------------------------------------------------
 _clear_line:
-    call ___sdcc_enter_ix
-    
-    ld a, (ix+4)
-    ld c, (ix+5)
-    call cli_internal
-    
-    pop ix
-    ret
+    pop de              ; return
+    pop hl              ; L = y, H = attr
+    push de             ; restore return address
+    ld a, l
+    ld c, h
+    jp cli_internal
 
 ; -----------------------------------------------------------------------------
-; void clear_zone(uint8_t start, uint8_t lines, uint8_t attr)
-; Stack: [IX+4]=start, [IX+5]=lines, [IX+6]=attr (sdcc_iy byte-packed)
+; void clear_zone(uint8_t start, uint8_t lines, uint8_t attr) __z88dk_callee
+; Stack: [ret][start][lines][attr] (sdcc_iy byte-packed)
 ; -----------------------------------------------------------------------------
 _clear_zone:
-    call ___sdcc_enter_ix
-    
-    ld a, (ix+4)        ; start
-    ld b, (ix+5)        ; lines
-    ld c, (ix+6)        ; attr
+    pop de              ; return
+    pop bc              ; C = start, B = lines
+    pop hl              ; L = attr (1B param, reads one byte past args)
+    dec sp              ; compensate the byte over-read
+    push de             ; restore return address
+    ld a, c             ; start
+    ld c, l             ; attr
 
     ; Si lines == 0, salir. inc/dec preserva B y refleja Z sin tocar A.
     inc b
@@ -203,7 +204,6 @@ cz_loop:
     djnz cz_loop
 
 cz_done:
-    pop ix
     ret
 
 ; =============================================================================
@@ -810,6 +810,8 @@ pci_char_addr:
 ; Optimized: procesa pares de columnas, calcula screen addr 1 vez,
 ; escribe bytes completos (sin AND/OR de preservaci?n), attr fill al final.
 ; -----------------------------------------------------------------------------
+; Uses IYL as pair counter after saving IY; safe only under the mainline DI
+; contract, not inside overlay_call_timed()'s EI window.
 _print_line64_fast:
     call ___sdcc_enter_ix
     push iy
@@ -1005,6 +1007,7 @@ plf_no_ldir:
 ; Columns 54..63 are owned by draw_clock() and draw_indicator(); keeping this
 ; left render bounded avoids right-side flicker when user counts update.
 ; -----------------------------------------------------------------------------
+; Same IYL/DI contract as _print_line64_fast.
 _print_status_left54_fast:
     ld a, 27
     ld (plf_pair_count), a

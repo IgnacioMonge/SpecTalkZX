@@ -18,6 +18,8 @@
 ; =============================================================================
 ; BSS ZEROING - runs before main() via code_crt_init
 ; Allows the TAP binary to be truncated before BSS (saving ~4KB of zeros)
+; Only compiler BSS is zeroed here; SECTION bss_user must be DAT-loaded or
+; write-before-read before first use.
 ; =============================================================================
 SECTION code_crt_init
 EXTERN __data_compiler_tail
@@ -25,6 +27,9 @@ EXTERN __bss_compiler_tail
 EXTERN ___sdcc_enter_ix
 EXTERN _cur_chan_ptr
 EXTERN _current_channel_idx
+    ; Mainline DI contract: ROM IM1 needs IY=0x5C3A, while sdcc_iy uses IY.
+    ; Keep interrupts off outside frame_wait()/overlay_call_timed().
+    di
     ld hl, __bss_compiler_tail
     ld de, __data_compiler_tail
     or a
@@ -180,6 +185,16 @@ PUBLIC _input_word_right
 PUBLIC _input_delete_word
 PUBLIC _input_line_start
 PUBLIC _input_line_end
+PUBLIC _pkt_usr
+PUBLIC _pkt_par
+PUBLIC _pkt_rest
+PUBLIC _pkt_txt
+PUBLIC _pkt_cmd
+PUBLIC _last_cmd_id
+PUBLIC _pkt_empty
+PUBLIC _names_friend_pos
+PUBLIC _nb_p
+PUBLIC _net_short_buf
 
 ; =============================================================================
 ; EXTERNAL VARIABLES AND FUNCTIONS (defined in C or other .asm)
@@ -240,7 +255,9 @@ EXTERN _rx_overflow
 EXTERN _rx_last_len
 
 ; Ignore list (para is_ignored)
-EXTERN _ignore_list
+; Fixed high RAM: ring_buffer ends at $FCFF, stack reserve starts at $FD58.
+PUBLIC _ignore_list
+defc _ignore_list = 0xFD00  ; 80B (MAX_IGNORES * 16), $FD00-$FD4F
 EXTERN _ignore_count
 ; _big_status removed (big mode eliminated)
 
@@ -269,15 +286,27 @@ PUBLIC _plf_start_byte
 defc _plf_start_byte = 0x5BD2  ; 1B  wrap_indent/2 (seteado por callers ASM)
 defc bpe_rstack      = 0x5BD3  ; 16B BPE return stack (8 niveles x 2B)
 defc bpe_rsp         = 0x5BE3  ; 2B  BPE stack pointer
+defc _net_short_buf  = bpe_rstack ; 12B status temp, copied before render/BPE
 ; $5BE5-$5BE6 2B  main_print_wrapped_ram() last-space scratch
 ; $5BE7-$5BEE 8B  C fmt_buf transient decimal/time scratch
 defc plf_pair_count  = 0x5BEF  ; 1B  optional print_line64_fast pair limit
-; $5BF0-$5BFF (16B libres para futuro scratch transitorio)
+; $5BF0-$5BFF 16B IRC parser context. No esxDOS while live; render scratch
+; stops at $5BEF, so handlers can print without corrupting packet globals.
+defc _pkt_usr          = 0x5BF0  ; 2B
+defc _pkt_par          = 0x5BF2  ; 2B
+defc _pkt_rest         = 0x5BF4  ; 2B
+defc _pkt_txt          = 0x5BF6  ; 2B
+defc _pkt_cmd          = 0x5BF8  ; 2B
+defc _last_cmd_id      = 0x5BFA  ; 2B
+defc _pkt_empty        = 0x5BFC  ; 1B zero sentinel
+defc _names_friend_pos = 0x5BFD  ; 1B
+defc _nb_p             = 0x5BFE  ; 2B
 
 ; =============================================================================
 ; VARIABLES BSS (solo las que deben sobrevivir a llamadas esxDOS RST 8)
 ; =============================================================================
 SECTION bss_user
+; Not CRT-zeroed. cache_row_y is explicitly invalidated to avoid false hits.
 cache_scr_base: defs 2  ; Screen base addr cacheada (print_str64_char)
 cache_atr_base: defs 2  ; Attr base addr cacheada (print_str64_char)
 cache_row_y:   defs 1   ; Fila Y del cache (0xFF = inv?lido)

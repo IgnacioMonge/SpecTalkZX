@@ -354,21 +354,19 @@
 	EXTERN _st_copy_n_cleanup
 %0call%1_st_copy_n_cleanup
 
-;; OPT-COPT-33: st_stricmp cdecl cleanup (call + pop×2 → call wrapper, 29 sites)
+;; OPT-COPT-33: legacy st_stricmp cdecl cleanup (call + pop×2 -> callee call)
 %0call%1_st_stricmp
 %0pop%1af
 %0pop%1af
 =
-	EXTERN _st_stricmp_cleanup
-%0call%1_st_stricmp_cleanup
+%0call%1_st_stricmp
 
-;; OPT-COPT-34: st_stristr cdecl cleanup (call + pop×2 → call wrapper, 10 sites)
+;; OPT-COPT-34: legacy st_stristr cdecl cleanup (call + pop×2 -> callee call)
 %0call%1_st_stristr
 %0pop%1af
 %0pop%1af
 =
-	EXTERN _st_stristr_cleanup
-%0call%1_st_stristr_cleanup
+%0call%1_st_stristr
 
 ;; OPT-COPT-35: Boolean materialization NZ (7→5 bytes, ~19 sites)
 ;; jr NZ,L1 / ld a,1 / jr L2 / L1: / xor a / L2: → ld a,0 / jr NZ,L2 / inc a / L2:

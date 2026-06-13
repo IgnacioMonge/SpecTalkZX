@@ -37,11 +37,12 @@ EXTERN _rx_last_len
 EXTERN _earth_ready
 EXTERN _frame_idx
 
-DEFC EARTH_FRAME0_OFFSET = 969
+DEFC EARTH_FRAME0_OFFSET = 595
 DEFC EARTH_FRAME0_SIZE = 587
 DEFC EARTH_ATTR0_SIZE  = 44
-DEFC EARTH_ATTR0_OFFSET = 1556
-DEFC EARTH_DELTA_OFFSET = 2560
+DEFC EARTH_ATTR0_OFFSET = 1182
+DEFC EARTH_DELTA_OFFSET = 2048
+DEFC EARTH_PACKET_SIZE = 512
 DEFC EARTH_LOGO_PRELOAD_ROWS = EARTH_LOGO_H - 1
 DEFC EARTH_LOGO_PRELOAD_SIZE = EARTH_LOGO_PRELOAD_ROWS * EARTH_LOGO_W_BYTES
 DEFC TA_MSG_CHAN  = 2
@@ -320,20 +321,17 @@ blut_store:
 
 ;; Everything from _about_packet_slot up to _about_packet_slot_end is needed only
 ;; while ABOUT opens. Once entry 0 returns, globe ticks reuse this dead code area
-;; as a 481-byte packet buffer, so keep close/tick/seek/apply/draw code above.
+;; as the Earth packet buffer, so keep close/tick/seek/apply/draw code above.
 _about_packet_slot:
 _about_render_ovl:
         call _about_close_ovl
 
         ld a,(_theme_attrs + TA_MAIN_BG)
-        ld c,a
-        ld b,0
-        push bc
+        push af
+        inc sp                          ; attr is a 1-byte callee arg
         ld bc,(19 << 8) | 2
         push bc
         call _clear_zone
-        pop bc
-        pop bc
         call _earth_draw_separator
 
         ld hl,_K_DAT
@@ -678,6 +676,7 @@ ENDIF
         INCLUDE "earth_logo.asm"
 
 SECTION bss_user
+;; Not CRT-zeroed; entry 0 reads/builds these before any globe tick uses them.
 _earth_frame_buffer:
         DS EARTH_FRAME0_SIZE
 _earth_attr_buffer:

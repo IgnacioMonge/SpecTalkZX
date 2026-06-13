@@ -21,18 +21,15 @@ _st_strlen:
     ret
 
 ; -----------------------------------------------------------------------------
-; int st_stricmp(const char *a, const char *b)
+; int st_stricmp(const char *a, const char *b) __z88dk_callee
 ; Comparaci?n case-insensitive
-; cdecl stack is restored after extracting a/b.
 ; Retorna: 0 si iguales, <0 si a<b, >0 si a>b
 ; -----------------------------------------------------------------------------
 _st_stricmp:
     pop bc                  ; return
     pop hl                  ; a
     pop de                  ; b
-    push de
-    push hl
-    push bc                 ; restore cdecl stack
+    push bc                 ; restore return address
 
 stricmp_loop:
     ld a, (hl)
@@ -83,18 +80,15 @@ irc_tolower:
     ret
 
 ; -----------------------------------------------------------------------------
-; const char* st_stristr(const char *hay, const char *needle)
+; const char* st_stristr(const char *hay, const char *needle) __z88dk_callee
 ; B?squeda case-insensitive de substring
 ; Retorna: puntero a primera ocurrencia, o NULL
-; cdecl stack is restored after extracting hay/needle.
 ; -----------------------------------------------------------------------------
 _st_stristr:
     pop bc                  ; return
     pop hl                  ; hay
     pop de                  ; needle
-    push de
-    push hl
-    push bc                 ; restore cdecl stack
+    push bc                 ; restore return address
     
     ; Validar needle
     ld a, d
@@ -158,8 +152,6 @@ _u16_to_dec:
     pop bc                  ; Retorno
     pop de                  ; dst
     pop hl                  ; v
-    push hl
-    push de
     push bc
     
     ex af, af'
@@ -344,10 +336,12 @@ _fast_fill_attr:
 _cls_fast:
     ; --- BORRADO DE BITMAP (0x4000..0x57FF) = 6144 bytes ---
     ; Stack clear: 6 * 256 iterations * 2 PUSHes = 6144 bytes.
-    ; Startup-only clear: the sole caller is init_screen(), reached after ROM
-    ; startup with interrupts enabled.  Use fixed DI/EI instead of saving IFF
-    ; with `ld a,i`, whose P/V result is affected by a known Z80 interrupt
-    ; acceptance edge case.
+    ; DI protects the SP=0x5800 trick. We do NOT re-enable interrupts: the
+    ; mainline DI contract requires interrupts OFF outside frame_wait()/
+    ; overlay_call_timed() (the only places that set IY=0x5C3A before EI).
+    ; A bare EI here left the ROM IM1 ISR running with SDCC's garbage IY,
+    ; corrupting RAM at boot right when the banner draws (random crash).
+    ; frame_wait() re-enables interrupts safely on the first main-loop tick.
     di
     ld (cls_restore_sp + 1), sp
     ld sp, 0x5800
@@ -361,7 +355,6 @@ cls_inner:
     jr nz, cls_inner
 cls_restore_sp:
     ld sp, 0
-    ei
 
     ; --- ATRIBUTOS ---
     jr _reapply_screen_attributes
@@ -381,7 +374,6 @@ _overlay_header:
     ld l, 3                 ; MAIN_START
     push hl
     call _clear_line
-    pop bc
 
     ld a, (_theme_attrs + TA_BANNER)
     and 0xBF
@@ -389,7 +381,6 @@ _overlay_header:
     ld l, 4                 ; MAIN_START + 1
     push hl
     call _clear_line
-    pop bc
 
     pop hl                  ; title
     ld a, (_theme_attrs + TA_BANNER)
@@ -446,8 +437,9 @@ _main_hline:
 ; void uart_drain_to_buffer(void)
 ; Lee bytes del UART y los mete en el Ring Buffer lo m?s r?pido posible.
 ; CR?TICO: Minimiza la latencia entre bytes para evitar p?rdida de datos en AY.
-; OPTIMIZED: loop counter in B, protected across call chain with PUSH/POP BC.
-; P11D2: P5-style inline read plus 2-poll inter-byte dwell after non-empty drains.
+; OPTIMIZED: inline ring push. Shadow HL'=head offset, DE'=tail offset;
+; main BC stays on the UART port. _rb_head is committed once on exit.
+; P11D2: P5-style inline read plus 4-poll inter-byte dwell after non-empty drains.
 ; =============================================================================
 
 DRAIN_ZXUNO_ADDR        EQU 0xFC3B
@@ -465,15 +457,15 @@ _uart_drain_to_buffer:
 
 drain_set_limit:
     ; Caso con l?mite (ej: 32 bytes)
-    ld b, a
-    ld c, 0                 ; C=1 once this call has pushed at least one byte
+    exx
+    ld hl, (_rb_head)
+    ld de, (_rb_tail)
+    exx                     ; HL'=head offset, DE'=tail offset
+    ld d, a                 ; D = remaining byte budget
+    ld e, 0                 ; E = 1 once this call has pushed at least one byte
+    ld bc, DRAIN_ZXUNO_ADDR
 
 drain_loop_start:
-    push bc                 ; preserve loop counter across calls
-
-    ; 2. Leer byte si hay datos
-drain_poll_status:
-    ld bc, DRAIN_ZXUNO_ADDR
     ld a, DRAIN_UART_STAT_REG
     out (c), a
     inc b
@@ -488,30 +480,45 @@ drain_read_ready:
     out (c), a
     inc b
     in a, (c)
-    ld l, a
 
-    ; 4. Meter en Ring Buffer
-    call _rb_push           ; Retorna L=1 (?xito) o 0 (Fallo/Lleno)
-    dec l
-    jr nz, drain_exit_full   ; Si buffer lleno (L era 0 -> 255), PARAR
+    ; Inline rb_push for the synchronous polling drain.
+    ; A = byte, main BC = UART port ($FD3B), shadow HL'=head, DE'=tail.
+    exx
+    ld b, h
+    ld c, l                 ; BC = current head offset
+    inc hl
+    res 3, h                ; future head = (head + 1) & 0x07FF
+    or a
+    sbc hl, de              ; full if future head == tail
+    add hl, de              ; restore future head; Z preserved
+    jr z, drain_ring_full
+    push hl                 ; save future head
+    ld hl, _ring_buffer
+    add hl, bc              ; HL = &_ring_buffer[current head]
+    ld (hl), a
+    pop hl                  ; HL' = future head
+    exx
+    dec b                   ; port back to $FC3B for the next status select
+    ld e, 1
+    dec d
+    jr nz, drain_loop_start
+    jr drain_commit_ret
 
-    ; Decrementar contador
-    pop bc
-    ld c, 1
-    djnz drain_loop_start
-    ret
+drain_ring_full:
+    ld h, b
+    ld l, c                 ; restore uncommitted current head
+    exx
+    jr drain_commit_ret
 
 drain_maybe_wait:
-    pop bc
-    ld a, c
+    ld a, e
     or a
     jr z, drain_exit_empty
 
     ; We already moved at least one byte. The inline path can re-poll before the
     ; next serial byte becomes visible, so wait about one 115200-baud byte time.
-    push bc
-    ld bc, DRAIN_ZXUNO_ADDR
-    ld e, 2
+    dec b                   ; port back to $FC3B after the failed status read
+    ld e, 4
 drain_wait_next:
     ld a, DRAIN_UART_STAT_REG
     out (c), a
@@ -522,14 +529,15 @@ drain_wait_next:
     dec b
     dec e
     jr nz, drain_wait_next
-    pop bc
-    ret
+    jr drain_commit_ret
 
 drain_exit_empty:
     ret
 
-drain_exit_full:
-    pop bc
+drain_commit_ret:
+    exx
+    ld (_rb_head), hl
+    exx
     ret
 
 ; =============================================================================

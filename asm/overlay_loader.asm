@@ -250,6 +250,8 @@ ovl_loaded_len:
 ; Same ABI as overlay_call, but enables IM1 interrupts while the overlay entry
 ; runs. Use only for ABOUT animation ticks: this lets ROM FRAMES advance during
 ; long DAT/draw work while keeping the normal mainline DI contract elsewhere.
+; Timed entries must not call resident render/text routines that use IYL.
+; esxDOS RST 8 under EI relies on wrappers preserving IY and esxDOS critical sections.
 PUBLIC _overlay_call_timed
 _overlay_call_timed:
     push    iy

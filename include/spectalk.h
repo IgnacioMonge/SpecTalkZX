@@ -212,14 +212,14 @@ void overlay_call_timed(uint8_t entry_id) __z88dk_fastcall;
 void cmd_save(const char *args) __z88dk_fastcall;
 uint8_t overlay_header(const char *title) __z88dk_fastcall;
 extern void draw_indicator(uint8_t y, uint8_t phys_x, uint8_t attr);
-extern void clear_line(uint8_t y, uint8_t attr);
-extern void clear_zone(uint8_t start, uint8_t lines, uint8_t attr);
+extern void clear_line(uint8_t y, uint8_t attr) __z88dk_callee;
+extern void clear_zone(uint8_t start, uint8_t lines, uint8_t attr) __z88dk_callee;
 // Compute screen row base: H = 0x40|(y&0x18), L = (y&7)<<5
 #define SCREEN_ROW_ADDR(y) ((uint16_t)(((0x40 | ((y) & 0x18)) << 8) | (((y) & 7) << 5)))
-extern int st_stricmp(const char *a, const char *b);
-extern const char* st_stristr(const char *hay, const char *needle);
+extern int st_stricmp(const char *a, const char *b) __z88dk_callee;
+extern const char* st_stristr(const char *hay, const char *needle) __z88dk_callee;
 extern uint8_t st_strlen(const char *s) __z88dk_fastcall;
-extern char* u16_to_dec(char *dst, uint16_t v);
+extern char* u16_to_dec(char *dst, uint16_t v) __z88dk_callee;
 extern uint16_t str_to_u16(const char *s) __z88dk_fastcall;
 extern void st_copy_n(char *dst, const char *src, uint8_t max_len);
 extern void uart_send_string(const char *s) __z88dk_fastcall;

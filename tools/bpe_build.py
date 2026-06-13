@@ -384,6 +384,7 @@ def patch_earth_render_consts(path, earth_offsets):
         "EARTH_ATTR0_SIZE": EARTH_ATTR0_SIZE,
         "EARTH_ATTR0_OFFSET": earth_offsets["EARTH_ATTR0_OFFSET"],
         "EARTH_DELTA_OFFSET": earth_offsets["EARTH_DELTA_OFFSET"],
+        "EARTH_PACKET_SIZE": earth_offsets["EARTH_PACKET_SIZE"],
     }
     for name, value in replacements.items():
         content, count = re.subn(

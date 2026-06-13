@@ -14,7 +14,7 @@
 # ------------------------------------------------------------
 CC      = zcc
 TARGET  = +zx
-PYTHON  ?= python
+PYTHON  ?= python3
 
 # ------------------------------------------------------------
 # Project
@@ -35,7 +35,15 @@ C_SOURCES    = src/main_build.c
 # Build options
 # ------------------------------------------------------------
 ASM_SOURCES  = asm/divmmc_uart.asm asm/spectalk_asm.asm asm/overlay_loader.asm
-ASM_MODULE_SOURCES := $(wildcard asm/spectalk_asm/*.asm)
+ASM_MODULE_SOURCES = asm/spectalk_asm/00_preamble.asm \
+                     asm/spectalk_asm/10_core_helpers.asm \
+                     asm/spectalk_asm/20_rx_ring_uart.asm \
+                     asm/spectalk_asm/30_rendering.asm \
+                     asm/spectalk_asm/40_text_numeric_screen.asm \
+                     asm/spectalk_asm/50_main_output.asm \
+                     asm/spectalk_asm/60_protocol_storage.asm \
+                     asm/spectalk_asm/70_input_lookup.asm \
+                     asm/spectalk_asm/80_ui_runtime.asm
 ASM_DEP_SOURCES = $(ASM_SOURCES) $(ASM_MODULE_SOURCES)
 BPE_INPUTS = src/spectalk.c src/irc_handlers.c src/user_cmds.c include/spectalk.h \
              src/SPECTALK.DAT src/SPECTALK_HELP.txt overlay/overlay_api.h \
@@ -48,6 +56,10 @@ BPE_INPUTS = src/spectalk.c src/irc_handlers.c src/user_cmds.c include/spectalk.
              release/about_earth/earth_logo.bin
 ZORG        = 24000
 STACK_SIZE  = 512
+BSS_RING_GUARD ?= 96
+BSS_RING_WARN  ?= 128
+HIGH_FIXED_START ?= 64768
+HIGH_FIXED_END   ?= 64847
 
 ifeq ($(SKIP_BPE),1)
 TAP_PREP :=
@@ -172,10 +184,11 @@ check:
 	@mkdir -p $(BUILD_DIR)
 	@sh -c '\
 		fail=0; \
-		for t in zcc wc sh; do \
+		for t in zcc z80asm z88dk-appmake wc sh grep sed head tail tee dd; do \
 			command -v "$$t" >/dev/null 2>&1 || { echo "[ERR] Missing tool: $$t"; fail=1; }; \
 		done; \
-		for f in $(C_SOURCES) $(ASM_DEP_SOURCES); do \
+		$(PYTHON) -c "import sys; raise SystemExit(sys.version_info < (3, 8))" >/dev/null 2>&1 || { echo "[ERR] Missing usable Python 3: $(PYTHON)"; fail=1; }; \
+		for f in $(C_SOURCES) $(ASM_DEP_SOURCES) $(BPE_INPUTS) tools/gen_whatsnew.py release/logo.png release/changes.txt release/version.txt; do \
 			[ -f "$$f" ] || { echo "[ERR] Missing file: $$f"; fail=1; }; \
 		done; \
 		[ "$$fail" = "0" ] || exit 2; \
@@ -200,7 +213,7 @@ clean:
 		cp $(BUILD_DIR)/bpe_originals/earth_about_render.asm overlay/ 2>/dev/null || true; \
 		cp $(BUILD_DIR)/bpe_originals/SPECTALK.DAT src/ 2>/dev/null || true; \
 	fi
-	@rm -f "$(OUTPUT)" "$(OUTPUT).tap" "$(TAP)" "$(MAP)" "$(LOG)" "$(BUILD_DIR)/SPECTALK.DAT" *.o *.bin *.sym 2>/dev/null || true
+	@rm -f "$(OUTPUT)" "$(OUTPUT).tap" "$(TAP)" "$(MAP)" "$(LOG)" "$(BUILD_DIR)/SPECTALK.DAT" "$(BUILD_DIR)"/*.OVL *.o *.bin *.sym 2>/dev/null || true
 	@rm -rf "$(BUILD_DIR)/bpe_src" "$(BUILD_DIR)/bpe_final" "$(BUILD_DIR)/bpe_dict.bin" "$(BUILD_DIR)/bpe_originals" "$(BPE_STAMP)" 2>/dev/null || true
 	$(call OK,Clean complete.)
 	$(call HR)
@@ -304,7 +317,33 @@ trim: $(TAP) $(MAP)
 	      exit 1; \
 	    fi; \
 	    free=$$((62720 - bss_dec)); \
-	    printf "$(C_GRN)[OK]$(C_RESET) BSS guard: 0x$$bss_end < 0xF500 ($$free bytes free)\n"; \
+	    if [ "$$free" -lt "$(BSS_RING_GUARD)" ]; then \
+	      printf "$(C_RED)[FATAL]$(C_RESET) BSS/ring guard too small: $$free bytes free (min $(BSS_RING_GUARD))\n"; \
+	      exit 1; \
+	    fi; \
+	    if [ "$$free" -lt "$(BSS_RING_WARN)" ]; then \
+	      printf "$(C_YEL)[WARN]$(C_RESET) BSS guard tight: 0x$$bss_end < 0xF500 ($$free bytes free; warn < $(BSS_RING_WARN))\n"; \
+	    else \
+	      printf "$(C_GRN)[OK]$(C_RESET) BSS guard: 0x$$bss_end < 0xF500 ($$free bytes free)\n"; \
+	    fi; \
+	  fi; \
+	  ring_hex=$$(grep "_ring_buffer " $(MAP) | grep -o "\$$[0-9A-Fa-f]*" | head -1 | tr -d "\$$"); \
+	  stack_hex=$$(grep "TAR__register_sp" $(MAP) | grep -o "\$$[0-9A-Fa-f]*" | head -1 | tr -d "\$$"); \
+	  stack_size_hex=$$(grep "CRT_STACK_SIZE" $(MAP) | grep -o "\$$[0-9A-Fa-f]*" | head -1 | tr -d "\$$"); \
+	  if [ -n "$$ring_hex" ] && [ -n "$$stack_hex" ] && [ -n "$$stack_size_hex" ]; then \
+	    ring_dec=$$($(PYTHON) -c "print(0x$$ring_hex)"); \
+	    stack_dec=$$($(PYTHON) -c "print(0x$$stack_hex)"); \
+	    stack_size_dec=$$($(PYTHON) -c "print(0x$$stack_size_hex)"); \
+	    ring_end=$$((ring_dec + 2048)); \
+	    stack_low=$$((stack_dec - stack_size_dec)); \
+	    if [ "$$ring_end" -gt "$(HIGH_FIXED_START)" ]; then \
+	      printf "$(C_RED)[FATAL]$(C_RESET) high fixed RAM overlaps ring: ring end 0x%04X > 0x%04X\n" "$$ring_end" "$(HIGH_FIXED_START)"; \
+	      exit 1; \
+	    fi; \
+	    if [ "$(HIGH_FIXED_END)" -ge "$$stack_low" ]; then \
+	      printf "$(C_RED)[FATAL]$(C_RESET) high fixed RAM overlaps stack: fixed end 0x%04X >= stack low 0x%04X\n" "$(HIGH_FIXED_END)" "$$stack_low"; \
+	      exit 1; \
+	    fi; \
 	  fi; \
 	'
 
@@ -327,6 +366,7 @@ overlay:
 
 overlay_build: $(TAP)
 	$(call STEP,OVL,Building overlay)
+	@rm -f $(BUILD_DIR)/SPECTALK.OVL $(BUILD_DIR)/SPECTALK.FIXED.OVL $(BUILD_DIR)/SPCTLK[1-8].OVL
 	@SLOT=$$(grep '_ring_buffer ' $(MAP) | sed -n 's/.*= \$$\([0-9A-Fa-f]*\).*/\1/p' | head -1); \
 	if [ -z "$$SLOT" ]; then \
 		printf "$(C_RED)[ERR]$(C_RESET) _overlay_slot not found in $(MAP)\n"; \

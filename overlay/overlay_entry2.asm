@@ -14,9 +14,9 @@ EXTERN _earth_apply_attr_delta
 EXTERN _esx_fseek_set
 EXTERN _earth_draw_frame
 
-DEFC EARTH_PACKET_SIZE  = 467
+DEFC EARTH_PACKET_SIZE  = 512
 DEFC EARTH_FRAME_COUNT  = 24
-DEFC EARTH_DELTA_OFFSET = 2128
+DEFC EARTH_DELTA_OFFSET = 2048
 
 PUBLIC _globe_tick_ovl
 PUBLIC _earth_ready

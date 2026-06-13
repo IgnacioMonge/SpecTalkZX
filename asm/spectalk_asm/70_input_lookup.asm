@@ -627,7 +627,7 @@ _print_char64:
 PUBLIC _find_channel
 EXTERN _channels
 EXTERN _channel_count
-EXTERN _st_stricmp_cleanup
+EXTERN _st_stricmp
 
 DEFC FC_CH_SIZE = 32
 DEFC FC_FLAGS_OFS = 30
@@ -684,7 +684,7 @@ fc_ret_a:
 fc_check_name:
     push iy
     push hl
-    call _st_stricmp_cleanup
+    call _st_stricmp
     ld a, l
     or h
     ret
@@ -764,7 +764,7 @@ itf_loop:
     push bc
     push iy
     push de
-    call _st_stricmp_cleanup
+    call _st_stricmp
     ld a, l
     or h
     pop bc
@@ -912,7 +912,7 @@ sac_put_same:
 ; =============================================================================
 PUBLIC _find_query
 EXTERN _st_stricmp
-EXTERN _st_stricmp_cleanup
+EXTERN _st_stricmp
 EXTERN _channels        ; ChannelInfo[10], 32 bytes each
 EXTERN _channel_count
 EXTERN _irc_server
@@ -1037,7 +1037,7 @@ fq_ret_neg1_iy:
 fq_check_service:
     push iy             ; arg1: nick
     push hl             ; arg2: service string
-    call _st_stricmp_cleanup
+    call _st_stricmp
     ld a, l
     or h
     ret

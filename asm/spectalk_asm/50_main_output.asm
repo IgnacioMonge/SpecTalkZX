@@ -265,14 +265,37 @@ main_space_inline:
     jr z, msi_mask_set
     ld e, 0xF0
 msi_mask_set:
-    ld d, 8
-msi_loop:
     ld a, (hl)
     and e
     ld (hl), a
     inc h
-    dec d
-    jr nz, msi_loop
+    ld a, (hl)
+    and e
+    ld (hl), a
+    inc h
+    ld a, (hl)
+    and e
+    ld (hl), a
+    inc h
+    ld a, (hl)
+    and e
+    ld (hl), a
+    inc h
+    ld a, (hl)
+    and e
+    ld (hl), a
+    inc h
+    ld a, (hl)
+    and e
+    ld (hl), a
+    inc h
+    ld a, (hl)
+    and e
+    ld (hl), a
+    inc h
+    ld a, (hl)
+    and e
+    ld (hl), a
 
     ld hl, (cache_atr_base)
     ld a, b
@@ -725,7 +748,8 @@ _main_puts:
     ret nz
 
     ; Fast path for plain ASCII chunks starting on an even column.
-    ; BPE/newline/control/wrap/odd-column cases keep the old per-char path.
+    ; Odd-column starts keep the old path; special tails resume slow after
+    ; any safe even prefix has been rendered.
     ld a, (_main_col)
     bit 0, a
     jr nz, puts_slow_entry
@@ -740,32 +764,38 @@ puts_fast_scan:
     ld a, (hl)
     or a
     jr z, puts_fast_ready
-    cp 10
-    jr z, puts_fast_fallback
     cp 32
-    jr c, puts_fast_fallback
+    jr c, puts_fast_segment
     cp 128
-    jr nc, puts_fast_fallback
+    jr nc, puts_fast_segment
     inc b
     ld a, b
     add a, c
     cp 65
-    jr nc, puts_fast_fallback
+    jr nc, puts_fast_wrap_segment
     inc hl
     jr puts_fast_scan
 
 puts_fast_ready:
+puts_fast_segment:
     ld a, b
-    or a
-    ret z
     cp 4
     jr c, puts_fast_fallback
+    bit 0, b
+    jr z, puts_fast_segment_even
+    dec b
+    dec hl
+    ld a, b
+    cp 4
+    jr c, puts_fast_fallback
+
+puts_fast_segment_even:
+    push hl              ; tail pointer for slow path, or NUL for done
 
     ld a, c
     rrca                 ; even column -> byte offset
     ld (_plf_start_byte), a
     ld a, b
-    inc a
     srl a
     ld (plf_pair_count), a
 
@@ -786,7 +816,15 @@ puts_fast_ready:
     pop bc
     pop af
     ld (_main_col), a
-    ret
+    pop hl
+    ld a, (hl)
+    or a
+    ret z
+    jp puts_slow_entry
+
+puts_fast_wrap_segment:
+    dec b                ; current char would wrap; leave it for slow path
+    jr puts_fast_segment
 
 puts_fast_fallback:
     ld h, d
@@ -995,7 +1033,7 @@ ign_loop:
     ; Convenci?n C (stack): push right-to-left
     push hl             ; Arg2: nick
     push de             ; Arg1: list_item
-    call _st_stricmp_cleanup
+    call _st_stricmp
     
     ; Resultado en HL. Si es 0, hay coincidencia.
     ld a, h

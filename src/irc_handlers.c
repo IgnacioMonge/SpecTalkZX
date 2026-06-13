@@ -16,18 +16,18 @@
 // Handlers access these directly via fast memory loads.
 // =============================================================================
 static void print_topic_line(char *text) __z88dk_fastcall;
-static char *pkt_usr;
-static char *pkt_par;
-static char *pkt_rest;
-static char *pkt_txt;
-static char *pkt_cmd;
+extern char *pkt_usr;
+extern char *pkt_par;
+extern char *pkt_rest;
+extern char *pkt_txt;
+extern char *pkt_cmd;
 
 // OPT L7: Cache cmd_id para evitar re-parseo en handlers
-static uint16_t last_cmd_id;
+extern uint16_t last_cmd_id;
 
 // Empty string sentinel to keep parser globals valid even on malformed lines.
 // Must remain zero: parser initialization aliases all empty packet fields here.
-static char pkt_empty[1];
+extern char pkt_empty[];
 
 // Friend accumulator for NAMES (353→366 batch notification)
 // OPT: Aliased onto notif_buf[64] (fixed at $5B80) —
@@ -35,7 +35,7 @@ static char pkt_empty[1];
 // notify() which overwrites notif_buf.
 extern char notif_buf[];
 #define names_friend_buf notif_buf
-static uint8_t names_friend_pos;
+extern uint8_t names_friend_pos;
 
 // =============================================================================
 
@@ -49,7 +49,7 @@ extern uint8_t friend_initial_match(char c) __z88dk_fastcall;
 // =============================================================================
 
 // Notification string builder: global pointer + fastcall = ~6B per call
-static char *nb_p;
+extern char *nb_p;
 #define NB_END() (*nb_p = 0)
 
 static void nb(const char *s) __z88dk_fastcall

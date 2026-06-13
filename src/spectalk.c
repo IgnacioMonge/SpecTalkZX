@@ -446,7 +446,7 @@ static void refresh_other_channel_activity(void)
 // =============================================================================
 // IGNORE LIST
 // =============================================================================
-char ignore_list[MAX_IGNORES][16];
+extern char ignore_list[MAX_IGNORES][16];  // fixed high RAM, see 00_preamble.asm
 uint8_t ignore_count;
 
 // Add nick to ignore list, returns 1 on success
@@ -1296,16 +1296,9 @@ extern void main_print_time_prefix(void);
 //   - NUNCA escribe \0 al final (el caller debe hacerlo si lo necesita)
 // EJEMPLO: sb_append(buf, "ABC", buf+2) escribe "AB", retorna buf+2
 extern char *sb_append(char *dst, const char *src, const char *limit) __z88dk_callee;
+extern char net_short_buf[];
 
-// Variables estáticas para caché de repintado (estas SÍ deben ser estáticas para persistir)
-// OPT H6: Reducido de 64 a 57 (máximo usado: índice 56 + null)
-static char sb_left_part[57];  // Buffer estático (ahorra stack frame)
-
-// Extraer nombre de red del hostname: chat.freenode.net → freenode
-// OPT: net_short aliased onto sb_left_part[45..56] — safe because sb_append
-// copies net_short into sb_left_part[~25] (dest < source, no overlap corruption),
-// and extract_network_short is only called during draw_status_bar_real.
-#define net_short (sb_left_part + 45)
+// Extraer nombre de red del hostname: chat.freenode.net -> freenode
 static char *extract_network_short(char *hostname) __z88dk_fastcall ST_NAKED
 {
     (void)hostname;
@@ -1336,7 +1329,7 @@ ens_find_second:
 ens_copy_short:
     ld h, d
     ld l, e                         ; HL = src
-    ld de, _sb_left_part + 45       ; net_short
+    ld de, _net_short_buf           ; 12B transient status scratch
     ld b, 11
 ens_copy_loop:
     ld a, (hl)
@@ -1350,7 +1343,7 @@ ens_copy_done:
     xor a
     ld (de), a
     pop bc                          ; discard original hostname
-    ld hl, _sb_left_part + 45
+    ld hl, _net_short_buf
     ret
 
 ens_return_original:
@@ -1480,6 +1473,7 @@ uint8_t has_other_mention(void);
 
 void draw_status_bar_real(void)
 {
+    char sb_left_part[57];
     char *p = sb_left_part;
     char *const limit_end = sb_left_part + 54;  // cols 54+ reserved for clock
 

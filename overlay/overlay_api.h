@@ -23,11 +23,12 @@ extern void print_str64(uint8_t y, uint8_t col, const char *s, uint8_t attr)
     __z88dk_callee;
 extern void print_char64(uint8_t y, uint8_t col, uint8_t c, uint8_t attr)
     __z88dk_callee;
-extern void clear_line(uint8_t y, uint8_t attr);
+extern void clear_line(uint8_t y, uint8_t attr) __z88dk_callee;
 extern void print_big_str(uint8_t y, uint8_t col, const char *s, uint8_t attr)
     __z88dk_callee;
+/* Uses IYL as scratch after saving IY: call only from DI overlay paths. */
 extern void print_line64_fast(uint8_t y, const char *s, uint8_t attr);
-extern void clear_zone(uint8_t start, uint8_t lines, uint8_t attr);
+extern void clear_zone(uint8_t start, uint8_t lines, uint8_t attr) __z88dk_callee;
 extern void draw_badge_dither(uint8_t count) __z88dk_fastcall;
 extern void notif_draw(uint8_t start_col, const char *str, uint8_t attr);
 extern void notif_center(const char *str, uint8_t attr);
@@ -51,10 +52,10 @@ extern const uint8_t ikkle_packed[];
 extern char *skip_spaces(char *p) __z88dk_fastcall;
 extern char *split_at_space(char *p) __z88dk_fastcall;
 extern uint8_t st_strlen(const char *s) __z88dk_fastcall;
-extern int st_stricmp(const char *a, const char *b);
+extern int st_stricmp(const char *a, const char *b) __z88dk_callee;
 extern void st_copy_n(char *dst, const char *src, uint8_t max_len);
 extern uint16_t str_to_u16(const char *s) __z88dk_fastcall;
-extern char *u16_to_dec(char *dst, uint16_t v);
+extern char *u16_to_dec(char *dst, uint16_t v) __z88dk_callee;
 extern void fast_u8_to_str(char *buf, uint8_t val) __z88dk_callee;
 extern void puts_u8_nolz(uint8_t v) __z88dk_fastcall;
 
@@ -201,13 +202,13 @@ extern const char S_ANYKEY[];
 
 /* ===== Layout constants ===== */
 #define LINES_PER_PAGE  12
-#define BPE_HELP_OFFSET 13672
-#define EARTH_FRAME0_OFFSET 969
-#define EARTH_ATTR0_OFFSET 1556
-#define EARTH_LOGO_OFFSET 1600
-#define EARTH_DELTA_OFFSET 2128
-#define EARTH_DELTA_SIZE 11544
-#define EARTH_PACKET_SIZE 481
+#define BPE_HELP_OFFSET 14336
+#define EARTH_FRAME0_OFFSET 595
+#define EARTH_ATTR0_OFFSET 1182
+#define EARTH_LOGO_OFFSET 1226
+#define EARTH_DELTA_OFFSET 2048
+#define EARTH_DELTA_SIZE 12288
+#define EARTH_PACKET_SIZE 512
 #define EARTH_FRAME_COUNT 24
 #define EARTH_FRAME0_SIZE 587
 #define EARTH_ATTR0_SIZE 44

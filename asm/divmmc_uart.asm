@@ -6,6 +6,7 @@
 SECTION code_user
 
 EXTERN _frame_wait
+EXTERN _rb_push
 PUBLIC _ay_uart_init
 PUBLIC _ay_uart_send
 PUBLIC uartRead
@@ -103,11 +104,29 @@ _ay_uart_send:
     inc b           ; OPTIMIZACIÓN
 
     ; NOTE-M13: loop sin timeout. A 115200 baud tarda ~7 iteraciones (~300 T-states).
-    ; Un hang permanente aquí solo ocurriría por fallo físico del hardware UART.
+    ; While TX is busy, opportunistically drain one RX byte so outbound waits do
+    ; not become receive blackouts during server bursts.
 uartSend_wait_tx:
     in a, (c)
-    and UART_BYTE_SENDING
-    jr nz, uartSend_wait_tx
+    add a, a                ; TX-busy bit -> Sign, RX-ready bit -> Carry
+    jp p, uartSend_tx_ready
+    jr nc, uartSend_wait_tx
+
+    push hl                 ; preserve byte to send in L
+    dec b                   ; select UART DATA register through $FC3B
+    ld a, UART_DATA_REG
+    out (c), a
+    inc b
+    in a, (c)
+    ld l, a
+    call _rb_push
+    pop hl
+
+    ld bc, ZXUNO_ADDR       ; _rb_push clobbers BC; restore status port
+    ld a, UART_STAT_REG
+    out (c), a
+    inc b
+    jr uartSend_wait_tx
 
 uartSend_tx_ready:
     ; OPT: dec b switches BC from ZXUNO_REG (FD3B) to ZXUNO_ADDR (FC3B)

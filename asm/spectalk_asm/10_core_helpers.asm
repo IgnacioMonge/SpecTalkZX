@@ -291,30 +291,6 @@ _st_copy_n_cleanup:
     exx                 ; restore: HL = return address
     jp (hl)             ; return without push/ret
 
-; COPT-33/34: st_stricmp / st_stristr (HL = return value ? 29+10 sites)
-EXTERN _st_stricmp
-PUBLIC _st_stricmp_cleanup
-_st_stricmp_cleanup:
-    pop hl
-    exx
-    call _st_stricmp
-    jr _cdecl2_cleanup
-
-EXTERN _st_stristr
-PUBLIC _st_stristr_cleanup
-_st_stristr_cleanup:
-    pop hl
-    exx
-    call _st_stristr
-    ; fall through
-_cdecl2_cleanup:
-    pop af              ; cleanup param 1
-    pop af              ; cleanup param 2
-    exx                 ; HL = ret addr, HL' (alt) = return value
-    push hl             ; push ret addr
-    exx                 ; HL = return value
-    ret                 ; pop ret addr, return with correct HL
-
 ; -----------------------------------------------------------------------------
 ; Common beep core:
 ;   IN:  HL = duration loop count

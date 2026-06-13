@@ -597,7 +597,13 @@ static void overlay_exec_rx(uint8_t group, uint8_t entry)
 #define BOOKMARK_AUTOLOGIN 0x80
 #define BOOKMARK_OCCUPIED 0x80
 #define bookmark_save_config() cmd_save(NULL)
-#define bookmark_close_overlay() overlay_exit_full()
+
+static void bookmark_close_overlay(void)
+{
+    uint8_t discard = (rx_pos != 0) || rx_overflow;
+    overlay_exit_full();
+    if (discard) rx_overflow = 1;
+}
 
 #define bookmark_render() overlay_exec_rx(7, 0)
 #define bookmark_render_list() overlay_exec_rx(7, 2)

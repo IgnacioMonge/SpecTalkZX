@@ -207,7 +207,8 @@ rtc_pcf_read_ack:
     ld (hl), a
     call i2c_nack
     call i2c_stop
-    ei                        ; restore interrupts after I2C bit-bang
+    ; Leave IM1 disabled: mainline only enables it through guarded wait paths
+    ; that set IY=0x5C3A for the ROM ISR.
     jp pcf_validate_commit
 
 i2c_start:

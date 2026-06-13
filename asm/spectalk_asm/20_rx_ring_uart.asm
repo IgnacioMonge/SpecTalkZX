@@ -106,10 +106,19 @@ _rb_push_full:
 ; de forma segura sin escribir en memoria hasta encontrar el \n.
 ; -----------------------------------------------------------------------------
 _try_read_line_nodrain:
-    ; Cache tail and rx_line write pointer for this parser pass.  Head is
-    ; reloaded because UART drain may append between calls, but not inside this
-    ; routine.
+    ; Cache tail, available byte count, and rx_line write pointer for this
+    ; parser pass. UART drain cannot append while this routine is running.
     ld de, (_rb_tail)       ; DE = ring tail offset
+    ld hl, (_rb_head)
+    or a
+    sbc hl, de              ; HL = (head - tail) mod 2048 after mask
+    ld a, h
+    and 0x07
+    ld h, a
+    push hl
+    exx
+    pop bc                  ; BC' = bytes available in ring
+    exx
     ld hl, (_rx_pos)
     ld bc, _rx_line
     add hl, bc
@@ -117,10 +126,11 @@ _try_read_line_nodrain:
     ld c, l                 ; BC = &rx_line[rx_pos]
 
 trln_loop:
-    ; 1. Comprobar si hay datos (Head != Tail)
-    ld hl, (_rb_head)
-    or a
-    sbc hl, de
+    ; 1. Comprobar si quedan bytes del snapshot inicial
+    exx
+    ld a, b
+    or c
+    exx
     jr z, trln_return_0
     
     ; 2. Leer byte del anillo
@@ -131,6 +141,9 @@ trln_loop:
     ; 3. Avanzar Tail
     inc de
     res 3, d            ; M?scara 0x07: tail is 0..7FF, inc can only set bit 3
+    exx
+    dec bc              ; consume one byte from cached availability
+    exx
     
     ; 4. Analyze character
     cp 0x0D             ; Ignorar \r

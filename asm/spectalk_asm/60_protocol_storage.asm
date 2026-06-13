@@ -340,6 +340,7 @@ PUBLIC _esx_count
 PUBLIC _esx_result
 
 SECTION bss_user
+; Not CRT-zeroed: esx_* globals are set by callers/wrappers before each read.
 _esx_handle:  defs 1
 _esx_buf:     defs 2
 _esx_count:   defs 2
