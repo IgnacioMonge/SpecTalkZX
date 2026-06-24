@@ -216,12 +216,8 @@ wait_char_loop:
     ret
 
 skip_ipd_len:
-    call read_byte_timeout
-    ccf
-    ret c
-    cp ':'
-    jr nz, skip_ipd_len
-    ret
+    ld a, ':'
+    jr wait_char
 
 read_byte_timeout:
     ld b, 250

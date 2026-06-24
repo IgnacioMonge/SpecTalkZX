@@ -260,7 +260,7 @@ static void h_nick(void)
         if ((ch->flags & (CH_FLAG_ACTIVE | CH_FLAG_QUERY)) == (CH_FLAG_ACTIVE | CH_FLAG_QUERY)) {
             if (st_stricmp(ch->name, pkt_usr) == 0) {
                 st_copy_n(ch->name, new_nick, sizeof(channels[0].name));
-                
+
                 if (current_channel_idx == i) {
                     main_print_time_prefix();
                     set_attr_sys();
@@ -658,7 +658,7 @@ static void h_privmsg_notice(void)
                 deferred_wrap_start(pkt_txt);
             }
         }
-        
+
         // Auto-reply if away with custom message (global cooldown)
         if (irc_is_away && away_message[0] && !away_reply_cd) {
             // Use NOTICE to avoid loops/flood with other clients/bots
@@ -687,15 +687,15 @@ static void h_join(void)
 
         int8_t idx = find_channel(chan);
         if (idx < 0) idx = add_channel(chan);
-        
+
         if (idx < 0) { ui_err(S_MAXWIN); return; }
-        
+
         if ((uint8_t)idx != current_channel_idx) switch_to_channel((uint8_t)idx);
 
         // GUARD: re-copy name to slot — workaround for observed corruption
         // when joining channels rapidly while NAMES flood is in progress
         st_copy_n(channels[idx].name, chan, sizeof(channels[0].name));
-        
+
         channels[idx].user_count = 0;
         channels[idx].flags |= CH_FLAG_NAMING;
         counting_new_users = 1;
@@ -885,7 +885,7 @@ static void h_error(void)
 static void h_numeric_401(void)
 {
     const char *bad_nick = irc_param(1);
-    
+
     set_attr_err();
     main_puts("Error: ");
     if (*bad_nick) { main_puts(bad_nick); main_putc(' '); }  // audit L06
@@ -908,7 +908,7 @@ static void h_numeric_433(void)
         notify("Nick already in use", ATTR_ERROR);
         return;
     }
-    
+
     // Append underscore to nick and retry
     // OPT-P2-B: use shared helper
     nick_try_alternate();
@@ -935,13 +935,13 @@ static void h_numeric_305_306(void)
     // OPT L5: comparar tercer carácter ('5' vs '6') en lugar de str_to_u16
     uint8_t is_306 = (pkt_cmd[2] == '6');
     irc_is_away = is_306;
-    
+
     if (!is_306) {
         // Ya no away (305) - resetear sistema de auto-away
         autoaway_active = 0;
         autoaway_counter = 0;
     }
-    
+
     draw_status_bar();
     if (is_306 && away_message[0])
         notify2("Away: ", away_message, ATTR_MSG_SYS);
@@ -1104,7 +1104,7 @@ static void h_numeric_366(void)
 
     names_pending = 0;
     names_target_channel[0] = '\0';
-    
+
     // Commit user count to status bar:
     // - JOIN automático (names_was_manual=0): siempre actualizar
     // - /names manual (names_was_manual=1): solo si no hubo pérdida de datos ni cancelación
@@ -1113,7 +1113,7 @@ static void h_numeric_366(void)
     if (names_count_acc > 0 && (!names_was_manual || !search_data_lost)) {
         if (ci >= 0) channels[ci].user_count = names_count_acc;
     }
-    
+
     // Finalizar paginación de /names
     if (show_names_list && pagination_active) {
         names_print_summary(search_data_lost);
@@ -1122,7 +1122,7 @@ static void h_numeric_366(void)
     if (names_was_manual) {
         flush_all_rx_buffers();
     }
-    
+
     show_names_list = 0;
     names_was_manual = 0;  // Reset flag
 
@@ -1143,7 +1143,7 @@ static void h_numeric_366(void)
 static void h_numeric_321(void)
 {
     if (search_flush_state == 1) return;  // Todavía drenando
-    search_header_rcvd = 1;              
+    search_header_rcvd = 1;
     // 321 es solo el header, no hacemos nada visible
     // (ya mostramos "Searching..." al inicio)
 }
@@ -1507,7 +1507,7 @@ static void h_default_cmd(void)
     // (incluye fase de drenaje donde search_mode es SEARCH_NONE) y durante la
     // ventana de silencio post-cancel (residuos de lista cancelada).
     if (pagination_active || post_cancel_quiet) return;
-    
+
     set_attr_sys();
     main_print_time_prefix();
     main_puts2(">< ", pkt_cmd);
@@ -1537,7 +1537,7 @@ static void h_pong(void)
         ping_latency = 0;       // Good: < 400ms
     }
     status_bar_dirty = 1;       // Redraw indicator
-    
+
     // FIX ChatGPT audit: Borrar keepalive_ping_sent SOLO con PONG
     keepalive_ping_sent = 0;
     keepalive_timeout = 0;
@@ -1606,8 +1606,9 @@ static const CmdEntry CMD_TABLE[] = {
     { 0x4552, h_error },          // ER (ERROR)
     { 0x4341, h_cap },            // CA (CAP)
 
-    { 0,   NULL }
 };
+
+#define CMD_TABLE_COUNT ((uint8_t)(sizeof(CMD_TABLE) / sizeof(CMD_TABLE[0])))
 
 // =============================================================================
 // MAIN PARSING FUNCTIONS
@@ -1623,7 +1624,7 @@ void parse_irc_message(char *line) __z88dk_fastcall
     pkt_cmd = pkt_empty;
     irc_param_count = 0;
     irc_params_dirty = 0;
-    
+
     if (!line || !*line) return;
 
     while (*line && (line[0] == '>' || (uint8_t)*line <= 32 || (uint8_t)*line >= 127)) line++;
@@ -1707,7 +1708,7 @@ void parse_irc_message(char *line) __z88dk_fastcall
         } else {
             return;
         }
-        
+
         last_cmd_id = cmd_id;  // OPT L7: guardar para handlers
 
         // Manual /names owns the main area. Keep the normal pagination/cancel
@@ -1719,10 +1720,11 @@ void parse_irc_message(char *line) __z88dk_fastcall
         }
 
         {
-            const CmdEntry *n = CMD_TABLE;
-            while (n->id) {
-                if (n->id == cmd_id) { n->fn(); return; }
-                n++;
+            uint8_t n = CMD_TABLE_COUNT;
+            const CmdEntry *e = CMD_TABLE;
+            while (n--) {
+                if (e->id == cmd_id) { e->fn(); return; }
+                e++;
             }
         }
 

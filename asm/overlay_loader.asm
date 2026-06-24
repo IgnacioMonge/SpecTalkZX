@@ -141,26 +141,15 @@ ovl_fail:
 ; Carry set means invalid atlas/ovl_id.
 ovl_atlas_select:
     ld hl, _ring_buffer
-    ld a, (hl)
-    cp 'S'
+    ld de, ovl_atlas_magic
+    ld b, 5
+ovl_atlas_magic_loop:
+    ld a, (de)
+    cp (hl)
     jr nz, ovl_atlas_bad
+    inc de
     inc hl
-    ld a, (hl)
-    cp 'T'
-    jr nz, ovl_atlas_bad
-    inc hl
-    ld a, (hl)
-    cp 'O'
-    jr nz, ovl_atlas_bad
-    inc hl
-    ld a, (hl)
-    cp 'A'
-    jr nz, ovl_atlas_bad
-    inc hl
-    ld a, (hl)
-    cp 1
-    jr nz, ovl_atlas_bad
-    inc hl
+    djnz ovl_atlas_magic_loop
     ld a, (ix+4)        ; ovl_id
     cp (hl)             ; ovl_id < overlay_count?
     jr nc, ovl_atlas_bad
@@ -261,6 +250,10 @@ _overlay_call_timed:
     di
     pop     iy
     ret
+
+ovl_atlas_magic:
+    DEFM "STOA"
+    DEFB 1
 
 ovl_filename:
     DEFM "SPECTALK.OVL"
