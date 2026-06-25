@@ -41,24 +41,24 @@ Consulta [CHANGELOG.md](CHANGELOG.md) para el historial detallado, bugs corregid
 ## Capturas
 
 <p align="center">
-  <a href="images/snapshot-01.png"><img src="images/snapshot-01.png" width="300" alt="Captura SpecTalkZX 1.3.8 1"></a>
-  <a href="images/snapshot-02.png"><img src="images/snapshot-02.png" width="300" alt="Captura SpecTalkZX 1.3.8 2"></a>
-  <a href="images/snapshot-03.png"><img src="images/snapshot-03.png" width="300" alt="Captura SpecTalkZX 1.3.8 3"></a>
+  <a href="images/snapshot-01.png"><img src="images/snapshot-01.png" width="250" alt="Captura SpecTalkZX 1.3.8 1"></a>
+  <a href="images/snapshot-02.png"><img src="images/snapshot-02.png" width="250" alt="Captura SpecTalkZX 1.3.8 2"></a>
+  <a href="images/snapshot-03.png"><img src="images/snapshot-03.png" width="250" alt="Captura SpecTalkZX 1.3.8 3"></a>
 </p>
 <p align="center">
-  <a href="images/snapshot-04.png"><img src="images/snapshot-04.png" width="300" alt="Captura SpecTalkZX 1.3.8 4"></a>
-  <a href="images/snapshot-05.png"><img src="images/snapshot-05.png" width="300" alt="Captura SpecTalkZX 1.3.8 5"></a>
-  <a href="images/snapshot-06.png"><img src="images/snapshot-06.png" width="300" alt="Captura SpecTalkZX 1.3.8 6"></a>
+  <a href="images/snapshot-04.png"><img src="images/snapshot-04.png" width="250" alt="Captura SpecTalkZX 1.3.8 4"></a>
+  <a href="images/snapshot-05.png"><img src="images/snapshot-05.png" width="250" alt="Captura SpecTalkZX 1.3.8 5"></a>
+  <a href="images/snapshot-06.png"><img src="images/snapshot-06.png" width="250" alt="Captura SpecTalkZX 1.3.8 6"></a>
 </p>
 <p align="center">
-  <a href="images/snapshot-07.png"><img src="images/snapshot-07.png" width="300" alt="Captura SpecTalkZX 1.3.8 7"></a>
-  <a href="images/snapshot-08.png"><img src="images/snapshot-08.png" width="300" alt="Captura SpecTalkZX 1.3.8 8"></a>
-  <a href="images/snapshot-09.png"><img src="images/snapshot-09.png" width="300" alt="Captura SpecTalkZX 1.3.8 9"></a>
+  <a href="images/snapshot-07.png"><img src="images/snapshot-07.png" width="250" alt="Captura SpecTalkZX 1.3.8 7"></a>
+  <a href="images/snapshot-08.png"><img src="images/snapshot-08.png" width="250" alt="Captura SpecTalkZX 1.3.8 8"></a>
+  <a href="images/snapshot-09.png"><img src="images/snapshot-09.png" width="250" alt="Captura SpecTalkZX 1.3.8 9"></a>
 </p>
 <p align="center">
-  <a href="images/snapshot-10.png"><img src="images/snapshot-10.png" width="300" alt="Captura SpecTalkZX 1.3.8 10"></a>
-  <a href="images/snapshot-11.png"><img src="images/snapshot-11.png" width="300" alt="Captura SpecTalkZX 1.3.8 11"></a>
-  <a href="images/snapshot-12.png"><img src="images/snapshot-12.png" width="300" alt="Captura SpecTalkZX 1.3.8 12"></a>
+  <a href="images/snapshot-10.png"><img src="images/snapshot-10.png" width="250" alt="Captura SpecTalkZX 1.3.8 10"></a>
+  <a href="images/snapshot-11.png"><img src="images/snapshot-11.png" width="250" alt="Captura SpecTalkZX 1.3.8 11"></a>
+  <a href="images/snapshot-12.png"><img src="images/snapshot-12.png" width="250" alt="Captura SpecTalkZX 1.3.8 12"></a>
 </p>
 
 ---
