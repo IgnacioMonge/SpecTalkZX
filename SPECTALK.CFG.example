@@ -1,0 +1,31 @@
+; SpecTalkZX 1.3.8 example configuration
+; Copy as /SYS/CONFIG/SPECTALK.CFG or /SYS/SPECTALK.CFG on the SD card.
+; Boolean values: 0=off, 1=on unless noted.
+
+nick=MyNick
+server=irc.libera.chat
+port=6667
+pass=
+nickpass=
+nickserv=NickServ
+
+autoconnect=0
+autojoin=0
+channels=#spectrum,#zx
+
+theme=1
+timestamps=2
+beep=1
+click=1
+traffic=1
+divider=1
+countsync=1
+notif=1
+nickcolor=1
+
+autoaway=0
+tz=1
+tzlast=1
+
+friends=Friend1,Friend2
+ignores=NoisyNick

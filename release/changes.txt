@@ -2,11 +2,11 @@ RTC clock support
 IRC session bookmarks
 Bookmark channel restore fix
 New /mode, /reply, /notice
-Symbol Shift word navigation
+Optional count resync
 Animated !about page
 Faster chat text rendering
 Faster SD overlay loading
 Better /names on join
 Spanish UTF-8 support
 Search UX improvements
-Safer NickServ auto-identify
+Many stability and size fixes
