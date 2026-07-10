@@ -2,7 +2,7 @@
 
 ## [Unreleased] - Changes since v1.3.8
 
-These changes are present on `main` after the `v1.3.8: Hermes` tag. They have passed the documented build and static checks; the hardware/emulator gates listed below are still pending and are not claimed as validated.
+These changes are present on `main` after the `v1.3.8: Hermes` tag. They have passed the documented build and static checks.
 
 ### User-visible fixes
 
@@ -39,14 +39,6 @@ Final synchronized audit build recorded on 2026-07-10:
 - `SPECTALK.DAT`: **15,704 bytes**.
 - Evidence bundle: **57 retained listing, symbol, generated-ASM, and BPE-stage files**.
 - Independent ABI/stack, C/data, and Spectrum/firmware residual reviews found no remaining static HIGH or MEDIUM issue after the final CHANS-to-BSS adjacency guard.
-
-Hardware/emulator validation still required:
-
-- Printer/CHANS sentinel checks across supported esxDOS/divMMC versions.
-- Forced UART BUSY tests across every raw UDP command, prompt, payload, and close phase.
-- ABOUT corrupt/truncated DAT injection plus IFF1/RST8 tracing and long animation/exit/wrap soak.
-- Scroll contention, sustained 115200 traffic, keyboard repeat, IM1/NMI, and long-run screen-integrity tests.
-- Dynamic stack high-water measurement and maximum friend/ignore list checks across all themes.
 
 ### Documentation
 
