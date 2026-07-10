@@ -1,5 +1,59 @@
 # SpecTalkZX Changelog
 
+## [Unreleased] - Changes since v1.3.8
+
+These changes are present on `main` after the `v1.3.8: Hermes` tag. They have passed the documented build and static checks; the hardware/emulator gates listed below are still pending and are not claimed as validated.
+
+### User-visible fixes
+
+- Configuration loading now matches all 23 supported keys exactly. Unknown keys and prefix collisions are rejected instead of being accepted by the former two-byte dispatch.
+- Maximum friend and ignore lists now use fixed screen-safe packing, keeping the footer visible instead of allowing long entries to run into later rows.
+
+### Runtime and hardware safety
+
+- Hardened ABOUT/Earth packet decoding against zero or oversized lengths, truncated COPY data, missing terminators, decoded bitmap/attribute overruns, and packet data extending beyond the 512-byte input buffer. Malformed packets now fail closed and close the DAT handle.
+- Moved ABOUT's per-frame esxDOS reads, seeks, validation, and close path behind explicit interrupt boundaries, while preserving the existing timed animation cadence.
+- Bounded raw UDP/NTP UART transmission to 192 busy samples per byte. A timeout inside a partial AT command or payload now stops transmission, marks the connection offline, and prevents unsafe follow-up commands from being appended to the damaged stream.
+- Replaced the chat scroll's temporary VRAM stack, self-modifying operands, shadow-register transfers, and PUSH-based clearing with a byte-exact forward `LDI` implementation that keeps IM1 usable during the long copy and returns under the normal mainline interrupt contract.
+- Added fail-closed linker validation for BSS, overlay scratch, CHANS/Printer RAM, the RX ring, ignore list, reserved stack, friend storage, and UDG regions. Missing, moved, aliased, or overlapping required symbols now fail the build.
+- Invalidated the input redraw cache at every runtime esxDOS boundary, including failure exits. Persistent notification and renderer state was moved out of firmware-clobberable Printer RAM into compiler BSS.
+- Added defensive NAMES bounds checks before notification-buffer indexing or consumption.
+
+### Build and verification
+
+- Made BPE preprocessing transactional: backups are staged and validated before publication, interrupted or failed generation restores all eight mutable inputs, stale transactions recover on the next run, and recovery data is retained until byte equality is verified.
+- Hardened the resident build so the real `zcc` exit status is preserved, stale or partial TAP files cannot masquerade as success, and the compiler log remains available after failure.
+- Made `make info` read-only, removed the incomplete `nobpe`/`copydat` bypass pipeline, and added opt-in `make evidence` output under `build/evidence/` without changing normal build artifacts.
+- Added a tracked seed `src/SPECTALK.DAT` so a clean checkout can run the normal preprocessing/build pipeline.
+- Added shared resident/overlay constants in `include/spectalk_contract.h` and documented the build tools in `tools/README.md`.
+- Added automated checks for BPE transactions, exact config keys, Earth packet bounds, esxDOS/cache contracts, scroll geometry and forbidden stack/SMC patterns, UDP TX timeouts/fail-stop behavior, and complete memory-layout invariants.
+
+Final synchronized audit build recorded on 2026-07-10:
+
+- Command: `make NO_COLOR=1 evidence`
+- Result: **BUILD OK / STATIC AUDIT OK / HW PENDING**.
+- TAP: **35,240 bytes**.
+- BSS guard: **0xEF4B < 0xF500**, **1,461 bytes free** before `ring_buffer`.
+- Overlays: **1700 / 1902 / 1953 / 1745 / 1941 / 1798 / 1816 / 1893 bytes**.
+- Packed `SPECTALK.OVL`: **14,812 bytes**.
+- `SPECTALK.DAT`: **15,704 bytes**.
+- Evidence bundle: **57 retained listing, symbol, generated-ASM, and BPE-stage files**.
+- Independent ABI/stack, C/data, and Spectrum/firmware residual reviews found no remaining static HIGH or MEDIUM issue after the final CHANS-to-BSS adjacency guard.
+
+Hardware/emulator validation still required:
+
+- Printer/CHANS sentinel checks across supported esxDOS/divMMC versions.
+- Forced UART BUSY tests across every raw UDP command, prompt, payload, and close phase.
+- ABOUT corrupt/truncated DAT injection plus IFF1/RST8 tracing and long animation/exit/wrap soak.
+- Scroll contention, sustained 115200 traffic, keyboard repeat, IM1/NMI, and long-run screen-integrity tests.
+- Dynamic stack high-water measurement and maximum friend/ignore list checks across all themes.
+
+### Documentation
+
+- Added Codex contributor credit to the project documentation.
+
+---
+
 ## [v1.3.8] - Hermes - Release candidate
 
 This release is the main development line after `v1.3.7: Artemis II`. It is a major maturity release: the user-visible feature set is much larger, the IRC session model is safer, the overlay/data architecture is more capable, and the low-level receive/render paths have had multiple audit and hardware-validation rounds.
