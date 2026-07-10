@@ -25,13 +25,17 @@ static const char *bm_line(uint8_t slot) __z88dk_fastcall
     uint16_t n;
 
     esx_fopen(bm_path(slot));
-    if (!esx_handle) return 0;
+    if (!esx_handle) {
+        input_cache_invalidate();
+        return 0;
+    }
 
     esx_buf = (uint16_t)overlay_slot;
     esx_count = BM_LINE_MAX - 1;
     esx_fread();
     n = esx_result;
     esx_fclose();
+    input_cache_invalidate();
     if (!n || n >= BM_LINE_MAX) return 0;
     overlay_slot[n] = 0;
     return (const char *)overlay_slot;
@@ -119,11 +123,15 @@ void bookmarks_save_ovl(void)
 
     expected = (uint16_t)(p - (char *)overlay_slot);
     esx_fcreate(bm_path(bookmark_sel));
-    if (!esx_handle) goto err;
+    if (!esx_handle) {
+        input_cache_invalidate();
+        goto err;
+    }
     esx_buf = (uint16_t)overlay_slot;
     esx_count = expected;
     esx_fwrite();
     esx_fclose();
+    input_cache_invalidate();
 
     overlay_slot[0] = (esx_result == expected);
     if (!overlay_slot[0]) goto err;

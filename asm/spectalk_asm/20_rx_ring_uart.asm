@@ -97,6 +97,8 @@ _rb_push_ok:
     ret
 
 _rb_push_full:
+    ld a, 1
+    ld (_rx_overflow), a
     ld l, 0             ; Retornar 0 (Fallo/Lleno)
     ret
 

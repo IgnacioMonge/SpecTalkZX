@@ -6,9 +6,6 @@ SECTION code_user
 PUBLIC _sntp_udp_ovl
 EXTERN _switcher_render_ovl
 
-EXTERN _uart_send_string
-EXTERN _uart_send_line
-EXTERN _ay_uart_send
 EXTERN _frame_wait
 EXTERN _draw_status_bar
 EXTERN uartRead
@@ -17,6 +14,8 @@ EXTERN _reset_rx_state
 EXTERN _sntp_tz
 EXTERN _sntp_waiting
 EXTERN _sntp_queried
+EXTERN _sntp_init_sent
+EXTERN _connection_state
 EXTERN _time_hour
 EXTERN _time_minute
 EXTERN _time_second
@@ -25,10 +24,53 @@ EXTERN _tick_accum
 EXTERN _status_bar_dirty
 
 DEFC TZ_RTC = 127
+DEFC RAW_WAIT_BUDGET = 250
+DEFC UDP_TX_POLL_BUDGET = $C0
+DEFC UDP_ZXUNO_ADDR        = $FC3B
+DEFC UDP_UART_DATA_REG     = $C6
+DEFC UDP_UART_STAT_REG     = $C7
 
     dw 2
     dw _sntp_udp_ovl
     dw _switcher_render_ovl
+
+; Overlay-safe UART TX. Do not call resident _ay_uart_send here: it drains RX
+; into ring_buffer, and this overlay is executing from ring_buffer.
+; L=byte. CF=0 sent; CF=1 TX stayed busy for the complete poll budget.
+udp_uart_send:
+    ld d, UDP_TX_POLL_BUDGET
+    ld bc, UDP_ZXUNO_ADDR
+    ld a, UDP_UART_STAT_REG
+    out (c), a
+    inc b
+udp_uart_wait:
+    in a, (c)
+    add a, a
+    jp p, udp_uart_ready
+    dec d
+    jr nz, udp_uart_wait
+    scf
+    ret
+udp_uart_ready:
+    dec b
+    ld a, UDP_UART_DATA_REG
+    out (c), a
+    inc b
+    out (c), l
+    or a
+    ret
+
+udp_send_string:
+    ld a, (hl)
+    or a
+    ret z
+    push hl
+    ld l, a
+    call udp_uart_send
+    pop hl
+    ret c
+    inc hl
+    jr udp_send_string
 
 _sntp_udp_ovl:
     ld a, (_sntp_tz)
@@ -36,7 +78,8 @@ _sntp_udp_ovl:
     jp z, udp_done
 
     ld hl, cmd_cipdomain
-    call _uart_send_line
+    call udp_send_string
+    jp c, udp_tx_fatal
     call wait_domain
     jp c, udp_fail_dns
     call read_domain_ip
@@ -45,28 +88,34 @@ _sntp_udp_ovl:
     jp c, udp_fail_dns
 
     ld hl, cmd_cipstart_pfx
-    call _uart_send_string
+    call udp_send_string
+    jp c, udp_tx_fatal
     ld hl, ip_buf
-    call _uart_send_string
+    call udp_send_string
+    jp c, udp_tx_fatal
     ld hl, cmd_cipstart_tail
-    call _uart_send_line
+    call udp_send_string
+    jp c, udp_tx_fatal
     call wait_ok
     jp c, udp_fail_open
 
     ld hl, cmd_cipsend
-    call _uart_send_line
+    call udp_send_string
+    jp c, udp_tx_fatal
     ld a, '>'
     call wait_char
-    jp c, udp_fail_send
+    jp c, udp_tx_fatal
 
     ld l, $0B                  ; Match working .ntpdate request (client, v1)
-    call _ay_uart_send
+    call udp_uart_send
+    jp c, udp_tx_fatal
     ld d, 59
 udp_send_zero:
     push de
     ld l, 0
-    call _ay_uart_send
+    call udp_uart_send
     pop de
+    jp c, udp_tx_fatal
     dec d
     jr nz, udp_send_zero
 
@@ -102,12 +151,12 @@ udp_store_ts:
     jr udp_close
 
 udp_fail_open:
-udp_fail_send:
 udp_fail_ipd:
 udp_fail_time:
 udp_close:
     ld hl, cmd_cipclose
-    call _uart_send_line
+    call udp_send_string
+    jp c, udp_tx_fatal
 
 udp_fail_dns:
 udp_fail:
@@ -117,30 +166,45 @@ udp_fail:
 udp_done:
     jp _reset_rx_state
 
+udp_tx_fatal:
+    ; The ESP may own a truncated AT command or an incomplete fixed payload.
+    ; Emit nothing else: fail-stop until the user reinitializes the transport.
+    xor a
+    ld (_connection_state), a
+    ld (_sntp_init_sent), a
+    ld (_sntp_waiting), a
+    inc a
+    ld (_status_bar_dirty), a
+    jp _reset_rx_state
+
 wait_domain:
-    call wait_plus
+    call read_budget_reset
+wait_domain_loop:
+    call wait_plus_budget
     ret c
     ld hl, tail_domain
     call match_tail
     ret c
-    jr nz, wait_domain
+    jr nz, wait_domain_loop
     ret
 
 wait_ipd:
-    call wait_plus
+    call read_budget_reset
+wait_ipd_loop:
+    call wait_plus_budget
     ret c
     ld hl, tail_ipd
     call match_tail
     ret c
-    jr nz, wait_ipd
+    jr nz, wait_ipd_loop
     ret
 
-wait_plus:
-    call read_byte_timeout
+wait_plus_budget:
+    call read_byte_budget
     ccf
     ret c
     cp '+'
-    jr nz, wait_plus
+    jr nz, wait_plus_budget
     ret
 
 match_tail:
@@ -149,7 +213,7 @@ match_tail:
     ret z
     ld e, a
     push hl
-    call read_byte_timeout
+    call read_byte_budget
     pop hl
     ccf
     ret c
@@ -193,22 +257,25 @@ read_domain_ip_done:
     ret
 
 wait_ok:
-    call read_byte_timeout
+    call read_budget_reset
+wait_ok_loop:
+    call read_byte_budget
     ccf
     ret c
     cp 'O'
-    jr nz, wait_ok
-    call read_byte_timeout
+    jr nz, wait_ok_loop
+    call read_byte_budget
     ccf
     ret c
     cp 'K'
-    jr nz, wait_ok
+    jr nz, wait_ok_loop
     ret
 
 wait_char:
     ld e, a
+    call read_budget_reset
 wait_char_loop:
-    call read_byte_timeout
+    call read_byte_budget
     ccf
     ret c
     cp e
@@ -216,8 +283,46 @@ wait_char_loop:
     ret
 
 skip_ipd_len:
-    ld a, ':'
-    jr wait_char
+    call read_budget_reset
+skip_ipd_len_loop:
+    call read_byte_budget
+    ccf
+    ret c
+    cp ':'
+    jr nz, skip_ipd_len_loop
+    ret
+
+read_budget_reset:
+    ld a, RAW_WAIT_BUDGET
+    ld (read_budget_left), a
+    ret
+
+read_byte_budget:
+    ld hl, read_budget_left
+    ld a, (hl)
+    or a
+    ret z
+rbb_frame:
+    ld c, 16
+rbb_poll:
+    push hl
+    push bc
+    call uartRead
+    pop bc
+    pop hl
+    jr c, rbb_have_byte
+    dec c
+    jr nz, rbb_poll
+    push hl
+    call _frame_wait
+    pop hl
+    dec (hl)
+    jr nz, rbb_frame
+    or a
+    ret
+rbb_have_byte:
+    dec (hl)
+    ret
 
 read_byte_timeout:
     ld b, 250
@@ -234,6 +339,8 @@ rbt_poll:
     djnz rbt_frame
     or a
     ret
+read_budget_left:
+    DEFB 0
 
 convert_ntp_time:
     ld de, ntp_secs + 3
@@ -413,18 +520,22 @@ sub4_loop:
 
 cmd_cipdomain:
     DEFM "AT+CIPDOMAIN=", 34, "time.google.com", 34
+    DEFB 13, 10
     DEFB 0
 cmd_cipstart_pfx:
     DEFM "AT+CIPSTART=", 34, "UDP", 34, ",", 34
     DEFB 0
 cmd_cipstart_tail:
     DEFM 34, ",123"
+    DEFB 13, 10
     DEFB 0
 cmd_cipsend:
     DEFM "AT+CIPSEND=60"
+    DEFB 13, 10
     DEFB 0
 cmd_cipclose:
     DEFM "AT+CIPCLOSE"
+    DEFB 13, 10
     DEFB 0
 tail_domain:
     DEFM "CIPDOMAIN:"

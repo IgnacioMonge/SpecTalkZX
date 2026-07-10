@@ -7,6 +7,8 @@ SECTION code_user
 PUBLIC _earth_draw_frame
 PUBLIC _earth_apply_frame_delta
 PUBLIC _earth_apply_attr_delta
+PUBLIC _earth_validate_frame_delta
+PUBLIC _earth_validate_attr_delta
 PUBLIC _earth_read_logo
 PUBLIC _earth_ikkle_draw
 PUBLIC _earth_draw_separator
@@ -36,6 +38,7 @@ EXTERN _compute_attr_base
 EXTERN _rx_last_len
 EXTERN _earth_ready
 EXTERN _frame_idx
+EXTERN _input_cache_invalidate
 
 DEFC EARTH_FRAME0_OFFSET = 595
 DEFC EARTH_FRAME0_SIZE = 587
@@ -52,6 +55,7 @@ DEFC TA_MSG_NICK  = 11
 DEFC TA_MSG_TOPIC = 13
 
 _about_close_ovl:
+        di                      ; esxDOS RST 8 must stay outside timed EI windows
         ld a,(_esx_handle)
         or a
         jr z,about_close_ready
@@ -61,7 +65,7 @@ _about_close_ovl:
 about_close_ready:
         xor a
         ld (_earth_ready),a
-        ret
+        jp _input_cache_invalidate
 
 _earth_draw_frame:
         push ix
@@ -103,6 +107,65 @@ earth_delta_copy:
         ld b,0
         ldir
         jr earth_apply_delta
+
+;; Validate one exact-length SKIP/COPY stream before applying it.
+;; Input: HL=stream, BC=encoded bytes including final zero.
+;; Output: CF=0 valid with HL just after stream; CF=1 malformed.
+_earth_validate_frame_delta:
+        ld de,EARTH_FRAME0_SIZE
+        jr earth_validate_delta
+
+_earth_validate_attr_delta:
+        ld de,EARTH_ATTR0_SIZE
+
+earth_validate_delta:
+        ld (earth_delta_remaining),de
+earth_validate_next:
+        ld a,b
+        or c
+        jr z,earth_validate_bad
+        ld a,(hl)
+        inc hl
+        dec bc
+        or a
+        jr z,earth_validate_end
+        ld e,a
+        ld d,0
+        jp p,earth_validate_dest
+        res 7,e
+        inc e
+        push hl
+        ld h,b
+        ld l,c
+        or a
+        sbc hl,de
+        jr c,earth_validate_bad_pop
+        ld b,h
+        ld c,l
+        pop hl
+        add hl,de
+earth_validate_dest:
+        push hl
+        ld hl,(earth_delta_remaining)
+        or a
+        sbc hl,de
+        jr c,earth_validate_bad_pop
+        ld (earth_delta_remaining),hl
+        pop hl
+        jr earth_validate_next
+earth_validate_end:
+        ld a,b
+        or c
+        ret z
+earth_validate_bad:
+        scf
+        ret
+earth_validate_bad_pop:
+        pop hl
+        jr earth_validate_bad
+
+earth_delta_remaining:
+        defw 0
 
 earth_screen_down:
         inc d

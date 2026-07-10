@@ -296,6 +296,15 @@ uint16_t rb_tail;
 
 // Line parser state
 char rx_line[RX_LINE_SIZE];
+
+// Persistent render/parser state. Keep immediately after rx_line; its overlay
+// alias follows the linker symbol, while BSS survives esxDOS unlike Printer RAM.
+char notif_buf[64];
+uint8_t names_friend_pos;
+char pkt_empty[1];
+uint8_t plf_start_byte;
+uint8_t plf_pair_count;
+
 uint16_t rx_pos;
 uint16_t rx_last_len;
 uint8_t rx_overflow;             // Flag for ASM access (0 or 1)
@@ -1046,9 +1055,6 @@ void print_str64(uint8_t y, uint8_t col, const char *s, uint8_t attr) __z88dk_ca
     }
 }
 
-// Scroll seguro: Solo mueve lines de la 3 a la 19. No toca banners.
-// scroll_main_zone está implementada en ASM (spectalk_asm.asm)
-extern void scroll_main_zone(void);
 extern uint8_t read_key(void);
 
 // MAIN AREA OUTPUT
@@ -2440,24 +2446,61 @@ static void cfg_b(uint8_t *dst) __z88dk_fastcall {
     *dst = (uint8_t)str_to_u16(cfg_vp) & 1;
 }
 
-static uint8_t cfg_key4(char *key) __z88dk_fastcall ST_NAKED {
+enum {
+    CFGK_NICK, CFGK_NKPASS, CFGK_NCOLOR, CFGK_NICKSERV,
+    CFGK_SERVER, CFGK_PORT, CFGK_PASS, CFGK_THEME,
+    CFGK_AUTOJOIN, CFGK_AUTOCONN, CFGK_AUTOAWAY,
+    CFGK_FRIENDS, CFGK_IGNORES, CFGK_CHANNELS, CFGK_COUNTSYNC,
+    CFGK_BEEP, CFGK_CLICK, CFGK_TRAFFIC, CFGK_TS,
+    CFGK_TZ, CFGK_TZLAST, CFGK_DIVIDER, CFGK_NOTIF
+};
+
+static uint8_t cfg_key_id(const char *key) __z88dk_fastcall ST_NAKED {
     (void)key;
     __asm
-    inc hl
-    inc hl
-    ld a, (hl)
+    push ix
+    ld ix,cfg_key_table
+    ld b,23
+    ld c,0                   ; C = current ID
+cfg_ki_next:
+    push hl
+    ld e,(ix+0)
+    ld d,(ix+1)
+cfg_ki_cmp:
+    ld a,(hl)
     or a
-    jr z, cfg_k4_zero
+    jr z,cfg_ki_end
+    ld a,(de)
+    cp (hl)
+    jr nz,cfg_ki_no
     inc hl
-    ld a, (hl)
-    or a
-    jr z, cfg_k4_zero
-    inc hl
-    ld l, (hl)
+    inc de
+    jr cfg_ki_cmp
+cfg_ki_end:
+    ld a,(de)
+    cp '='
+    jr z,cfg_ki_found
+cfg_ki_no:
+    pop hl
+    inc ix
+    inc ix
+    inc c
+    djnz cfg_ki_next
+    ld l,255
+    pop ix
     ret
-cfg_k4_zero:
-    ld l, 0
+cfg_ki_found:
+    pop hl
+    ld l,c
+    pop ix
     ret
+cfg_key_table:
+    defw _K_NICK, _K_NKPASS, _K_NCOLOR, _K_NICKSERV
+    defw _K_SERVER, _K_PORT, _K_PASS, _K_THEME
+    defw _K_AUTOJOIN, _K_AUTOCONN, _K_AUTOAWAY
+    defw _K_FRIENDS, _K_IGNORES, _K_CHANNELS, _K_COUNTSYNC
+    defw _K_BEEP, _K_CLICK, _K_TRAFFIC, _K_TS
+    defw _K_TZ, _K_TZLAST, _K_DIVIDER, _K_NOTIF
     __endasm;
 }
 
@@ -2535,57 +2578,65 @@ cfg_tza_bad:
 
 // Apply a key=value pair
 static void cfg_apply(char *key, char *val) __z88dk_callee {
-    uint8_t k0 = key[0], k1 = key[1];
     cfg_vp = val;
-    if (k0 == 'n' && k1 == 'i') {           // nick / nickpass / nickcolor / nickserv
-        k1 = cfg_key4(key);
-        if (k1 == 'p') cfg_s(nickserv_pass, IRC_PASS_SIZE);
-        else if (k1 == 'c') cfg_b(&nick_color_mode);
-        else if (k1 == 's') cfg_s(nickserv_nick, IRC_NICK_SIZE);
-        else cfg_s(irc_nick, IRC_NICK_SIZE);
-    } else if (k0 == 's' && k1 == 'e') {    // server
-        cfg_s(irc_server, IRC_SERVER_SIZE);
-    } else if (k0 == 'p' && k1 == 'o') {    // port
-        cfg_s(irc_port, IRC_PORT_SIZE);
-    } else if (k0 == 'p' && k1 == 'a') {    // pass
-        cfg_s(irc_pass, IRC_PASS_SIZE);
-    } else if (k0 == 't' && k1 == 'h') {    // theme
-        uint8_t v = (uint8_t)str_to_u16(val);
-        if ((uint8_t)(v - 1) <= 2) current_theme = v;  // PD4: underflow trick
-    } else if (k0 == 'a' && k1 == 'u') {
-        k1 = cfg_key4(key);
-        if (k1 == 'j') cfg_b(&autojoin);
-        else if (k1) {
+    switch (cfg_key_id(key)) {
+        case CFGK_NICK: cfg_s(irc_nick, IRC_NICK_SIZE); break;
+        case CFGK_NKPASS: cfg_s(nickserv_pass, IRC_PASS_SIZE); break;
+        case CFGK_NCOLOR: cfg_b(&nick_color_mode); break;
+        case CFGK_NICKSERV: cfg_s(nickserv_nick, IRC_NICK_SIZE); break;
+        case CFGK_SERVER: cfg_s(irc_server, IRC_SERVER_SIZE); break;
+        case CFGK_PORT: cfg_s(irc_port, IRC_PORT_SIZE); break;
+        case CFGK_PASS: cfg_s(irc_pass, IRC_PASS_SIZE); break;
+        case CFGK_THEME: {
             uint8_t v = (uint8_t)str_to_u16(val);
-            if (k1 == 'c') autoconnect = v & 1;
-            else if (k1 == 'a') { if (v <= 60) autoaway_minutes = v; }
+            if ((uint8_t)(v - 1) <= 2) current_theme = v;
+            break;
         }
-    } else if (k0 == 'f' && k1 == 'r') {  // friends
-        uint8_t idx = 0;
-        char *tok, *p = val;
-        while (idx < MAX_FRIENDS && (tok = csv_next_tok(&p)) != NULL)
-            st_copy_n(friend_nicks[idx++], tok, IRC_NICK_SIZE);
-        friend_count = idx;
-    } else if (k0 == 'i' && k1 == 'g') {  // ignores
-        char *tok, *p = val;
-        while (ignore_count < MAX_IGNORES && (tok = csv_next_tok(&p)) != NULL)
-            add_ignore(tok);
-    } else if (k0 == 'c' && k1 == 'h') {
-        cfg_s(autojoin_channels, SEARCH_PATTERN_SIZE);
-        cfg_s(search_pattern, SEARCH_PATTERN_SIZE);
-    } else if (k0 == 'c' && k1 == 'o') {
-        cfg_b(&count_sync_enabled);
-    } else if (k0 == 'b' && k1 == 'e') cfg_b(&beep_enabled);
-      else if (k0 == 'c' && k1 == 'l') cfg_b(&keyclick_enabled);
-      else if (k0 == 't' && k1 == 'r') cfg_b(&show_traffic);
-      else if (k0 == 't' && k1 == 'i') {
-        uint8_t v = (uint8_t)str_to_u16(val);
-        show_timestamps = (v > 2) ? 1 : v;
-    } else if (k0 == 't' && k1 == 'z') {
-        cfg_tz_apply(key);
-    } else if (k0 == 'd' && k1 == 'i') {
-        cfg_b(&show_channel_separators);
-    } else if (k0 == 'n' && k1 == 'o') cfg_b(&notif_enabled);
+        case CFGK_AUTOJOIN:
+            cfg_b(&autojoin);
+            break;
+        case CFGK_AUTOCONN:
+            autoconnect = (uint8_t)str_to_u16(val) & 1;
+            break;
+        case CFGK_AUTOAWAY: {
+            uint8_t v = (uint8_t)str_to_u16(val);
+            if (v <= 60) autoaway_minutes = v;
+            break;
+        }
+        case CFGK_FRIENDS: {
+            uint8_t idx = 0;
+            char *tok, *p = val;
+            while (idx < MAX_FRIENDS && (tok = csv_next_tok(&p)) != NULL)
+                st_copy_n(friend_nicks[idx++], tok, IRC_NICK_SIZE);
+            friend_count = idx;
+            break;
+        }
+        case CFGK_IGNORES: {
+            char *tok, *p = val;
+            while (ignore_count < MAX_IGNORES && (tok = csv_next_tok(&p)) != NULL)
+                add_ignore(tok);
+            break;
+        }
+        case CFGK_CHANNELS:
+            cfg_s(autojoin_channels, SEARCH_PATTERN_SIZE);
+            cfg_s(search_pattern, SEARCH_PATTERN_SIZE);
+            break;
+        case CFGK_COUNTSYNC: cfg_b(&count_sync_enabled); break;
+        case CFGK_BEEP: cfg_b(&beep_enabled); break;
+        case CFGK_CLICK: cfg_b(&keyclick_enabled); break;
+        case CFGK_TRAFFIC: cfg_b(&show_traffic); break;
+        case CFGK_TS: {
+            uint8_t v = (uint8_t)str_to_u16(val);
+            show_timestamps = (v > 2) ? 1 : v;
+            break;
+        }
+        case CFGK_TZ:
+        case CFGK_TZLAST:
+            cfg_tz_apply(key);
+            break;
+        case CFGK_DIVIDER: cfg_b(&show_channel_separators); break;
+        case CFGK_NOTIF: cfg_b(&notif_enabled); break;
+    }
 }
 
 // Parse the config buffer (ring_buffer[]) line by line

@@ -43,7 +43,7 @@ static const char s_hnot[] = "ANY KEY: NEXT / BREAK: EXIT";
 static void help_load_segment(uint8_t segment)
 {
     esx_fopen(K_DAT);
-    if (!esx_handle) { overlay_mode = 0; return; }
+    if (!esx_handle) goto help_io_fail;
 
     /* Seek directly to the requested 512B help segment. overlay_slot is only
      * 512B, so never use dummy F_READ skips when the help block sits deep in
@@ -51,8 +51,7 @@ static void help_load_segment(uint8_t segment)
     esx_buf   = (uint16_t)overlay_slot;
     if (!esx_fseek_set((uint16_t)(BPE_HELP_OFFSET + ((uint16_t)segment << 9)))) {
         esx_fclose();
-        overlay_mode = 0;
-        return;
+        goto help_io_fail;
     }
 
     esx_count = 512;
@@ -65,6 +64,11 @@ static void help_load_segment(uint8_t segment)
       overlay_slot[n] = 0;
     }
     cur_seg = segment;
+    return;
+
+help_io_fail:
+    input_cache_invalidate();
+    overlay_mode = 0;
 }
 
 /* skip_partial removed: bpe_build.py pads help text with NUL bytes so that

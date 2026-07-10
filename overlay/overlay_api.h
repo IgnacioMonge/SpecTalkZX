@@ -10,8 +10,7 @@
 #define OVERLAY_API_H
 
 #include <stdint.h>
-
-#define TZ_RTC 127
+#include "../include/spectalk_contract.h"
 
 /* ===== Resident wrappers ===== */
 
@@ -88,7 +87,6 @@ extern uint8_t  bookmark_active_slot;
 extern uint8_t  bookmark_rows[];
 
 /* Buffers */
-#define OVERLAY_SLOT_SIZE 512     /* MUST match RX_LINE_SIZE (spectalk.h) — aliased */
 extern uint8_t  overlay_slot[];   /* 512B scratch buffer (aliased to rx_line) */
 extern uint8_t  ring_buffer[];    /* 2048B — overlay code lives here */
 extern uint16_t rb_head;
@@ -189,17 +187,6 @@ extern const char K_NOTIF[];
 extern const char K_COUNTSYNC[];
 extern const char S_ANYKEY[];
 
-/* ===== Theme attribute indices (must match spectalk.h) ===== */
-#define TATTR_MSG_CHAN   2
-#define TATTR_MAIN_BG    5
-#define TATTR_MSG_SYS    9      /* = ATTR_MSG_SERVER */
-#define TATTR_MSG_NICK  11
-#define TATTR_MSG_TIME  12
-#define TATTR_MSG_TOPIC 13
-
-/* ===== Version (single source of truth: spectalk.h) ===== */
-#define VERSION "1.3.8"
-
 /* ===== Layout constants ===== */
 #define LINES_PER_PAGE  12
 #define BPE_HELP_OFFSET 14336
@@ -216,14 +203,6 @@ extern const char S_ANYKEY[];
 #define EARTH_LOGO_W_BYTES 22
 #define EARTH_LOGO_H 24
 #define EARTH_LOGO_ATTR_H 3
-#define MAX_FRIENDS     5
-#define MAX_IGNORES     5
-#define IRC_NICK_SIZE   18
-#define IRC_PASS_SIZE   24
-#define IRC_SERVER_SIZE 32
-#define IRC_PORT_SIZE    6
-#define SEARCH_PATTERN_SIZE 64
 #define ATTR_MSG_SYS    theme_attrs[TATTR_MSG_SYS]
-#define OVERLAY_BOOKMARKS 6
 
 #endif /* OVERLAY_API_H */

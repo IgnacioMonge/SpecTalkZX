@@ -1064,6 +1064,7 @@ static void h_numeric_353(void)
     // since names_friend_buf is aliased to notif_buf and would corrupt the slide.
     if (!overlay_mode && friend_count && !notif_timeout) {
         char *p = pkt_txt;
+        if (names_friend_pos >= 64) names_friend_pos = 0;
         while (*p) {
             char *ns;
             while (*p == '@' || *p == '+' || *p == '~' || *p == '%' || *p == '&') p++;
@@ -1127,6 +1128,7 @@ static void h_numeric_366(void)
     names_was_manual = 0;  // Reset flag
 
     // Batch friend notification (accumulated during 353 chunks)
+    if (names_friend_pos >= 64) names_friend_pos = 0;
     if (names_friend_pos > 0) {
         if (!overlay_mode && !search_data_lost) {
             mention_beep();
@@ -1606,9 +1608,8 @@ static const CmdEntry CMD_TABLE[] = {
     { 0x4552, h_error },          // ER (ERROR)
     { 0x4341, h_cap },            // CA (CAP)
 
+    { 0,   NULL }
 };
-
-#define CMD_TABLE_COUNT ((uint8_t)(sizeof(CMD_TABLE) / sizeof(CMD_TABLE[0])))
 
 // =============================================================================
 // MAIN PARSING FUNCTIONS
@@ -1720,11 +1721,10 @@ void parse_irc_message(char *line) __z88dk_fastcall
         }
 
         {
-            uint8_t n = CMD_TABLE_COUNT;
-            const CmdEntry *e = CMD_TABLE;
-            while (n--) {
-                if (e->id == cmd_id) { e->fn(); return; }
-                e++;
+            const CmdEntry *n = CMD_TABLE;
+            while (n->id) {
+                if (n->id == cmd_id) { n->fn(); return; }
+                n++;
             }
         }
 

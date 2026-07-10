@@ -336,9 +336,9 @@ _fast_fill_attr:
 _cls_fast:
     ; --- BORRADO DE BITMAP (0x4000..0x57FF) = 6144 bytes ---
     ; Stack clear: 6 * 256 iterations * 2 PUSHes = 6144 bytes.
-    ; DI protects the SP=0x5800 trick. We do NOT re-enable interrupts: the
-    ; mainline DI contract requires interrupts OFF outside frame_wait()/
-    ; overlay_call_timed() (the only places that set IY=0x5C3A before EI).
+    ; DI protects the SP=0x5800 trick. We do NOT re-enable interrupts: guarded
+    ; waits, ABOUT ticks, and the internal scroll are the only paths that first
+    ; install IY=0x5C3A for the ROM ISR.
     ; A bare EI here left the ROM IM1 ISR running with SDCC's garbage IY,
     ; corrupting RAM at boot right when the banner draws (random crash).
     ; frame_wait() re-enables interrupts safely on the first main-loop tick.
@@ -508,6 +508,8 @@ drain_ring_full:
     ld h, b
     ld l, c                 ; restore uncommitted current head
     exx
+    ld a, 1
+    ld (_rx_overflow), a
     jr drain_commit_ret
 
 drain_maybe_wait:
@@ -541,194 +543,115 @@ drain_commit_ret:
     ret
 
 ; =============================================================================
-; void scroll_main_zone(void)
-; Optimized scroll of chat zone (lines 2-19 -> 2-18).
-; UNROLLED version: eliminates table and inner loop maintaining exactly
-; the same 5 blocks and lengths as original version.
-; 
-; Timing note: bitmap LDIR alone copies 4096 bytes, so the old ~12k estimate
-; was not credible. Treat this as a >100k T-state contended-screen operation
-; until measured on the target emulator/hardware.
+; Internal chat scroll. Only _main_newline calls this after saving IX/IY.
+; Keeps the real stack active and installs ROM IY while IM1 is enabled.
+; Returns with interrupts disabled; IX/IY are restored by _main_newline.
 ; =============================================================================
 _scroll_main_zone:
     di
-
-    ld iyl, 7              ; IYL = scanline offset (7..0)
+    ld iy, 0x5C3A
+    ld ixl, 7
+    ei
 
 smz_scanline_loop:
-    ; BLOQUE 1: Filas 4-7 -> 3-6 (Src: 0x4080, Dest: 0x4060, Len: 128)
+    ; Rows 4-7 -> 3-6: 128 bytes
     ld a, 0x40
-    add a, iyl
+    add a, ixl
     ld h, a
     ld d, a
     ld l, 0x80
     ld e, 0x60
-    ld b, 8
-    call _scroll_stack_blit_chunks
+    ld bc, 128
+    call smz_copy16n
 
-    ; BLOQUE 2: Fila 8 -> 7 (Src: 0x4800, Dest: 0x40E0, Len: 32)
+    ; Row 8 -> 7: 32 bytes
     ld a, 0x48
     call smz_cross_block
 
-    ; BLOQUE 3: Filas 9-15 -> 8-14 (Src: 0x4820, Dest: 0x4800, Len: 224)
+    ; Rows 9-15 -> 8-14: 224 bytes
     ld a, 0x48
-    add a, iyl
+    add a, ixl
     ld h, a
     ld d, a
     ld l, 0x20
     ld e, 0x00
-    ld b, 14
-    call _scroll_stack_blit_chunks
+    ld bc, 224
+    call smz_copy16n
 
-    ; BLOQUE 4: Fila 16 -> 15 (Src: 0x5000, Dest: 0x48E0, Len: 32)
+    ; Row 16 -> 15: 32 bytes
     ld a, 0x50
     call smz_cross_block
 
-    ; BLOQUE 5: Filas 17-19 -> 16-18 (Src: 0x5020, Dest: 0x5000, Len: 96)
+    ; Rows 17-19 -> 16-18: 96 bytes
     ld a, 0x50
-    add a, iyl
+    add a, ixl
     ld h, a
     ld d, a
     ld l, 0x20
     ld e, 0x00
-    ld b, 6
-    call _scroll_stack_blit_chunks
+    ld bc, 96
+    call smz_copy16n
 
-    ; Siguiente scanline (7..0, termina al pasar a 0xFF)
-    dec iyl
+    dec ixl
     jp p, smz_scanline_loop
 
-    ; Scroll atributos (16 filas: 4->3 ... 19->18).
-    ; The stack blitter copies forward in 16-byte chunks. With dst = src - 32,
-    ; each write lands two chunks behind the next unread source, so overlap is
-    ; safe while avoiding LDIR/LDI byte-loop overhead.
+    ; Attribute rows 4-19 -> 3-18: 512 bytes.
     ld de, 0x5860
     ld hl, 0x5880
-    ld b, 32
-    call _scroll_stack_blit_chunks
+    ld bc, 512
+    call smz_copy16n
 
-    ; Clear last chat row (19) directly; avoids general clear_line setup.
-    ld (smz_clear_save_sp + 1), sp
-    ld hl, 0x5080          ; SCREEN_ROW_ADDR(19) + 32
-    ld de, 0
-    ld b, 8
+    ; Clear bitmap row 19: $5060,$5160,...,$5760.
+    xor a
+    ld hl, 0x5060
+    ld ixl, 8
 smz_clear19_px:
-    ld sp, hl
-    push de
-    push de
-    push de
-    push de
-    push de
-    push de
-    push de
-    push de
-    push de
-    push de
-    push de
-    push de
-    push de
-    push de
-    push de
-    push de
+    ld bc, 32
+    call _fast_fill_attr
     inc h
-    djnz smz_clear19_px
+    ld l, 0x60
+    dec ixl
+    jr nz, smz_clear19_px
 
+    ; Clear attribute row 19: $5A60-$5A7F.
+    ld hl, 0x5A60
     ld a, (_current_attr)
-    ld d, a
-    ld e, a
-    ld sp, 0x5A80          ; ATTR row 19 end + 1
-    push de
-    push de
-    push de
-    push de
-    push de
-    push de
-    push de
-    push de
-    push de
-    push de
-    push de
-    push de
-    push de
-    push de
-    push de
-    push de
-smz_clear_save_sp:
-    ld sp, 0x0000
-    ret
+    ld bc, 32
+    di
+    jp _fast_fill_attr
 
-; Cross-page scroll helper: copies 32 bytes from page A to page A-8
-; A = src_page, IYL = scanline offset
-; Used by blocks 2 and 4 (page boundary crossings: row 8->7, row 16->15)
+; A=source page, IXL=scanline. Copies 32 bytes to the preceding third.
 smz_cross_block:
-    add a, iyl          ; src_page + scanline offset
+    add a, ixl
     ld h, a
-    sub 8               ; dst = src_page - 8 + offset (previous third)
+    sub 8
     ld d, a
     ld l, 0x00
     ld e, 0xE0
+    ld bc, 32
+    jp smz_copy16n
 
-    ld b, 2
-    jp _scroll_stack_blit_chunks
-
-; B*16-byte forward copy using SP as the transfer pointer.
-; Input: HL = source, DE = destination, B = 16-byte chunk count.
-; Destroys all main/alternate regs and IX. _main_newline preserves IX/IY.
-; Destination may cross a page: next destination is recomputed from SP + 32.
-; Caller must have DI active. Mainline IM1 is only enabled inside frame_wait()
-; with IY set to ROM system variables.
-_scroll_stack_blit_chunks:
-    ld (ssb_save_sp + 1), sp
-
-    ld (ssb_src + 1), hl
-
-    ld a, e
-    add a, 16
-    ld (ssb_dst + 1), a
-    ld a, d
-    adc a, 0
-    ld (ssb_dst + 2), a
-
-    ld a, b
-    ld ixl, a
-
-ssb_loop:
-ssb_src:
-    ld sp, 0x0000
-    pop bc
-    pop de
-    pop hl
-    pop af
-    exx
-    ex af, af'
-    pop bc
-    pop de
-    pop hl
-    pop af
-    ld (ssb_src + 1), sp
-
-ssb_dst:
-    ld sp, 0x0000
-    push af
-    push hl
-    push de
-    push bc
-    exx
-    ex af, af'
-    push af
-    push hl
-    push de
-    push bc
-
-    ld hl, 32
-    add hl, sp
-    ld (ssb_dst + 1), hl
-
-    dec ixl
-    jr nz, ssb_loop
-
-ssb_save_sp:
-    ld sp, 0x0000
+; Forward copy in exact 16-byte groups.
+; HL=source, DE=destination, BC=nonzero multiple of 16.
+; Preserves IX/IY/SP; the 16th LDI leaves P/V set iff data remains.
+smz_copy16n:
+    ldi
+    ldi
+    ldi
+    ldi
+    ldi
+    ldi
+    ldi
+    ldi
+    ldi
+    ldi
+    ldi
+    ldi
+    ldi
+    ldi
+    ldi
+    ldi
+    jp pe, smz_copy16n
     ret
 
 ; =============================================================================

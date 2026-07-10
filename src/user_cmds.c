@@ -48,8 +48,12 @@ static const char K_MODE_SP[]  = "MODE ";
 static const char K_CFG_PRI[]  = "/SYS/CONFIG/SPECTALK.CFG";
 static const char K_CFG_ALT[]  = "/SYS/SPECTALK.CFG";
 static const char K_TZ[]       = "tz=";
+static const char K_TZLAST[]   = "tzlast=";
 static const char K_NOTIF[]    = "notif=";
 static const char K_COUNTSYNC[] = "countsync=";
+static const char K_NICKSERV[] = "nickserv=";
+static const char K_FRIENDS[]  = "friends=";
+static const char K_IGNORES[]  = "ignores=";
 
 // PD1: cut_at_space() removed — split_at_space() does same buffer cut
 
@@ -389,6 +393,10 @@ do_connect:
     // before opening the IRC TCP link. This also covers old AT firmwares that
     // lack CIPSNTPTIME.
     sntp_udp_fallback();
+    if (connection_state < STATE_WIFI_OK) {
+        ui_err(S_FAIL);
+        goto connect_cleanup;
+    }
 
     // Settle ESP and clear any tail OK/ERROR lines before CIPSTART. Without
     // this, a stale terminal status from the prior AT cmd can be misread by
@@ -1447,13 +1455,8 @@ static void cmd_countsync(const char *args) __z88dk_fastcall ST_NAKED
 
 static void cmd_tz(const char *args) __z88dk_fastcall
 {
-    if (args && (args[0] | 0x20) == 'r' && (args[1] | 0x20) == 't' &&
-        (args[2] | 0x20) == 'c' && args[3] == 0) {
-        overlay_exec_rx(4, 2);
-    } else {
-        st_copy_n((char *)overlay_slot, args ? args : "", 8);
-        overlay_exec_rx(4, 3);
-    }
+    st_copy_n((char *)overlay_slot, args ? args : "", 8);
+    overlay_exec_rx(4, 3);
 }
 
 static void cmd_friend(const char *args) __z88dk_fastcall

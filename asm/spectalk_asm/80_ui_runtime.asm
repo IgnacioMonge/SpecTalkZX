@@ -866,7 +866,8 @@ cst_list_cmd:
 ; =============================================================================
 PUBLIC _frame_wait
 PUBLIC _frame_wait_drain
-EXTERN _uart_drain_to_buffer
+EXTERN uartRead
+EXTERN _rb_push
 _frame_wait:
     push iy
     ld iy, 0x5C3A      ; ROM ISR expects IY = system variables
@@ -877,8 +878,8 @@ _frame_wait:
     ret
 
 ; Resident-safe frame wait that drains UART while waiting for the next ROM frame.
-; Do not call from overlays or pagination pauses: it writes to ring_buffer and
-; can fill it if the parser is deliberately stopped.
+; Use uartRead/_rb_push here, not _uart_drain_to_buffer: the fast drain uses
+; EXX shadow state, and IM1 must stay enabled while this wait polls for FRAMES.
 _frame_wait_drain:
     push iy
     ld iy, 0x5C3A
@@ -886,7 +887,11 @@ _frame_wait_drain:
     push af             ; keep frame snapshot across UART drain clobbers
     ei
 fwd_loop:
-    call _uart_drain_to_buffer
+    call uartRead
+    jr nc, fwd_check_frame
+    ld l, a
+    call _rb_push
+fwd_check_frame:
     pop bc              ; B = saved FRAMES byte
     push bc
     ld a, (0x5C78)
@@ -900,18 +905,17 @@ fwd_loop:
 ; =============================================================================
 ; SYSTEM RAM HIJACKING - Variables mapped to unused ZX system areas
 ; IM1 mode: ROM ISR runs via divMMC automapper at $0038.
-; Printer Buffer and CHANS tested safe during normal IM1 operation.
-; esxDOS calls (RST 8) may still touch these areas ? tested safe in practice
-; because esxDOS file I/O does not use Printer Buffer/CHANS as scratch.
+; Normal IM1 does not consume these owners. esxDOS preservation is not assumed:
+; runtime transactions invalidate the input cache at their final boundary and
+; Printer-tail scratch lifetimes never cross RST 8. CHANS still needs HW guards.
 ; Zeroed during CRT init (code_crt_init section above)
 ; =============================================================================
 
 ; PRINTER BUFFER (0x5B00 - 0x5BFF: 256 bytes, unused ? no ZX Printer)
 PUBLIC _input_cache_char
-PUBLIC _notif_buf
 
 defc _input_cache_char = 0x5B00  ; 128 bytes (INPUT_LINES * SCREEN_COLS)
-defc _notif_buf        = 0x5B80  ;  64 bytes notification/NAMES friend scratch
+; 0x5B80-0x5BBF: free
 ; 0x5BC0-0x5BFF: scratch transitorio mapeado en 00_preamble.asm. No persistente
 ; a llamadas esxDOS; render paths no cruzan esxDOS → estable mid-render.
 ; irc_pass, nickserv_pass, network_name en BSS (deben sobrevivir esxDOS).

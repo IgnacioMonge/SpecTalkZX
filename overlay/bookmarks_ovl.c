@@ -39,13 +39,17 @@ static const char *bm_line(uint8_t slot) __z88dk_fastcall
     uint16_t n;
 
     esx_fopen(bm_path(slot));
-    if (!esx_handle) return 0;
+    if (!esx_handle) {
+        input_cache_invalidate();
+        return 0;
+    }
 
     esx_buf = (uint16_t)overlay_slot;
     esx_count = BM_LINE_MAX - 1;
     esx_fread();
     n = esx_result;
     esx_fclose();
+    input_cache_invalidate();
     if (!n || n >= BM_LINE_MAX) return 0;
     overlay_slot[n] = 0;
     return (const char *)overlay_slot;
@@ -223,12 +227,14 @@ void bookmarks_delete_ovl(void)
 
     esx_fcreate(bm_path(bookmark_sel));
     if (!esx_handle) {
+        input_cache_invalidate();
         overlay_slot[0] = 0;
         ui_err("Delete error");
         reset_rx_state();
         return;
     }
     esx_fclose();
+    input_cache_invalidate();
     if ((bookmark_active_slot & 0x7F) == bookmark_sel + 1) {
         bookmark_active_slot = 0;
         autoconnect = 0;

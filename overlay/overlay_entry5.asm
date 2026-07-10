@@ -38,8 +38,26 @@ _tz_cmd_ovl:
     ld hl, _overlay_slot
     ld a, (hl)
     or a
-    jr z, tz_show_current
+    jp z, tz_show_current
 
+    or 0x20
+    cp 'r'
+    jr nz, tz_numeric_from_start
+    ld a, (_overlay_slot+1)
+    or 0x20
+    cp 't'
+    jr nz, tz_numeric_from_start
+    ld a, (_overlay_slot+2)
+    or 0x20
+    cp 'c'
+    jr nz, tz_numeric_from_start
+    ld a, (_overlay_slot+3)
+    or a
+    jp z, _rtc_enable_ovl
+
+tz_numeric_from_start:
+    ld hl, _overlay_slot
+    ld a, (hl)
     ld b, 0                    ; neg flag
     cp '-'
     jr nz, tz_check_plus

@@ -141,15 +141,26 @@ ovl_fail:
 ; Carry set means invalid atlas/ovl_id.
 ovl_atlas_select:
     ld hl, _ring_buffer
-    ld de, ovl_atlas_magic
-    ld b, 5
-ovl_atlas_magic_loop:
-    ld a, (de)
-    cp (hl)
+    ld a, (hl)
+    cp 'S'
     jr nz, ovl_atlas_bad
-    inc de
     inc hl
-    djnz ovl_atlas_magic_loop
+    ld a, (hl)
+    cp 'T'
+    jr nz, ovl_atlas_bad
+    inc hl
+    ld a, (hl)
+    cp 'O'
+    jr nz, ovl_atlas_bad
+    inc hl
+    ld a, (hl)
+    cp 'A'
+    jr nz, ovl_atlas_bad
+    inc hl
+    ld a, (hl)
+    cp 1
+    jr nz, ovl_atlas_bad
+    inc hl
     ld a, (ix+4)        ; ovl_id
     cp (hl)             ; ovl_id < overlay_count?
     jr nc, ovl_atlas_bad
@@ -240,7 +251,8 @@ ovl_loaded_len:
 ; runs. Use only for ABOUT animation ticks: this lets ROM FRAMES advance during
 ; long DAT/draw work while keeping the normal mainline DI contract elsewhere.
 ; Timed entries must not call resident render/text routines that use IYL.
-; esxDOS RST 8 under EI relies on wrappers preserving IY and esxDOS critical sections.
+; Timed entries must bracket every esxDOS RST 8 wrapper with DI and restore EI
+; only after checking success; close/error paths must remain DI.
 PUBLIC _overlay_call_timed
 _overlay_call_timed:
     push    iy
@@ -250,10 +262,6 @@ _overlay_call_timed:
     di
     pop     iy
     ret
-
-ovl_atlas_magic:
-    DEFM "STOA"
-    DEFB 1
 
 ovl_filename:
     DEFM "SPECTALK.OVL"

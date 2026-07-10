@@ -7,6 +7,7 @@ SECTION code_user
 
 EXTERN _frame_wait
 EXTERN _rb_push
+EXTERN _overlay_mode
 PUBLIC _ay_uart_init
 PUBLIC _ay_uart_send
 PUBLIC uartRead
@@ -18,6 +19,7 @@ UART_BYTE_RECIVED EQU 0x80
 UART_BYTE_SENDING EQU 0x40
 ZXUNO_ADDR        EQU 0xFC3B
 ZXUNO_REG         EQU 0xFD3B
+UART_TX_POLL_BUDGET EQU 0xC0
 
 SECTION code_user
 
@@ -41,10 +43,10 @@ uartRead:
     dec b
     ld a, UART_DATA_REG
     out (c), a
-    
+
     ; OPTIMIZACIÓN: FC3B -> FD3B
     inc b
-    
+
     in a, (c)
     ret
 
@@ -57,17 +59,17 @@ _ay_uart_init:
     ld bc, ZXUNO_ADDR
     ld a, UART_STAT_REG
     out (c), a
-    
+
     inc b           ; OPTIMIZACIÓN
-    
+
     in a, (c)
 
     dec b
     ld a, UART_DATA_REG
     out (c), a
-    
+
     inc b           ; OPTIMIZACIÓN
-    
+
     in a, (c)
 
     ld b, 10        ; OPTIMIZACIÓN: Reducido de 50 a 10 frames
@@ -95,24 +97,31 @@ uartInit_flush:
 ; -----------------------------------------------------------------------------
 _ay_uart_send:
     ; L = byte to send (fastcall), preserved until out (c), l at end
+    ld d, UART_TX_POLL_BUDGET ; budget: up to 192 busy samples
 
     ; Select status register for TX-ready polling.
     ld bc, ZXUNO_ADDR
     ld a, UART_STAT_REG
     out (c), a
-    
+
     inc b           ; OPTIMIZACIÓN
 
-    ; NOTE-M13: loop sin timeout. A 115200 baud tarda ~7 iteraciones (~300 T-states).
-    ; While TX is busy, opportunistically drain one RX byte so outbound waits do
-    ; not become receive blackouts during server bursts.
+    ; NOTE-M13: bounded by poll count, not wall time. RX-ready samples may drain
+    ; one byte through _rb_push, so elapsed time depends on traffic, clock, and
+    ; overlay mode. Exhaustion silently drops this byte and returns.
 uartSend_wait_tx:
     in a, (c)
     add a, a                ; TX-busy bit -> Sign, RX-ready bit -> Carry
     jp p, uartSend_tx_ready
+    dec d                   ; count down (preserves Carry from add a,a)
+    ret z                   ; timeout: drop byte, return to caller
     jr nc, uartSend_wait_tx
+    ld a, (_overlay_mode)
+    or a
+    jr nz, uartSend_wait_tx
 
     push hl                 ; preserve byte to send in L
+    push de                 ; preserve D timeout counter across _rb_push
     dec b                   ; select UART DATA register through $FC3B
     ld a, UART_DATA_REG
     out (c), a
@@ -120,6 +129,7 @@ uartSend_wait_tx:
     in a, (c)
     ld l, a
     call _rb_push
+    pop de                  ; restore D timeout counter
     pop hl
 
     ld bc, ZXUNO_ADDR       ; _rb_push clobbers BC; restore status port

@@ -18,15 +18,29 @@ import os
 import re
 import sys
 import shutil
+import tempfile
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(SCRIPT_DIR)
 BUILD_DIR = os.path.join(ROOT, "build")
+BPE_STAMP = os.path.join(BUILD_DIR, ".bpe.stamp")
+BACKUP_DIR = os.path.join(BUILD_DIR, "bpe_originals")
 HELP_TEXT_PATH = os.path.join(ROOT, "src", "SPECTALK_HELP.txt")
 EARTH_DIR = os.path.join(ROOT, "release", "about_earth")
 
 SRC_FILES = ["spectalk.c", "irc_handlers.c", "user_cmds.c"]
 HDR_FILES = ["spectalk.h"]
+
+BACKUP_FILES = [
+    (os.path.join("src", "spectalk.c"), "spectalk.c"),
+    (os.path.join("src", "irc_handlers.c"), "irc_handlers.c"),
+    (os.path.join("src", "user_cmds.c"), "user_cmds.c"),
+    (os.path.join("include", "spectalk.h"), "spectalk.h"),
+    (os.path.join("src", "SPECTALK.DAT"), "SPECTALK.DAT"),
+    (os.path.join("overlay", "overlay_api.h"), "overlay_api.h"),
+    (os.path.join("overlay", "overlay_entry2.asm"), "overlay_entry2.asm"),
+    (os.path.join("overlay", "earth_about_render.asm"), "earth_about_render.asm"),
+]
 
 # Internal display-only codepoint: UTF-8 ñ/Ñ maps to byte 127.
 # The 64-col renderer accepts 32..127, while BPE tokens start at 128.
@@ -234,26 +248,93 @@ def validate_sources():
 
 def validate_backup(backup_dir):
     """Verify bpe_originals/ backup is clean before we trust it for restore."""
+    missing = [name for _, name in BACKUP_FILES if not os.path.isfile(os.path.join(backup_dir, name))]
+    if missing:
+        raise SystemExit(
+            "  [BPE ABORT] Backup is incomplete: " + ", ".join(missing)
+        )
+
     dat_bak = os.path.join(backup_dir, "SPECTALK.DAT")
-    if os.path.exists(dat_bak):
-        sz = os.path.getsize(dat_bak)
-        if sz != EXPECTED_DAT_SIZE:
-            print(
-                f"  [BPE ABORT] Backup SPECTALK.DAT is {sz} bytes, "
-                f"expected {EXPECTED_DAT_SIZE}. Backup is corrupted.",
-                file=sys.stderr,
-            )
-            sys.exit(1)
+    sz = os.path.getsize(dat_bak)
+    if sz != EXPECTED_DAT_SIZE:
+        raise SystemExit(
+            f"  [BPE ABORT] Backup SPECTALK.DAT is {sz} bytes, "
+            f"expected {EXPECTED_DAT_SIZE}. Backup is corrupted."
+        )
+
     sc_bak = os.path.join(backup_dir, "spectalk.c")
-    if os.path.exists(sc_bak):
-        content = read_file(sc_bak)
-        if BPE_POISON_MARKER in content:
-            print(
-                f"  [BPE ABORT] Backup spectalk.c contains '{BPE_POISON_MARKER}' — "
-                f"backup is corrupted.",
-                file=sys.stderr,
-            )
-            sys.exit(1)
+    if BPE_POISON_MARKER in read_file(sc_bak):
+        raise SystemExit(
+            f"  [BPE ABORT] Backup spectalk.c contains '{BPE_POISON_MARKER}' — "
+            f"backup is corrupted."
+        )
+
+
+def files_match(path_a, path_b):
+    """Exact comparison for the small BPE source set."""
+    if os.path.getsize(path_a) != os.path.getsize(path_b):
+        return False
+    with open(path_a, "rb") as file_a, open(path_b, "rb") as file_b:
+        return file_a.read() == file_b.read()
+
+
+def atomic_restore_file(src, dst):
+    """Replace one live file atomically while retaining the backup source."""
+    fd, temp_path = tempfile.mkstemp(prefix=".bpe-restore-", dir=os.path.dirname(dst))
+    os.close(fd)
+    try:
+        shutil.copy2(src, temp_path)
+        os.replace(temp_path, dst)
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
+
+def restore_backup():
+    """Restore a validated backup, retaining it until every copy is verified."""
+    if os.path.exists(BACKUP_DIR) and not os.path.isdir(BACKUP_DIR):
+        raise SystemExit("  [BPE ABORT] bpe_originals exists but is not a directory")
+    if not os.path.isdir(BACKUP_DIR):
+        if os.path.exists(BPE_STAMP):
+            raise SystemExit("  [BPE ABORT] BPE stamp exists without its backup")
+        validate_sources()
+        return False
+
+    validate_backup(BACKUP_DIR)
+    for rel_path, name in BACKUP_FILES:
+        atomic_restore_file(
+            os.path.join(BACKUP_DIR, name), os.path.join(ROOT, rel_path)
+        )
+
+    validate_sources()
+    for rel_path, name in BACKUP_FILES:
+        live_path = os.path.join(ROOT, rel_path)
+        backup_path = os.path.join(BACKUP_DIR, name)
+        if not files_match(live_path, backup_path):
+            raise SystemExit(f"  [BPE ABORT] Restore verification failed: {rel_path}")
+
+    if os.path.exists(BPE_STAMP):
+        os.remove(BPE_STAMP)
+    shutil.rmtree(BACKUP_DIR)
+    return True
+
+
+def prepare_backup():
+    """Recover stale state, then atomically create one clean backup."""
+    os.makedirs(BUILD_DIR, exist_ok=True)
+    if os.path.isdir(BACKUP_DIR):
+        restore_backup()
+
+    validate_sources()
+    staging = tempfile.mkdtemp(prefix="bpe_originals.tmp-", dir=BUILD_DIR)
+    try:
+        for rel_path, name in BACKUP_FILES:
+            shutil.copy2(os.path.join(ROOT, rel_path), os.path.join(staging, name))
+        validate_backup(staging)
+        os.rename(staging, BACKUP_DIR)
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
 
 
 def split_delta_stream(data, target_size, label):
@@ -397,7 +478,7 @@ def patch_earth_render_consts(path, earth_offsets):
     write_file(path, content)
 
 
-def main():
+def build_bpe():
     sys.path.insert(0, os.path.join(ROOT, "tools"))
     from bpe_compress import (
         extract_string_literals,
@@ -406,9 +487,6 @@ def main():
         generate_compressed_sources,
         generate_dict_binary,
     )
-
-    # SAFETY: Validate sources are clean BEFORE doing anything
-    validate_sources()
 
     bpe_src = os.path.join(BUILD_DIR, "bpe_src")
     bpe_final = os.path.join(BUILD_DIR, "bpe_final")
@@ -582,5 +660,27 @@ def main():
     )
 
 
-if __name__ == "__main__":
+def main():
+    prepare_backup()
+    try:
+        build_bpe()
+    except BaseException:
+        try:
+            restore_backup()
+        except BaseException as restore_error:
+            print(f"  [BPE ABORT] Automatic restore failed: {restore_error}", file=sys.stderr)
+        raise
+
+
+def cli():
+    if sys.argv[1:] == ["--restore"]:
+        restore_backup()
+        return
+    if sys.argv[1:]:
+        raise SystemExit("Usage: bpe_build.py [--restore]")
+
     main()
+
+
+if __name__ == "__main__":
+    cli()

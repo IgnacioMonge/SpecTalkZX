@@ -234,7 +234,6 @@ void save_config_ovl(void)
         esx_fwrite();
         write_ok = (esx_result == expected);
         esx_fclose();
-        input_cache_invalidate();
 
         if (!write_ok) {
             ui_err("Write error");
@@ -245,6 +244,7 @@ void save_config_ovl(void)
     }
 
 done:
+    input_cache_invalidate();
     /* overlay_slot aliases rx_line; cmd_save() owns the post-call discard gate. */
     reset_rx_state();
 }

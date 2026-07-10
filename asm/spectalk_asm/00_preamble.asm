@@ -28,7 +28,8 @@ EXTERN ___sdcc_enter_ix
 EXTERN _cur_chan_ptr
 EXTERN _current_channel_idx
     ; Mainline DI contract: ROM IM1 needs IY=0x5C3A, while sdcc_iy uses IY.
-    ; Keep interrupts off outside frame_wait()/overlay_call_timed().
+    ; Only guarded waits, ABOUT ticks, and the internal scroll install ROM IY
+    ; before enabling interrupts; every path restores the mainline DI state.
     di
     ld hl, __bss_compiler_tail
     ld de, __data_compiler_tail
@@ -151,7 +152,6 @@ PUBLIC _try_read_line_nodrain
 PUBLIC _reapply_screen_attributes
 PUBLIC _cls_fast
 PUBLIC _uart_drain_to_buffer
-PUBLIC _scroll_main_zone
 PUBLIC _main_print
 PUBLIC _main_newline
 PUBLIC _main_hline
@@ -191,8 +191,6 @@ PUBLIC _pkt_rest
 PUBLIC _pkt_txt
 PUBLIC _pkt_cmd
 PUBLIC _last_cmd_id
-PUBLIC _pkt_empty
-PUBLIC _names_friend_pos
 PUBLIC _nb_p
 PUBLIC _net_short_buf
 
@@ -272,8 +270,8 @@ DEFC RB_MASK_H = 0x07   ; High byte mask for 2048 (0x0800)
 ; =============================================================================
 ; SCRATCH TRANSITORIO - Printer Buffer tail ($5BC0-$5BFF, 64B)
 ; =============================================================================
-; Zona corrompida por esxDOS RST 8. Solo datos que NO deben sobrevivir a
-; llamadas file I/O (overlay load, SPECTALK.DAT, config read/write, help).
+; Treat this tail as clobberable across esxDOS RST 8. Only data that does not
+; survive file I/O may live here (overlay load, DAT, config, help).
 ; Los render paths (unpack_glyph, print_line64_fast, main_puts/BPE) NO llaman
 ; esxDOS mid-execution → la zona es estable dentro de cada render.
 ; Zero-fill inicial cubierto por CRT init (zero_fill_256 en $5B00).
@@ -282,24 +280,23 @@ defc glyph_buffer    = 0x5BC0  ; 7B  scratch unpack_glyph
 defc plf_left_buf    = 0x5BC8  ; 8B  scratch print_line64_fast (nibbles izq)
 defc plf_attr_val    = 0x5BD0  ; 1B  scratch print_line64_fast
 defc plf_y_val       = 0x5BD1  ; 1B  scratch print_line64_fast
-PUBLIC _plf_start_byte
-defc _plf_start_byte = 0x5BD2  ; 1B  wrap_indent/2 (seteado por callers ASM)
+EXTERN _plf_start_byte          ; persistent caller state in compiler BSS
+EXTERN _plf_pair_count          ; persistent optional limit in compiler BSS
 defc bpe_rstack      = 0x5BD3  ; 16B BPE return stack (8 niveles x 2B)
 defc bpe_rsp         = 0x5BE3  ; 2B  BPE stack pointer
 defc _net_short_buf  = bpe_rstack ; 12B status temp, copied before render/BPE
 ; $5BE5-$5BE6 2B  main_print_wrapped_ram() last-space scratch
 ; $5BE7-$5BEE 8B  C fmt_buf transient decimal/time scratch
-defc plf_pair_count  = 0x5BEF  ; 1B  optional print_line64_fast pair limit
-; $5BF0-$5BFF 16B IRC parser context. No esxDOS while live; render scratch
-; stops at $5BEF, so handlers can print without corrupting packet globals.
+; $5BEF unused
+; $5BF0-$5BFF 16B IRC parser context. No esxDOS while live; handlers can
+; print without corrupting packet globals.
 defc _pkt_usr          = 0x5BF0  ; 2B
 defc _pkt_par          = 0x5BF2  ; 2B
 defc _pkt_rest         = 0x5BF4  ; 2B
 defc _pkt_txt          = 0x5BF6  ; 2B
 defc _pkt_cmd          = 0x5BF8  ; 2B
 defc _last_cmd_id      = 0x5BFA  ; 2B
-defc _pkt_empty        = 0x5BFC  ; 1B zero sentinel
-defc _names_friend_pos = 0x5BFD  ; 1B
+; $5BFC-$5BFD unused; pkt_empty/names_friend_pos persist in compiler BSS
 defc _nb_p             = 0x5BFE  ; 2B
 
 ; =============================================================================

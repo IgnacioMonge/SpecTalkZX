@@ -109,7 +109,11 @@ void config_render_ovl(void)
         const char *fn;
         print_str64(row, 2, "Friends:", theme_attrs[TATTR_MSG_NICK]);
         for (i = MAX_FRIENDS, fn = friend_nicks[0]; i != 0; i--, fn += IRC_NICK_SIZE) {
-            if (*fn) { print_str64(row, col, fn, theme_attrs[TATTR_MSG_CHAN]); col += st_strlen(fn) + 1; }
+            if (*fn) {
+                if (col > 30) { row++; col = 12; }
+                print_str64(row, col, fn, theme_attrs[TATTR_MSG_CHAN]);
+                col += 18;          /* IRC_NICK_SIZE: two max nicks per row */
+            }
         }
         if (col == 12) print_str64(row, col, cv_notset, theme_attrs[TATTR_MSG_TIME]);
         row++;
@@ -119,8 +123,9 @@ void config_render_ovl(void)
         else {
             const char *ign = ignore_list[0];
             for (i = ignore_count; i != 0; i--, ign += 16) {
+                if (col > 44) { row++; col = 12; }
                 print_str64(row, col, ign, theme_attrs[TATTR_MSG_CHAN]);
-                col += st_strlen(ign) + 1;
+                col += 16;          /* 15 chars + gap: three per row */
             }
         }
     }

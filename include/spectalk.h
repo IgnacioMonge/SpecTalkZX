@@ -23,6 +23,7 @@
 #include <stdint.h>
 #include <input.h>
 #include <arch/zx.h>
+#include "spectalk_contract.h"
 
 // =============================================================================
 // SDCC COMPATIBILITY
@@ -35,11 +36,6 @@
 #endif
 
 // =============================================================================
-// VERSION
-// =============================================================================
-#define VERSION "1.3.8"
-
-// =============================================================================
 // SCREEN LAYOUT CONSTANTS
 // =============================================================================
 #define SCREEN_COLS     64
@@ -50,9 +46,6 @@
 #define INPUT_START       22
 #define INPUT_LINES       2
 #define INPUT_END         (INPUT_START + INPUT_LINES - 1)
-
-// Timezone sentinel: user explicitly selected hardware RTC mode.
-#define TZ_RTC 127
 
 // =============================================================================
 // KEY CODES
@@ -86,34 +79,10 @@
 #define CH_FLAG_COUNT_DIRTY 0x20
 
 // =============================================================================
-// buffer SIZES
-// =============================================================================
-#define RING_BUFFER_SIZE 2048
-#define RING_BUFFER_MASK (RING_BUFFER_SIZE - 1)
-#define LINE_BUFFER_SIZE 128
-
-// IRC/user-visible string sizes (must match definitions in spectalk.c)
-#define IRC_SERVER_SIZE   32
-#define IRC_PORT_SIZE      6
-#define IRC_NICK_SIZE     18
-#define IRC_PASS_SIZE     24
-#define USER_MODE_SIZE     6
-#define NETWORK_NAME_SIZE 12
-
-// Cross-module buffers (must match definitions in spectalk.c)
-#define NAMES_TARGET_CHANNEL_SIZE 32
-#define SEARCH_PATTERN_SIZE       64
-// RX_LINE_SIZE: duplicado como RX_LINE_MAX EQU en spectalk_asm.asm
-// Si cambias este valor, actualiza también RX_LINE_MAX en el ASM
-#define RX_LINE_SIZE              512
-
-// =============================================================================
 // CHANNEL/WINDOW MANAGEMENT
 // =============================================================================
 #define MAX_CHANNELS 10
 #define NAV_HIST_SIZE 6
-#define MAX_FRIENDS 5
-#define MAX_IGNORES 5
 #define IS_CHAN_PREFIX(c) ((c) == '#' || (c) == '&')
 
 // Channel flags defined above (lines 77-80)
@@ -544,19 +513,10 @@ void print_char64(uint8_t y, uint8_t col, uint8_t c, uint8_t attr) __z88dk_calle
 void print_str64(uint8_t y, uint8_t col, const char *s, uint8_t attr) __z88dk_callee;
 void print_big_str(uint8_t y, uint8_t col, const char *s, uint8_t attr) __z88dk_callee;
 
-// Overlay modes
 extern uint8_t overlay_mode;
-#define OVERLAY_NONE   0
-#define OVERLAY_HELP   1
-#define OVERLAY_ABOUT  2
-#define OVERLAY_CONFIG 3
-#define OVERLAY_STATUS 4
-#define OVERLAY_WHATSNEW 5
-#define OVERLAY_BOOKMARKS 6
 void draw_status_bar(void);
 void clear_main(void);
 void overlay_exit_full(void);  // OPT-SHRINK-R01: common overlay exit sequence (ASM)
-extern void scroll_main_zone(void);
 void redraw_input_full(void);
 void reapply_screen_attributes(void);
 void cls_fast(void);

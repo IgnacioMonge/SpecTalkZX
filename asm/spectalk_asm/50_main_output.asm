@@ -797,7 +797,7 @@ puts_fast_segment_even:
     ld (_plf_start_byte), a
     ld a, b
     srl a
-    ld (plf_pair_count), a
+    ld (_plf_pair_count), a
 
     ld a, c
     add a, b

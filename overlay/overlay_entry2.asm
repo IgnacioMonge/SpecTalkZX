@@ -11,6 +11,8 @@ EXTERN _esx_fread
 EXTERN _esx_result
 EXTERN _earth_apply_frame_delta
 EXTERN _earth_apply_attr_delta
+EXTERN _earth_validate_frame_delta
+EXTERN _earth_validate_attr_delta
 EXTERN _esx_fseek_set
 EXTERN _earth_draw_frame
 
@@ -46,6 +48,7 @@ _globe_tick_ovl:
     ld (_esx_buf), hl
     ld hl, EARTH_PACKET_SIZE
     ld (_esx_count), hl
+    di
     call _esx_fread
 
     ld hl, EARTH_PACKET_SIZE
@@ -53,12 +56,43 @@ _globe_tick_ovl:
     sbc hl, bc
     jr nz, _about_close_ovl       ; tail-call if read fails
 
-    ; Apply frame delta: earth_apply_frame_delta(about_packet_slot + 2)
+    ; Packet: u16 frame_len, frame stream, u8 attr_len, attr stream.
+    ld bc, (_about_packet_slot)
+    ld a, b
+    or c
+    jp z, about_tick_fail
+    ld hl, EARTH_PACKET_SIZE - 4
+    or a
+    sbc hl, bc
+    jp c, about_tick_fail
+
+    ld hl, _about_packet_slot + 2
+    call _earth_validate_frame_delta
+    jp c, about_tick_fail
+
+    ld a, (hl)
+    inc hl
+    or a
+    jp z, about_tick_fail
+    ld c, a
+    ld b, 0
+
+    push hl
+    add hl, bc
+    ld de, _about_packet_slot + EARTH_PACKET_SIZE + 1
+    or a
+    sbc hl, de
+    pop hl
+    jp nc, about_tick_fail
+
+    call _earth_validate_attr_delta
+    jp c, about_tick_fail
+    ei
+
     ld hl, _about_packet_slot + 2
     call _earth_apply_frame_delta
 
-    ; Apply attr delta: earth_apply_attr_delta(about_packet_slot + len + 3)
-    ld hl, (_about_packet_slot)   ; reads little-endian 16-bit len
+    ld hl, (_about_packet_slot)
     ld de, _about_packet_slot + 3
     add hl, de
     call _earth_apply_attr_delta
@@ -71,12 +105,17 @@ _globe_tick_ovl:
     ret nz
 
     ld hl, EARTH_DELTA_OFFSET
+    di
     call _esx_fseek_set
     dec l
     jr nz, _about_close_ovl       ; tail-call if seek fails
+    ei
     ld a, l
     ld (_frame_idx), a
     ret
+
+about_tick_fail:
+    jp _about_close_ovl
 
 _earth_ready: db 0
 _frame_idx:   db 0

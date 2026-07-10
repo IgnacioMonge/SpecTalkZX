@@ -14,6 +14,7 @@ EXTERN _time_minute
 EXTERN _time_second
 EXTERN _last_frames_lo
 EXTERN _tick_accum
+EXTERN _input_cache_invalidate
 
 DEFC ZXUNOADDR  = $FC3B
 DEFC M_GETDATE  = $8E
@@ -40,7 +41,7 @@ rtc_try_pcf_seed:
 rtc_seed_ok:
     ld a, (_sntp_tz)
     cp TZ_RTC
-    ret nz
+    jr nz, rtc_seed_done
     ld hl, _overlay_slot + 2
     ld a, (hl)
     ld (_time_hour), a
@@ -54,12 +55,14 @@ rtc_seed_ok:
     ld (_last_frames_lo), a
     ld hl, 0
     ld (_tick_accum), hl
-    ret
+    jr rtc_seed_done
 
 rtc_seed_fail:
     ld a, (_sntp_tz_last)
     ld (_sntp_tz), a
-    ret
+
+rtc_seed_done:
+    jp _input_cache_invalidate
 
 ; --- esxDOS / NextZXOS RTC paths --------------------------------------------
 

@@ -840,7 +840,7 @@ _print_line64_fast:
     ld a, 32
     sub c
     ld b, a
-    ld a, (plf_pair_count)
+    ld a, (_plf_pair_count)
     or a
     jr z, plf_use_max_count
     cp b
@@ -848,7 +848,7 @@ _print_line64_fast:
 plf_use_max_count:
     ld a, b
 plf_count_ready:
-    ld (plf_pair_count), a
+    ld (_plf_pair_count), a
     ld iyl, a
 
 plf_pair_loop:
@@ -981,7 +981,7 @@ plf_pair_advance:
     ld d, h
     ld e, l
     inc de
-    ld a, (plf_pair_count)
+    ld a, (_plf_pair_count)
     dec a                  ; remaining after first byte
     jr z, plf_no_ldir      ; start_byte=31 → BC would be 0 → LDIR = 65536 bytes
     ld c, a
@@ -990,7 +990,7 @@ plf_no_ldir:
     ; Reset optional caller state
     xor a
     ld (_plf_start_byte), a
-    ld (plf_pair_count), a
+    ld (_plf_pair_count), a
 
     ; (S01) Trailing update de _g_ps64_col/y/attr eliminado. Verificado:
     ; todos los readers (main_puts, main_newline, print_char64, print_big_str,
@@ -1010,7 +1010,7 @@ plf_no_ldir:
 ; Same IYL/DI contract as _print_line64_fast.
 _print_status_left54_fast:
     ld a, 27
-    ld (plf_pair_count), a
+    ld (_plf_pair_count), a
     ld c, h                     ; C = str_hi
     ld h, l                     ; H = str_lo
     ld l, 21                    ; INFO_LINE
