@@ -725,7 +725,7 @@ earth_attr_base:
         jp _compute_attr_base
 
 about_s_line1:
-        db "SPECTALKZX 1.3.8: IRC CLIENT FOR ZX SPECTRUM",0
+        db "SPECTALKZX 1.3.9: IRC CLIENT FOR ZX SPECTRUM",0
 about_s_line2:
         db "GITHUB.COM/IGNACIOMONGE/SPECTALKZX GPL-2.0",0
 about_s_foot:

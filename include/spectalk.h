@@ -58,34 +58,16 @@
 #define KEY_ENTER     13
 #define KEY_BREAK     3
 
-// =============================================================================
-// CONNECTION STATES
-// =============================================================================
-#define STATE_DISCONNECTED  0
-#define STATE_WIFI_OK       1
-#define STATE_TCP_CONNECTED 2
-#define STATE_IRC_READY     3
-
 #define AUTOJOIN_MOTD_DONE   0x01
 #define AUTOJOIN_IDENT_WAIT  0x02
 #define AUTOJOIN_IDENT_SENT  0x04
 #define AUTOJOIN_IDENT_GRACE_FRAMES 250
 
-#define CH_FLAG_ACTIVE     0x01
-#define CH_FLAG_QUERY      0x02
-#define CH_FLAG_UNREAD     0x04
-#define CH_FLAG_MENTION    0x08
-#define CH_FLAG_NAMING     0x10
-#define CH_FLAG_COUNT_DIRTY 0x20
-
 // =============================================================================
 // CHANNEL/WINDOW MANAGEMENT
 // =============================================================================
-#define MAX_CHANNELS 10
 #define NAV_HIST_SIZE 6
 #define IS_CHAN_PREFIX(c) ((c) == '#' || (c) == '&')
-
-// Channel flags defined above (lines 77-80)
 
 typedef struct {
     char name[22];           // Channel name "#retro" or query nick or "Server"
@@ -202,6 +184,9 @@ extern uint8_t try_read_line_nodrain(void);
 extern void     ay_uart_init(void);
 extern void     ay_uart_send(uint8_t byte) __z88dk_fastcall;
 
+#include "spectalk_net.h"
+#include "spectalk_clock.h"
+
 // =============================================================================
 // GLOBAL variables (defined in spectalk.c)
 // =============================================================================
@@ -268,7 +253,7 @@ extern uint8_t nav_hist_ptr;
 extern char ignore_list[][16];
 extern uint8_t ignore_count;
 
-// Theme attributes array — indices match Theme struct fields banner..border
+// Theme attributes array — indices match the runtime theme_attrs[] layout
 extern uint8_t theme_attrs[20];
 #define ATTR_BANNER     theme_attrs[0]
 #define ATTR_STATUS     theme_attrs[1]
@@ -456,7 +441,6 @@ extern const char S_SET[];
 extern const char S_DOT_SP[];       // D9: ". " dedup
 extern const char S_USAGE_MSG[];    // D9: "msg nick message" dedup
 extern const char S_COMMA_SP[];     // D9: ", " dedup (3 uses)
-extern const char S_AT_SNTPTIME[];  // D10: "AT+CIPSNTPTIME?"
 extern const char S_IDENTIFY_CMD[]; // D10: " :IDENTIFY "
 extern const char S_JOINED_SP[];    // D10: " joined "
 extern const char S_AWAY_CMD[];     // D10: "AWAY"
@@ -619,7 +603,17 @@ extern void esx_fopen(const char *path) __z88dk_fastcall;
 extern void esx_fcreate(const char *path) __z88dk_fastcall;
 extern void esx_fread(void);
 extern void esx_fwrite(void);
+#ifdef SPECTALK_SPECTRANEXT
+extern uint8_t esx_fclose(void);
+extern void esx_freplace(const char *path) __z88dk_fastcall;
+extern void esx_funlink(const char *path) __z88dk_fastcall;
+extern void esx_opendir(const char *path) __z88dk_fastcall;
+extern void esx_mkdir(const char *path) __z88dk_fastcall;
+extern void esx_commit(const char *path) __z88dk_fastcall;
+extern uint8_t esx_replace_write(const char *path) __z88dk_fastcall;
+#else
 extern void esx_fclose(void);
+#endif
 extern uint8_t  esx_handle;
 extern uint16_t esx_buf;
 extern uint16_t esx_count;

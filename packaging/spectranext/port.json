@@ -1,0 +1,128 @@
+{
+  "schema": 2,
+  "product": {
+    "name": "SpecTalkZX",
+    "slug": "spectalkzx",
+    "stem": "SPECTALK"
+  },
+  "repository": {
+    "path": "../..",
+    "base": "main",
+    "branch": "codex/spectranext-audit-fixes",
+    "worktree": "SpecTalkZX-SpectraNext"
+  },
+  "capabilities": {
+    "network": true,
+    "configuration": true,
+    "mutable_storage": true,
+    "clock": true
+  },
+  "installer": {
+    "manifest": "installer.json",
+    "output": "../../build/spectranext-resource",
+    "preview": "../../build/installer-preview.png"
+  },
+  "allowed_changes": [
+    ".mex/ROUTER.md",
+    "ARCHITECTURE.md",
+    "CHANGELOG.md",
+    "Makefile",
+    "release/changes.txt",
+    "zxespemu-launchers.json",
+    "packaging/spectranext/**",
+    "docs/overlay_map.md",
+    "specs/spectranext-port.md",
+    "include/spectalk_net.h",
+    "include/spectalk_clock.h",
+    "src/main_build.c",
+    "src/net_spectranext.c",
+    "src/clock_spectranext.c",
+    "src/spectalk_copt.rul",
+    "overlay/spectranext_clock_ovl.c",
+    "overlay/xfs_write_ovl.asm",
+    "asm/spectalk_asm/00_preamble.asm",
+    "asm/spectalk_asm/40_text_numeric_screen.asm",
+    "asm/spectalk_asm/60_protocol_storage.asm",
+    "asm/spectalk_asm/80_ui_runtime.asm",
+    "overlay/rtc_seed_ovl.asm",
+    "overlay/overlay_entry6.asm",
+    "tools/test_esxdos_cache_contract.py",
+    "tools/check_memory_layout.py",
+    "tools/gen_overlay_defs.py",
+    "tools/test_spectranext_*.py"
+  ],
+  "protected_changes": [
+    "src/irc_handlers.c",
+    "src/user_cmds.c",
+    "src/spectalk.c",
+    "asm/spectalk_asm/20_rx_ring_uart.asm",
+    "asm/spectalk_asm/30_rendering.asm",
+    "asm/spectalk_asm/50_main_output.asm",
+    "asm/spectalk_asm/70_input_lookup.asm",
+    "overlay/bookmark_store_ovl.c",
+    "overlay/bookmarks_ovl.c",
+    "overlay/local_cmds_ovl.c",
+    "overlay/spectalk_ovl.c",
+    "overlay/spectalk_ovl3.c",
+    "overlay/spectalk_ovl4.c",
+    "overlay/spectalk_ovl5.c",
+    "overlay/switcher_ovl.c",
+    "overlay/overlay_api.h",
+    "overlay/overlay_entry2.asm",
+    "overlay/overlay_entry3.asm",
+    "overlay/overlay_entry4.asm",
+    "overlay/overlay_entry5.asm",
+    "overlay/overlay_entry7.asm",
+    "overlay/overlay_entry8.asm",
+    "overlay/earth_about_render.asm"
+  ],
+  "checks": {
+    "host": [
+      ["make", "NO_COLOR=1", "check"]
+    ],
+    "classic": [
+      ["make", "NO_COLOR=1"]
+    ],
+    "spectranext": [
+      ["make", "NO_COLOR=1", "spectranext", "SPXN_DIR={spectranext}/driver"]
+    ],
+    "configuration": [
+      ["make", "NO_COLOR=1", "test-spectranext-configuration", "SPXN_DIR={spectranext}/driver"]
+    ],
+    "mutable_storage": [
+      ["make", "NO_COLOR=1", "test-spectranext-storage", "SPXN_DIR={spectranext}/driver"]
+    ],
+    "network": [
+      ["make", "NO_COLOR=1", "test-spectranext-network", "SPXN_DIR={spectranext}/driver"]
+    ],
+    "clock": [
+      ["make", "NO_COLOR=1", "test-spectranext-clock", "SPXN_DIR={spectranext}/driver"]
+    ]
+  },
+  "artifacts": [
+    {
+      "path": "build/SpecTalkZX.tap",
+      "role": "TAPE"
+    },
+    {
+      "path": "build/SPECTALK.OVL",
+      "role": "OVLY"
+    },
+    {
+      "path": "build/SPECTALK.DAT",
+      "role": "DATA"
+    },
+    {
+      "path": "packaging/spectranext/loading.scr",
+      "role": "SCR"
+    },
+    {
+      "path": "build/spectranext-resource/boot.zx",
+      "role": "BOOT"
+    },
+    {
+      "path": "build/spectranext-resource/package.json",
+      "role": "MANIFEST"
+    }
+  ]
+}

@@ -9,7 +9,6 @@ Development/
 build/
 SpecTalkZX
 SpecTalkZX.map
-src/SPECTALK.DAT
 tools/__pycache__/
 
 # Obsolete local asset

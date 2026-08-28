@@ -6,14 +6,6 @@
 #include "overlay_api.h"
 
 #define SCREEN_COLS     64
-#define MAX_CHANNELS    10
-#define CH_SIZE         32
-#define CH_FLAG_ACTIVE  0x01
-#define CH_FLAG_QUERY   0x02
-#define CH_FLAG_UNREAD  0x04
-#define CH_FLAG_MENTION 0x08
-#define CH_FLAGS_OFF    30
-
 #define ATTR_STATUS     theme_attrs[1]
 
 #define sw_map          ((uint8_t *)search_pattern)

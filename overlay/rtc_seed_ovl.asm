@@ -28,6 +28,13 @@ DEFC SCL1SDA0   = 2
 DEFC SCL1SDA1   = 3
 DEFC TZ_RTC     = 127
 
+IFDEF SPECTALK_SPECTRANEXT
+_rtc_seed_ovl:
+    ld a, (_sntp_tz_last)
+    ld (_sntp_tz), a
+    jp _input_cache_invalidate
+ELSE
+
 _rtc_seed_ovl:
     call rtc_try_drvapi
     jr nc, rtc_seed_ok
@@ -100,9 +107,8 @@ rtc_esx_epilogue:
 rtc_try_msdos_regs:
 rtc_decode_msdos:
     ld a, b
-    cp 88                     ; (2024 - 1980) << 1
-    jr c, rtc_fail
-    cp 112                    ; (2036 - 1980) << 1
+    sub 88                    ; accepted year span: 2024..2035
+    cp 24
     jr nc, rtc_fail
     ld a, c
     and 31                    ; day
@@ -284,63 +290,62 @@ pcf_validate_commit:
     bit 7, a
     jr nz, pcf_fail
     and $7F
-    call bcd_to_bin
+    ld d, 60
+    call pcf_bcd_below
     ret c
-    cp 60
-    jr nc, pcf_fail
     ld (hl), a
 
     inc hl
     ld a, (hl)                ; minutes
     and $7F
-    call bcd_to_bin
+    ld d, 60
+    call pcf_bcd_below
     ret c
-    cp 60
-    jr nc, pcf_fail
     ld (hl), a
 
     inc hl
     ld a, (hl)                ; hours
     and $3F
-    call bcd_to_bin
+    ld d, 24
+    call pcf_bcd_below
     ret c
-    cp 24
-    jr nc, pcf_fail
     ld (hl), a
 
     inc hl
     ld a, (hl)                ; day
     and $3F
-    call bcd_to_bin
+    ld d, 32
+    call pcf_bcd_below
     ret c
     or a
     jr z, pcf_fail
-    cp 32
-    jr nc, pcf_fail
 
     inc hl                    ; skip weekday
     inc hl
     ld a, (hl)                ; month, century bit ignored
     and $1F
-    call bcd_to_bin
+    ld d, 13
+    call pcf_bcd_below
     ret c
     or a
     jr z, pcf_fail
-    cp 13
-    jr nc, pcf_fail
-
     inc hl
     ld a, (hl)                ; year 24..35 -> 2024..2035
-    call bcd_to_bin
+    ld d, 36
+    call pcf_bcd_below
     ret c
     cp 24
     jr c, pcf_fail
-    cp 36
-    jr nc, pcf_fail
 
     or a
     ret
 
+pcf_bcd_below:
+    call bcd_to_bin
+    ret c
+    cp d
+    ccf
+    ret
 pcf_fail:
 bcd_fail:
     scf
@@ -366,3 +371,5 @@ bcd_to_bin:
     add a, c
     or a
     ret
+
+ENDIF

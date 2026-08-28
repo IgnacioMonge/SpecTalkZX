@@ -9,14 +9,16 @@ ROOT = Path(__file__).resolve().parents[1]
 
 EXPECTED_IO_COUNTS = {
     "asm/overlay_loader.asm": 6,
-    "asm/spectalk_asm/60_protocol_storage.asm": 6,
+    "asm/spectalk_asm/60_protocol_storage.asm": 7,
     "overlay/bookmark_store_ovl.c": 6,
     "overlay/bookmarks_ovl.c": 5,
     "overlay/earth_about_render.asm": 7,
     "overlay/overlay_entry2.asm": 2,
     "overlay/rtc_seed_ovl.asm": 2,
     "overlay/spectalk_ovl.c": 5,
+    "overlay/spectalk_ovl3.c": 4,
     "overlay/spectalk_ovl4.c": 4,
+    "overlay/xfs_write_ovl.asm": 2,
     "src/spectalk.c": 6,
 }
 
@@ -46,6 +48,7 @@ def io_inventory():
         for path in base.rglob("*"):
             if path.suffix.lower() not in (".c", ".asm"):
                 continue
+            relative = path.relative_to(ROOT).as_posix()
             text = path.read_text(encoding="utf-8", errors="replace")
             if path.suffix.lower() == ".c":
                 count = sum(len(C_IO.findall(line)) for line in text.splitlines()
@@ -53,12 +56,25 @@ def io_inventory():
             else:
                 count = len(ASM_IO.findall(text)) + len(RST8.findall(text))
             if count:
-                observed[path.relative_to(ROOT).as_posix()] = count
+                observed[relative] = count
     assert observed == EXPECTED_IO_COUNTS, (observed, EXPECTED_IO_COUNTS)
 
 
 def main():
     io_inventory()
+
+    overlay_api = source("overlay/overlay_api.h")
+    whatsnew_data = source("overlay/whatsnew_data.h")
+    help_offset = int(re.search(r"#define BPE_HELP_OFFSET (\d+)", overlay_api).group(1))
+    logo_offset = int(re.search(r"#define WN_LOGO_OFFSET (\d+)", overlay_api).group(1))
+    logo_size = int(re.search(r"#define WN_LOGO_PACKED_SIZE (\d+)", whatsnew_data).group(1))
+    assert help_offset == logo_offset + logo_size
+
+    changes = [line.strip() for line in source("release/changes.txt").splitlines()
+               if line.strip()]
+    assert len(changes) == 12
+    assert changes[-1] == "And much, much more!"
+    assert max(map(len, changes[:-1])) <= 40
 
     persistent = words(block(source("src/spectalk.c"),
                              "char rx_line[RX_LINE_SIZE];", "uint16_t rx_pos;"))
@@ -87,6 +103,22 @@ def main():
     assert "esx_fclose(); input_cache_invalidate()" in help_io
     assert "help_io_fail: input_cache_invalidate(); overlay_mode = 0" in help_io
 
+    whatsnew = words(block(source("overlay/spectalk_ovl3.c"),
+                          "static void blit_logo", "void whatsnew_render"))
+    assert "if (!esx_handle) goto finish" in whatsnew
+    assert "if (!esx_fseek_set(WN_LOGO_OFFSET)) goto finish_close" in whatsnew
+    assert "finish_close: esx_fclose(); finish: input_cache_invalidate()" in whatsnew
+
+    whatsnew_render = words(block(source("overlay/spectalk_ovl3.c"),
+                                  "void whatsnew_render"))
+    assert "blit_logo(r + 1, 1)" in whatsnew_render
+    assert "text_col = (WN_LOGO_WB + 3) * 2" in whatsnew_render
+    assert "final_attr = 0x43 | (theme_attrs[TATTR_MAIN_BG] & 0x38)" in whatsnew_render
+    assert "print_str64(tr, text_col, p, final_attr)" in whatsnew_render
+
+    whatsnew_generator = words(source("tools/gen_whatsnew.py"))
+    assert "threshold=160" in whatsnew_generator
+
     config = words(block(source("overlay/spectalk_ovl4.c"), "void save_config_ovl"))
     assert config.count("input_cache_invalidate()") == 1
     assert "done: input_cache_invalidate(); reset_rx_state()" in config
@@ -97,15 +129,18 @@ def main():
     assert "if (!esx_handle) { input_cache_invalidate(); return 0; }" in store_line
     assert "esx_fclose(); input_cache_invalidate()" in store_line
     assert "if (!esx_handle) { input_cache_invalidate(); goto err; }" in store_save
-    assert "esx_fclose(); input_cache_invalidate()" in store_save
+    assert store_save.find("input_cache_invalidate()", store_save.rfind("esx_fclose();")) >= 0
+    assert store_save.find("input_cache_invalidate()", store_save.find("esx_replace_write")) >= 0
 
     bookmarks_c = source("overlay/bookmarks_ovl.c")
     bookmarks_line = words(block(bookmarks_c, "static const char *bm_line", "static uint8_t bm_server_eq"))
     bookmarks_delete = words(block(bookmarks_c, "void bookmarks_delete_ovl"))
     assert "if (!esx_handle) { input_cache_invalidate(); return 0; }" in bookmarks_line
     assert "esx_fclose(); input_cache_invalidate()" in bookmarks_line
-    assert "if (!esx_handle) { input_cache_invalidate();" in bookmarks_delete
-    assert "esx_fclose(); input_cache_invalidate()" in bookmarks_delete
+    assert "if (!esx_handle)" in bookmarks_delete
+    assert "if (!esx_result)" in bookmarks_delete
+    assert bookmarks_delete.find("input_cache_invalidate()", bookmarks_delete.rfind("esx_fclose();")) >= 0
+    assert bookmarks_delete.find("input_cache_invalidate()", bookmarks_delete.find("esx_funlink")) >= 0
 
     rtc = source("overlay/rtc_seed_ovl.asm")
     rtc_top = words(block(rtc, "_rtc_seed_ovl:", "; --- esxDOS"))
@@ -133,6 +168,22 @@ def main():
     assert "ld bc, 127 ldir ret" in primitive
     fixed = source("asm/spectalk_asm/80_ui_runtime.asm")
     assert "defc _input_cache_char = 0x5B00" in fixed
+
+    layout = source("tools/check_memory_layout.py")
+    assert '"_spxn_xfs_scratch_preserve_size": 128' in layout
+    assert '"_spxn_xfs_scratch_preserve_backup": 0x5B00' in layout
+    assert 'symbols["_spxn_xfs_scratch_preserve_base"] ==' in layout
+    assert 'symbols["_spxn_xfs_scratch_preserve_backup"] ==' in layout
+    assert 'fixed["_input_cache_char"]' in layout
+    assert '"XFS preserve size must remain 128B"' in layout
+    assert '"XFS preserve backup no longer aliases input cache"' in layout
+
+    generator = source("tools/gen_overlay_defs.py")
+    optional = block(generator, "OPTIONAL_TARGET_SYMBOLS = [", "]")
+    assert "_esx_replace_write" not in optional
+
+    writer = source("overlay/xfs_write_ovl.asm")
+    assert "_input_cache_invalidate" not in writer
 
     print("esxDOS and persistent Printer-state boundary check OK")
 

@@ -20,7 +20,6 @@
 
 #include "../include/spectalk.h"
 // font64_data.h ya no se necesita - fuente comprimida integrada en spectalk_asm.asm
-#include "../include/themes.h"
 
 // =============================================================================
 // COMPILE-TIME SAFETY: Verificar que constantes C coinciden con ASM
@@ -67,7 +66,11 @@ const char S_DISCONN[] = "Disconnected";
 const char S_NICKSERV[] = "NickServ";
 const char S_APPNAME[] = "SpecTalkZX " VERSION;
 const char S_APPSHORT[] = "SpecTalkZX";
+#ifdef SPECTALK_SPECTRANEXT
+const char S_APPDESC[] = "IRC Client for Spectranext";
+#else
 const char S_APPDESC[] = "IRC Client for ZX Spectrum";
+#endif
 const char S_COPYRIGHT[] = "(C) 2026 M. Ignacio Monge Garcia";
 const char S_MAXWIN[] = "Max windows reached (10).";
 const char S_PRIVMSG[] = "PRIVMSG ";
@@ -112,9 +115,6 @@ const char S_SET[] = "(set)";
 const char S_DOT_SP[] = ". ";           // D9: dedup from search results
 const char S_USAGE_MSG[] = "msg nick message"; // D9: dedup from cmd_msg
 const char S_COMMA_SP[] = ", ";              // D9: dedup (3 uses)
-const char S_AT_SNTPTIME[] = "AT+CIPSNTPTIME?";  // D10: dedup (2 uses)
-static const char S_SNTP_CFG[] = "AT+CIPSNTPCFG=1,";
-static const char S_NTP_POOL[] = ",\"pool.ntp.org\"";
 const char S_IDENTIFY_CMD[] = " :IDENTIFY ";      // D10: dedup (2 uses)
 const char S_JOINED_SP[] = " joined ";            // D10: dedup (2 uses)
 const char S_AWAY_CMD[] = "AWAY";                 // D10: dedup (2 uses)
@@ -142,12 +142,14 @@ const char S_USAGE_NOTICE[] = "notice nick message";
 // THEME SYSTEM - Global attributes set by apply_theme()
 // =============================================================================
 uint8_t current_theme = 1;  // 1=DEFAULT, 2=TERMINAL, 3=COLORFUL
-// Theme attributes array — layout MUST match Theme struct fields banner..border
+// Theme attributes array — layout is defined by TATTR_* in spectalk_contract.h
 // Indices: 0=BANNER 1=STATUS 2=MSG_CHAN 3=MSG_SELF 4=MSG_PRIV 5=MAIN_BG
 //   6=INPUT 7=INPUT_BG 8=PROMPT 9=MSG_SERVER 10=MSG_JOIN 11=MSG_NICK
 //   12=MSG_TIME 13=MSG_TOPIC 14=MSG_MOTD 15=ERROR 16=IND_RED 17=IND_YELLOW
 //   18=IND_GREEN 19=BORDER
+#ifndef SPECTALK_SPECTRANEXT
 uint8_t theme_attrs[20];
+#endif
 static uint8_t theme_badge_marker;
 
 // =============================================================================
@@ -216,7 +218,9 @@ uint8_t buffer_pressure;         // 1 = buffer >75% (indicator shows empty circl
 // Notification bar (ikkle-4 font on row 20)
 uint16_t notif_timeout;              // Frames until clear; 0=inactive
 uint8_t notif_is_pm;                 // 1=PM notification (enables TAB reply)
+#ifndef SPECTALK_SPECTRANEXT
 char last_pm_nick[IRC_NICK_SIZE];    // Nick of last PM sender
+#endif
 
 // Overlay execution slot (loaded from esxDOS on demand)
 // overlay_slot aliased to rx_line (512B) in spectalk_asm.asm — mutually exclusive
@@ -409,7 +413,9 @@ uint8_t has_esxdos;
 // friend_nicks mapped to UDG area 0xFF58 via ASM defc
 uint8_t friends_ison_sent;
 uint8_t friend_count;
+#ifndef SPECTALK_SPECTRANEXT
 char user_mode[USER_MODE_SIZE];
+#endif
 char network_name[NETWORK_NAME_SIZE];
 uint8_t connection_state;
 
@@ -1070,10 +1076,10 @@ uint8_t pagination_pause(void)
     // Mostrar prompt en row 20 con ikkle-4 font (frees MAIN_END for chat)
     notif_center("- MORE: ANY KEY | BREAK: CANCEL -", ATTR_MSG_SYS);
 
-    while (in_inkey() != 0) { frame_wait(); uart_drain_to_buffer(); }
+    while (in_inkey() != 0) { frame_wait(); net_pump_rx(); }
     while ((key = in_inkey()) == 0) {
         frame_wait();
-        uart_drain_to_buffer();
+        net_pump_rx();
 
         prev_pressure = buffer_pressure;
         backlog = (rb_head - rb_tail) & RING_BUFFER_MASK;
@@ -1098,7 +1104,7 @@ uint8_t pagination_pause(void)
             ui_throttle = 1;
         }
     }
-    while (in_inkey() != 0) { frame_wait(); uart_drain_to_buffer(); }
+    while (in_inkey() != 0) { frame_wait(); net_pump_rx(); }
 
     if (buffer_pressure) {
         buffer_pressure = 0;
@@ -1199,9 +1205,9 @@ static void send_pending_search_command(void)
     rx_overflow = 0;  // FIX: No perder respuesta del servidor
     
     if (search_pending_type == PEND_SEARCH_CHAN) {
-        uart_send_string("LIST *");
-        uart_send_string(search_pattern);
-        uart_send_string("*\r\n");
+        net_send_string("LIST *");
+        net_send_string(search_pattern);
+        net_send_string("*\r\n");
     } else {
         irc_send_cmd1(is_chan ? "LIST" : "WHO", search_pattern);
         if (search_pending_type == PEND_WHO ||
@@ -1258,6 +1264,7 @@ static void draw_clock(void)
 {
     char *p = fmt_buf;
 
+    /* fmt_buf is only 8B (7 glyphs + NUL). Gap col 54 is painted separately. */
     *p++ = '[';
     fast_u8_to_str(p, time_hour); p += 2;
     *p++ = ':';
@@ -1265,7 +1272,9 @@ static void draw_clock(void)
     *p++ = ']';
     *p = 0;
 
-    print_str64(INFO_LINE, 54, fmt_buf, ATTR_STATUS);
+    /* Half-char right shift: NetChessZX STATUS_CLOCK_COL = 55. */
+    print_char64(INFO_LINE, 54, ' ', ATTR_STATUS);
+    print_str64(INFO_LINE, 55, fmt_buf, ATTR_STATUS);
 }
 
 // Print timestamp prefix: [HH:MM] - implemented in ASM (spectalk_asm.asm)
@@ -1277,8 +1286,9 @@ extern void main_print_time_prefix(void);
 //
 // LAYOUT (64 columnas lógicas = 32 físicas):
 //   [0-53]  : Contenido dinámico (nick, canal, usuarios)
-//   [54-59] : Reloj HH:MM (6 chars)
-//   [60-63] : Indicador de conexión (2 chars físicos = 4 lógicos)
+//   [54]    : hueco de medio carácter (alineación NetChessZX)
+//   [55-61] : Reloj [HH:MM] (7 chars)
+//   [62-63] : Indicador de conexión (1 char físico = 2 lógicos)
 //
 // BUFFER:
 //   sb_left_part[57] — buffer de trabajo para columnas 0-56 (incluye \0)
@@ -1752,74 +1762,7 @@ void uart_send_line(const char *s) __z88dk_fastcall
     uart_send_crlf();
 }
 
-// SNTP TIME SYNC (non-blocking)
-static void sntp_init(void) ST_NAKED
-{
-    __asm
-    ld      a, (_sntp_tz)
-    cp      TZ_RTC
-    ret     z
-    ld      a, (_sntp_init_sent)
-    or      a
-    ret     nz
-    ld      a, (_connection_state)
-    cp      STATE_WIFI_OK
-    ret     nz
-
-    ld      hl, _S_SNTP_CFG
-    call    _uart_send_string
-    ld      a, (_sntp_tz)
-    or      a
-    jp      p, sntp_init_abs
-    ld      l, '-'
-    call    _ay_uart_send
-    ld      a, (_sntp_tz)
-    neg
-
-sntp_init_abs:
-    cp      10
-    jr      c, sntp_init_one_digit
-    sub     10
-    ld      e, a
-    ld      l, '1'
-    call    _ay_uart_send
-    ld      a, e
-
-sntp_init_one_digit:
-    add     a, '0'
-    ld      l, a
-    call    _ay_uart_send
-    ld      hl, _S_NTP_POOL
-    call    _uart_send_line
-    ld      a, 1
-    ld      (_sntp_init_sent), a
-    xor     a
-    ld      (_sntp_waiting), a
-    ret
-    __endasm;
-}
-
-static void sntp_query_time(void) ST_NAKED
-{
-    __asm
-    ld      a, (_sntp_init_sent)
-    dec     a
-    ret     nz
-    ld      a, (_sntp_waiting)
-    or      a
-    ret     nz
-    ld      a, (_connection_state)
-    cp      STATE_WIFI_OK
-    ret     nz
-    ld      hl, _S_AT_SNTPTIME
-    call    _uart_send_line
-    ld      a, 1
-    ld      (_sntp_waiting), a
-    ret
-    __endasm;
-}
-
-// sntp_process_response is implemented in spectalk_asm.asm for size optimization
+// Classic clock acquisition lives in clock_classic.c.
 
 // AT COMMAND HELPERS
 // try_read_line_nodrain() está implementada en spectalk_asm.asm para mejor rendimiento
@@ -2011,8 +1954,6 @@ uint8_t esp_init(void)
 // In transparent mode, must exit with +++ first
 void force_disconnect(void)
 {
-    uint8_t i;
-    
     if (disconnecting_in_progress) return;
     disconnecting_in_progress = 1;
 
@@ -2021,22 +1962,7 @@ void force_disconnect(void)
         overlay_exit_full();
     }
     
-    if (connection_state >= STATE_TCP_CONNECTED) {
-        // No QUIT here: sending QUIT before reconnect triggers server-side
-        // throttle (many servers delay 001 for 30-120s after clean QUIT+reconnect).
-        // Ghost nick clears itself via server ping timeout (~120s).
-        for (i = 0; i < 65; i++) { frame_wait(); flush_all_rx_buffers(); }
-        
-        ay_uart_send('+'); ay_uart_send('+'); ay_uart_send('+');
-        
-        for (i = 0; i < 55; i++) { frame_wait(); flush_all_rx_buffers(); }
-    }
-    
-    uart_send_line(S_AT_CIPCLOSE);
-    (void)wait_for_response(S_OK, 50);
-    
-    uart_send_line(S_AT_CIPMODE0);
-    (void)wait_for_response(S_OK, 50);
+    net_close();
 
     connection_state = STATE_WIFI_OK;
     closed_reported = 0;
@@ -2055,9 +1981,9 @@ void force_disconnect(void)
     autoaway_active = 0;
     ping_latency = 0;
     
-    // sntp_init_sent NOT reset — AT+CIPSNTPCFG persists in ESP8266
-    sntp_waiting = 0;
-    sntp_queried = 0;            // re-sync clock on reconnect
+    // Keep setup state: the Classic ESP configuration persists across links.
+    clock_waiting = 0;
+    clock_synced = 0;            // re-sync clock on reconnect
     
     network_name[0] = '\0';
     user_mode[0] = '\0';
@@ -2094,10 +2020,10 @@ extern void irc_send_cmd_internal(const char *cmd, const char *p1, const char *p
 // Unified PONG: "PONG <server> :<token>\r\n"
 void irc_send_pong(const char *token) __z88dk_fastcall
 {
-    uart_send_string(S_PONG);
-    uart_send_string(irc_server);
-    uart_send_string(S_SP_COLON);
-    uart_send_line(token);
+    net_send_string(S_PONG);
+    net_send_string(irc_server);
+    net_send_string(S_SP_COLON);
+    net_send_line(token);
 }
 
 // irc_send_cmd1/cmd2: frameless ASM in spectalk_asm.asm
@@ -2106,10 +2032,10 @@ void irc_send_pong(const char *token) __z88dk_fastcall
 // Uses nickserv_nick if detected, otherwise defaults to "NickServ"
 void send_identify(const char *pass) __z88dk_fastcall
 {
-    uart_send_string(S_PRIVMSG);
-    uart_send_string(nickserv_nick[0] ? (const char *)nickserv_nick : S_NICKSERV);
-    uart_send_string(S_IDENTIFY_CMD);
-    uart_send_line(pass);
+    net_send_string(S_PRIVMSG);
+    net_send_string(nickserv_nick[0] ? (const char *)nickserv_nick : S_NICKSERV);
+    net_send_string(S_IDENTIFY_CMD);
+    net_send_line(pass);
 }
 
 // Enviar ISON con hasta 3 nicks de amigos (una sola vez por sesión IRC).
@@ -2159,8 +2085,8 @@ void nick_try_alternate(void)
     main_puts(S_NICK_INUSE);
     main_print(irc_nick);
 
-    uart_send_string(S_NICK_SP);
-    uart_send_line(irc_nick);
+    net_send_string(S_NICK_SP);
+    net_send_line(irc_nick);
 }
 
 void irc_send_privmsg(const char *target, const char *msg) __z88dk_callee
@@ -2168,16 +2094,16 @@ void irc_send_privmsg(const char *target, const char *msg) __z88dk_callee
     // Auto-away: reset counter on activity, clear if auto-away active
     autoaway_counter = 0;
     if (autoaway_active) {
-        uart_send_line(S_AWAY_CMD);
+        net_send_line(S_AWAY_CMD);
         autoaway_active = 0;
     }
     
     // 1. ENVÍO DIRECTO
     if (connection_state >= STATE_TCP_CONNECTED) {
-        uart_send_string(S_PRIVMSG);
-        uart_send_string(target);
-        uart_send_string(S_SP_COLON);
-        uart_send_line(msg);
+        net_send_string(S_PRIVMSG);
+        net_send_string(target);
+        net_send_string(S_SP_COLON);
+        net_send_line(msg);
     }
 
     // 2. MOSTRAR EN screen
@@ -2731,8 +2657,13 @@ void main(void)
     
     has_esxdos = esx_detect();
 
+#ifdef SPECTALK_SPECTRANEXT
+    // Fatal: no SpectraNext cartridge/storage
+    if (!has_esxdos) fatal_msg("REQUIRES SPECTRANEXT!");
+#else
     // Fatal: no divMMC/esxDOS
     if (!has_esxdos) fatal_msg("REQUIRES DIVMMC!");
+#endif
     // Load font + themes + BPE dict from SPECTALK.DAT
     {
         extern uint8_t font_lut[];
@@ -2749,7 +2680,7 @@ void main(void)
     apply_theme();
     init_screen();
     if (sntp_tz == TZ_RTC) {
-        overlay_exec(4, 1);  // Cold RTC seed: driver API, M_GETDATE, PCF fallback.
+        clock_seed_local();  // Cold RTC seed: driver API, M_GETDATE, PCF fallback.
         if (sntp_tz == TZ_RTC) draw_status_bar_real();
     }
 
@@ -2767,13 +2698,13 @@ void main(void)
         while (retries--) {
             set_attr_priv();
             main_puts(S_INIT_DOTS);
-            if (esp_init()) { main_newline(); break; }
+            if (net_init()) { main_newline(); break; }
             main_putc(' '); set_attr_err(); main_puts(S_FAIL); main_newline();
             if (retries) {
                 ui_sys("Press any key to retry...");
                 // FIX: Drenar la UART mientras esperamos la tecla
-                do { frame_wait_drain(); } while (!in_inkey());
-                do { frame_wait_drain(); } while (in_inkey());
+                do { net_frame_wait(); } while (!in_inkey());
+                do { net_frame_wait(); } while (in_inkey());
             }
         }
     }
@@ -2787,7 +2718,7 @@ void main(void)
         ui_sys("Connect to WiFi first or try !init");
     } else {
         main_newline();
-        sntp_init();  // No-op when RTC mode is active and valid.
+        clock_init();  // No-op when RTC mode is active and valid.
     }
     // -------------------------------------------
 
@@ -2904,8 +2835,8 @@ void main(void)
                 if (autoaway_minutes && connection_state == STATE_IRC_READY && !irc_is_away) {
                     if (autoaway_counter < 65000) autoaway_counter++;  // Prevenir overflow
                     if (autoaway_counter >= ((uint16_t)autoaway_minutes << 6) - ((uint16_t)autoaway_minutes << 2)) {
-                        uart_send_string("AWAY :");
-                        uart_send_line(S_AUTOAWAY);
+                        net_send_string("AWAY :");
+                        net_send_line(S_AUTOAWAY);
                         st_copy_n(away_message, S_AUTOAWAY, sizeof(away_message));
                         autoaway_active = 1;
                         irc_is_away = 1;  // Prevenir envío duplicado antes de recibir 306
@@ -2928,15 +2859,15 @@ void main(void)
             }
             
             // 1. TAREAS DE BAJA FRECUENCIA
-            sntp_init();  // self-guarded: no-op if RTC, already sent, or no WiFi
-            if (sntp_init_sent || names_pending) {
-                if (sntp_init_sent && !sntp_queried) {
-                    if (!sntp_waiting) {
-                        if (sntp_init_sent == 2 && overlay_mode == OVERLAY_NONE) {
-                            sntp_udp_fallback();
+            clock_init();  // self-guarded: no-op if RTC, already sent, or no WiFi
+            if (clock_setup_state || names_pending) {
+                if (clock_setup_state && !clock_synced) {
+                    if (!clock_waiting) {
+                        if (clock_setup_state == 2 && overlay_mode == OVERLAY_NONE) {
+                            clock_sync_fallback();
                             sntp_timer = 25;  // Retry after ~1.5 sec
                         } else if (++sntp_timer >= 100) {
-                            sntp_query_time();
+                            clock_query();
                             sntp_timer = 25;
                         }
                     }
@@ -2979,19 +2910,19 @@ void main(void)
                         set_attr_err();
                         main_puts(S_TIMEOUT);
                         main_print(" (no response)");
-                        force_disconnect();
+                        net_disconnect();
                         draw_status_bar();
                     }
                 } else if (server_silence_frames >= KEEPALIVE_SILENCE_FRAMES && !pagination_active) {
                     // No server activity for too long - send PING to check
-                    uart_send_string("PING :keepalive\r\n");
+                    net_send_string("PING :keepalive\r\n");
                     keepalive_ping_sent = 1;
                     keepalive_timeout = 0;
                     lagmeter_counter = 0;
                 } else if (lagmeter_counter >= LAGMETER_INTERVAL_FRAMES && 
                            !pagination_active && !buffer_pressure) {
                     // Periodic lag measurement (postponed during heavy traffic)
-                    uart_send_string("PING :lag\r\n");
+                    net_send_string("PING :lag\r\n");
                     keepalive_ping_sent = 1;
                     keepalive_timeout = 0;
                     lagmeter_counter = 0;
@@ -3008,7 +2939,7 @@ void main(void)
                 // Fase de drenaje activo
                 if (search_flush_state == 1) {
                     // Drenar UART al ring buffer
-                    uart_drain_to_buffer();
+                    net_pump_rx();
                     
                     // pending == 0  <=> ring vacío y sin línea parcial
                     if (rx_pos == 0 && rb_head == rb_tail) {
@@ -3318,7 +3249,7 @@ void main(void)
             if (overlay_mode != OVERLAY_ABOUT) {
                 if (deferred_wrap_active) {
                     deferred_wrap_step();
-                    uart_drain_to_buffer();
+                    net_pump_rx();
                 } else {
                     process_irc_data();
                 }

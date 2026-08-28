@@ -29,7 +29,6 @@ extern void print_big_str(uint8_t y, uint8_t col, const char *s, uint8_t attr)
 extern void print_line64_fast(uint8_t y, const char *s, uint8_t attr);
 extern void clear_zone(uint8_t start, uint8_t lines, uint8_t attr) __z88dk_callee;
 extern void draw_badge_dither(uint8_t count) __z88dk_fastcall;
-extern void notif_draw(uint8_t start_col, const char *str, uint8_t attr);
 extern void notif_center(const char *str, uint8_t attr);
 extern void input_cache_invalidate(void);
 extern void main_putc(char c) __z88dk_fastcall;
@@ -64,7 +63,13 @@ extern void esx_fopen(const char *path) __z88dk_fastcall;
 extern void esx_fcreate(const char *path) __z88dk_fastcall;
 extern void esx_fread(void);
 extern void esx_fwrite(void);
+#ifdef SPECTALK_SPECTRANEXT
+extern uint8_t esx_fclose(void);
+extern uint8_t esx_replace_write(const char *path) __z88dk_fastcall;
+extern void esx_funlink(const char *path) __z88dk_fastcall;
+#else
 extern void esx_fclose(void);
+#endif
 extern uint8_t esx_fseek_set(uint16_t offset) __z88dk_fastcall;
 
 /* ===== Resident variables ===== */
@@ -80,7 +85,6 @@ extern uint8_t  overlay_mode;
 extern uint8_t  help_page;
 extern uint8_t  config_dirty;
 extern uint8_t  notif_enabled;
-extern uint8_t  rx_overflow;
 extern uint8_t  status_bar_dirty;
 extern uint8_t  bookmark_sel;
 extern uint8_t  bookmark_active_slot;
@@ -88,10 +92,6 @@ extern uint8_t  bookmark_rows[];
 
 /* Buffers */
 extern uint8_t  overlay_slot[];   /* 512B scratch buffer (aliased to rx_line) */
-extern uint8_t  ring_buffer[];    /* 2048B — overlay code lives here */
-extern uint16_t rb_head;
-extern uint16_t rb_tail;
-extern uint16_t rx_pos;
 extern uint16_t rx_last_len;
 
 /* Theme */
@@ -101,7 +101,6 @@ extern uint8_t  theme_raw[];      /* 75B: 3 themes x 25B, loaded from DAT */
 /* Print cursor state (set by print_str64, used by cfg_item layout) */
 extern volatile uint8_t g_ps64_y;
 extern volatile uint8_t g_ps64_col;
-extern volatile uint8_t g_ps64_attr;
 
 /* Shared string constants from resident */
 extern const char K_DAT[];
@@ -189,7 +188,8 @@ extern const char S_ANYKEY[];
 
 /* ===== Layout constants ===== */
 #define LINES_PER_PAGE  12
-#define BPE_HELP_OFFSET 14336
+#define BPE_HELP_OFFSET 15101
+#define WN_LOGO_OFFSET 14336
 #define EARTH_FRAME0_OFFSET 595
 #define EARTH_ATTR0_OFFSET 1182
 #define EARTH_LOGO_OFFSET 1226

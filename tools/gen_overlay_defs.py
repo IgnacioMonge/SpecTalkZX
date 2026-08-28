@@ -24,7 +24,6 @@ REQUIRED_FUNCTIONS = [
     "_compute_screen_base",
     "_compute_attr_base",
     "_draw_badge_dither",
-    "_notif_draw",
     "_notif_center",
     "_input_cache_invalidate",
     # String/number utilities
@@ -40,13 +39,9 @@ REQUIRED_FUNCTIONS = [
     "_esx_fclose",
     "_esx_fseek_set",
     # Input / frame sync used by overlays
-    "_in_inkey",
     "_frame_wait",
     "_draw_status_bar",
     "_print_line64_fast",
-    "_uart_send_string",
-    "_uart_send_line",
-    "_ay_uart_send",
     "uartRead",
     # Screen output (for save status messages and cold local commands)
     "_main_putc",
@@ -96,18 +91,12 @@ REQUIRED_VARIABLES = [
     "_bookmark_rows",
     # Buffers
     "_overlay_slot",
-    "_ring_buffer",
-    "_rb_head",
-    "_rb_tail",
-    "_rx_pos",
     "_rx_last_len",
-    "_rx_overflow",
     # Theme / print cursor
     "_theme_attrs",
     "_theme_raw",
     "_g_ps64_y",
     "_g_ps64_col",
-    "_g_ps64_attr",
     "_print_str64_char",
     "_ikkle_packed",
     # Connection state + channels (for status overlay)
@@ -197,6 +186,17 @@ REQUIRED_VARIABLES = [
     "_ignore_count",
 ]
 
+OPTIONAL_TARGET_SYMBOLS = [
+    "_spxn_resolve",
+    "_spxn_rom_hlcall",
+    "_spxn_rom_ixcall",
+    "_spxn_rom_detect",
+    "_spxn_regs",
+    "_esx_funlink",
+    "_esx_freplace",
+    "_esx_commit",
+]
+
 
 def parse_map(map_path):
     """Extract symbol addresses from .map file."""
@@ -228,6 +228,11 @@ def main():
         else:
             missing.append(name)
             print(f";; WARNING: {name} not found in .map!")
+
+    for name in OPTIONAL_TARGET_SYMBOLS:
+        if name in symbols:
+            print(f"PUBLIC {name}")
+            print(f"DEFC {name} = ${symbols[name]:04X}")
 
     if missing:
         print(f"\n;; MISSING SYMBOLS: {', '.join(missing)}", file=sys.stderr)

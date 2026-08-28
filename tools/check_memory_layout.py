@@ -37,6 +37,29 @@ EXPECTED = {
 
 ALIASES = ("_rx_line", "_overlay_slot")
 
+SPECTRANEXT_EXPECTED = {
+    "_esx_handle": 0x5B80,
+    "_esx_buf": 0x5B81,
+    "_esx_count": 0x5B83,
+    "_esx_result": 0x5B85,
+    "_spxn_xfs_state_end": 0x5B94,
+    "_theme_attrs": 0x5B94,
+    "_last_pm_nick": 0x5BA8,
+    "cache_scr_base": 0x5BBA,
+    "cache_atr_base": 0x5BBC,
+    "cache_row_y": 0x5BBE,
+    "_spxn_xfs_dir_scratch": 0x5CB6,
+    "_spxn_xfs_scratch_preserve_base": 0x5CB6,
+    "_spxn_xfs_scratch_preserve_size": 128,
+    "_spxn_xfs_scratch_preserve_backup": 0x5B00,
+    "_user_mode": 0xFD50,
+}
+
+# The XFS adapter's 256-byte directory scratch intentionally preserves only
+# the live 128-byte source subrange.  Its backup aliases the 128-byte input
+# cache, while input_cache_invalidate() remains the caller-owned boundary.
+SPECTRANEXT_PRESERVE_SIZE = 128
+
 PERSISTENT_SIZES = {
     "_notif_buf": 64,
     "_names_friend_pos": 1,
@@ -46,6 +69,7 @@ PERSISTENT_SIZES = {
 }
 
 REQUIRED = ("__BSS_END_tail", *EXPECTED, *ALIASES, *PERSISTENT_SIZES)
+MAP_SYMBOLS = (*REQUIRED, *SPECTRANEXT_EXPECTED)
 
 SIZES = {
     "_ring_buffer": 2048,
@@ -65,6 +89,8 @@ def read_symbols(path):
         if not match:
             continue
         name, value = match.group(1), int(match.group(2), 16)
+        if name not in MAP_SYMBOLS:
+            continue
         if name in symbols and symbols[name] != value:
             raise ValueError(f"conflicting map values for {name}")
         symbols[name] = value
@@ -76,7 +102,10 @@ def read_symbols(path):
     return symbols
 
 
-def validate(symbols, bss_guard=96, bss_warn=128):
+def validate(symbols, bss_guard=96, bss_warn=128, platform="classic"):
+    if platform not in ("classic", "spectranext"):
+        raise ValueError(f"unsupported platform: {platform}")
+
     missing = [name for name in REQUIRED if name not in symbols]
     if missing:
         raise ValueError("missing map symbols: " + ", ".join(missing))
@@ -98,6 +127,73 @@ def validate(symbols, bss_guard=96, bss_warn=128):
     gap = ring - bss_end
 
     fixed = symbols
+
+    if platform == "spectranext":
+        missing_target = [name for name in SPECTRANEXT_EXPECTED if name not in symbols]
+        if missing_target:
+            errors.append("missing Spectranext map symbols: " + ", ".join(missing_target))
+        else:
+            for name, expected in SPECTRANEXT_EXPECTED.items():
+                actual = symbols[name]
+                if actual != expected:
+                    errors.append(f"{name}=0x{actual:04X}, expected 0x{expected:04X}")
+            checks = (
+                (fixed["_input_cache_char"] + 128 <= symbols["_esx_handle"],
+                 "XFS state overlaps input cache"),
+                (symbols["_spxn_xfs_state_end"] <= fixed["glyph_buffer"],
+                 "XFS state overlaps render scratch"),
+                (symbols["_theme_attrs"] == symbols["_spxn_xfs_state_end"],
+                 "Spectranext persistent Printer tail no longer follows XFS state"),
+                (symbols["cache_row_y"] + 1 <= fixed["glyph_buffer"],
+                 "Spectranext persistent Printer tail overlaps render scratch"),
+                (symbols["_user_mode"] == fixed["_ignore_list"] + SIZES["_ignore_list"],
+                 "Spectranext user mode no longer follows ignore storage"),
+                (symbols["_user_mode"] + 6 <= stack_low,
+                 "Spectranext user mode overlaps stack"),
+                (symbols["_spxn_xfs_dir_scratch"] == fixed["_line_buffer"],
+                 "XFS directory scratch no longer aliases line/temp input"),
+                (symbols["_spxn_xfs_dir_scratch"] + 256 == fixed["_temp_input"] + 128,
+                 "XFS directory scratch exceeds CHANS workspace"),
+                (symbols["_spxn_xfs_scratch_preserve_base"] ==
+                 symbols["_spxn_xfs_dir_scratch"],
+                 "XFS preserve source no longer aliases directory scratch"),
+                (symbols["_spxn_xfs_scratch_preserve_size"] ==
+                 SPECTRANEXT_PRESERVE_SIZE,
+                 "XFS preserve size must remain 128B"),
+                (symbols["_spxn_xfs_scratch_preserve_backup"] ==
+                 fixed["_input_cache_char"],
+                 "XFS preserve backup no longer aliases input cache"),
+                (symbols["_spxn_xfs_dir_scratch"] <=
+                 symbols["_spxn_xfs_scratch_preserve_base"] and
+                 symbols["_spxn_xfs_scratch_preserve_base"] +
+                 symbols["_spxn_xfs_scratch_preserve_size"] <=
+                 symbols["_spxn_xfs_dir_scratch"] + 256,
+                 "XFS preserve source exceeds directory scratch"),
+                (0x4000 <= symbols["_spxn_xfs_scratch_preserve_backup"] and
+                 symbols["_spxn_xfs_scratch_preserve_backup"] +
+                 symbols["_spxn_xfs_scratch_preserve_size"] <= 0x10000,
+                 "XFS preserve backup exceeds writable RAM"),
+                (symbols["_spxn_xfs_scratch_preserve_backup"] +
+                 symbols["_spxn_xfs_scratch_preserve_size"] <=
+                 symbols["_spxn_xfs_dir_scratch"] or
+                 symbols["_spxn_xfs_dir_scratch"] + 256 <=
+                 symbols["_spxn_xfs_scratch_preserve_backup"],
+                 "XFS preserve backup overlaps directory scratch"),
+                (symbols["_spxn_xfs_scratch_preserve_backup"] +
+                 symbols["_spxn_xfs_scratch_preserve_size"] <=
+                 symbols["_esx_handle"] or
+                 symbols["_spxn_xfs_state_end"] <=
+                 symbols["_spxn_xfs_scratch_preserve_backup"],
+                 "XFS preserve backup overlaps adapter state"),
+                (symbols["_spxn_xfs_scratch_preserve_base"] +
+                 symbols["_spxn_xfs_scratch_preserve_size"] <=
+                 symbols["_spxn_xfs_scratch_preserve_backup"] or
+                 symbols["_spxn_xfs_scratch_preserve_backup"] +
+                 symbols["_spxn_xfs_scratch_preserve_size"] <=
+                 symbols["_spxn_xfs_scratch_preserve_base"],
+                 "XFS preserve source overlaps backup"),
+            )
+            errors.extend(message for ok, message in checks if not ok)
 
     persistent_floor = fixed["_rx_line"] + 512
     persistent = sorted((fixed[name], fixed[name] + size, name)
@@ -172,7 +268,31 @@ def self_test():
         "_overlay_slot": 0xE800,
         **persistent,
     }
-    validate(symbols)
+    validate(symbols, platform="classic")
+    target_symbols = {**symbols, **SPECTRANEXT_EXPECTED}
+    validate(target_symbols, platform="spectranext")
+    try:
+        validate(symbols, platform="spectranext")
+    except ValueError as error:
+        assert str(error).startswith("missing Spectranext map symbols:"), error
+    else:
+        raise AssertionError("missing all Spectranext map symbols was accepted")
+    for name, value in (
+        ("_esx_handle", 0x5B70),
+        ("_spxn_xfs_state_end", 0x5BC1),
+        ("_spxn_xfs_dir_scratch", 0x5CB7),
+        ("_spxn_xfs_scratch_preserve_base", 0x5D37),
+        ("_spxn_xfs_scratch_preserve_size", 256),
+        ("_spxn_xfs_scratch_preserve_backup", 0x5CB6),
+    ):
+        broken = dict(target_symbols)
+        broken[name] = value
+        try:
+            validate(broken, platform="spectranext")
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"Spectranext mutation was accepted: {name}")
     for name, value in (
         ("_ignore_list", 0xFCF0),
         ("CRT_STACK_SIZE", 0x0210),
@@ -225,6 +345,7 @@ def self_test():
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("map", nargs="?")
+    parser.add_argument("--platform", choices=("classic", "spectranext"), default="classic")
     parser.add_argument("--bss-guard", type=lambda value: int(value, 0), default=96)
     parser.add_argument("--bss-warn", type=lambda value: int(value, 0), default=128)
     parser.add_argument("--self-test", action="store_true")
@@ -238,7 +359,8 @@ def main():
         parser.error("map is required unless --self-test is used")
 
     try:
-        result = validate(read_symbols(args.map), args.bss_guard, args.bss_warn)
+        result = validate(read_symbols(args.map), args.bss_guard, args.bss_warn,
+                          platform=args.platform)
     except (OSError, ValueError) as error:
         raise SystemExit(f"[FATAL] Memory layout: {error}") from error
 

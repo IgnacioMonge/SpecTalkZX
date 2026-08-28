@@ -876,10 +876,13 @@ puts_opt_emit:
     ld a, (_g_ps64_y)
     ld hl, cache_row_y
     cp (hl)
-    jr nz, puts_opt_char
+    jr z, puts_opt_space_cached
+    ld h, 32             ; LD HL above clobbered the pending space in H
+    jr puts_opt_char
 
     ; Cache hit ? render space inline
     ; B = col, C = attr, DE = string ptr
+puts_opt_space_cached:
     push de              ; save string pointer
     call main_space_inline
     pop de               ; restore string pointer

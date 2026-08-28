@@ -43,10 +43,10 @@ uartRead:
     dec b
     ld a, UART_DATA_REG
     out (c), a
-
+    
     ; OPTIMIZACIÓN: FC3B -> FD3B
     inc b
-
+    
     in a, (c)
     ret
 
@@ -59,17 +59,17 @@ _ay_uart_init:
     ld bc, ZXUNO_ADDR
     ld a, UART_STAT_REG
     out (c), a
-
+    
     inc b           ; OPTIMIZACIÓN
-
+    
     in a, (c)
 
     dec b
     ld a, UART_DATA_REG
     out (c), a
-
+    
     inc b           ; OPTIMIZACIÓN
-
+    
     in a, (c)
 
     ld b, 10        ; OPTIMIZACIÓN: Reducido de 50 a 10 frames
@@ -103,7 +103,7 @@ _ay_uart_send:
     ld bc, ZXUNO_ADDR
     ld a, UART_STAT_REG
     out (c), a
-
+    
     inc b           ; OPTIMIZACIÓN
 
     ; NOTE-M13: bounded by poll count, not wall time. RX-ready samples may drain

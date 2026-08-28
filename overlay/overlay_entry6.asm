@@ -34,6 +34,11 @@ DEFC UDP_UART_STAT_REG     = $C7
     dw _sntp_udp_ovl
     dw _switcher_render_ovl
 
+IFDEF SPECTALK_SPECTRANEXT
+EXTERN _spectranext_clock_ovl
+DEFC _sntp_udp_ovl = _spectranext_clock_ovl
+ELSE
+
 ; Overlay-safe UART TX. Do not call resident _ay_uart_send here: it drains RX
 ; into ring_buffer, and this overlay is executing from ring_buffer.
 ; L=byte. CF=0 sent; CF=1 TX stayed busy for the complete poll budget.
@@ -577,3 +582,5 @@ ntp_secs:
     DEFS 4
 ip_buf:
     DEFS 16
+
+ENDIF

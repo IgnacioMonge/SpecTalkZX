@@ -1,0 +1,30 @@
+{
+  "resource": "SpecTalkZX",
+  "stem": "SPECTALK",
+  "version": "1.3.9",
+  "minimum_firmware": "0.9-6fc153a3",
+  "screen": {
+    "source": "loading.scr",
+    "placement": "bottom"
+  },
+  "launch": {
+    "tap": "SPECTALK.tap"
+  },
+  "files": [
+    {
+      "source": "../../build/SpecTalkZX.tap",
+      "name": "SPECTALK.tap",
+      "role": "TAPE"
+    },
+    {
+      "source": "../../build/SPECTALK.OVL",
+      "name": "SPECTALK.OVL",
+      "role": "OVLY"
+    },
+    {
+      "source": "../../build/SPECTALK.DAT",
+      "name": "SPECTALK.DAT",
+      "role": "DATA"
+    }
+  ]
+}

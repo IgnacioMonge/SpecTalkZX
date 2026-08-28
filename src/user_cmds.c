@@ -20,8 +20,6 @@
 
 #include "../include/spectalk.h"
 void cmd_quit(const char *args) __z88dk_fastcall;
-static void sntp_init(void);  // forward decl — defined in spectalk.c (SCU order)
-extern void sntp_udp_fallback(void);
 
 extern const char S_DEFAULT_PORT[];
 extern uint8_t autoconnect;
@@ -45,7 +43,11 @@ static const char K_DIVIDER[]  = "divider=";
 static const char K_CHANNELS[] = "channels=";
 static const char K_TOPIC[]    = "TOPIC";
 static const char K_MODE_SP[]  = "MODE ";
+#ifdef SPECTALK_SPECTRANEXT
+static const char K_CFG_PRI[]  = "/CFG/SPECTALK.CFG";
+#else
 static const char K_CFG_PRI[]  = "/SYS/CONFIG/SPECTALK.CFG";
+#endif
 static const char K_CFG_ALT[]  = "/SYS/SPECTALK.CFG";
 static const char K_TZ[]       = "tz=";
 static const char K_TZLAST[]   = "tzlast=";
@@ -159,7 +161,7 @@ static uint8_t prompt_yn(const char *q) __z88dk_fastcall
     main_puts(q);
     while (tmout--) {
         uint8_t k = in_inkey();
-        frame_wait_drain();
+        net_frame_wait();
         while (try_read_line_nodrain());
         if (k == KEY_BREAK) { main_newline(); return 0; }
         k |= 32;
@@ -169,7 +171,7 @@ static uint8_t prompt_yn(const char *q) __z88dk_fastcall
             main_newline();
             while (in_inkey()) {
                 frame_wait();
-                uart_drain_to_buffer();
+                net_pump_rx();
             }
             return (k == 'y');
         }
@@ -190,7 +192,7 @@ static void disconnect_with_feedback(void)
 {
     set_attr_sys();
     main_print("Disconnecting...");
-    force_disconnect();
+    net_disconnect();
     draw_status_bar();
 }
 
@@ -248,49 +250,6 @@ uint8_t check_status(uint8_t level) __z88dk_fastcall
 #define REQUIRE_CHAN() do { if (!IS_CHAN_PREFIX(irc_channel[0])) { ui_err(S_MUST_CHAN); return; } } while(0)
 
 // ensure_args: frameless ASM in spectalk_asm.asm
-
-// Función auxiliar para diagnosticar la respuesta de conexión
-static uint8_t wait_for_connection_result(uint16_t max_frames) __z88dk_fastcall
-{
-    uint16_t frames = 0;
-    rx_pos = 0;
-
-    while (frames < max_frames) {
-        frame_wait_drain();
-        if (in_inkey() == KEY_BREAK) { ui_err(S_CANCELLED); return 0; }
-
-        if (try_read_line_nodrain()) {
-            // FIX P0-1: Verificar longitud antes de acceder a índices fijos
-            if (rx_last_len < 2) { rx_pos = 0; continue; }
-
-            // H5: 16-bit head read — little-endian magic numbers
-            uint16_t h2 = *(uint16_t *)rx_line;
-
-            // FIX: "CONNECT" exacto (7 chars) o "ALREADY CONNECT", NO "WIFI CONNECTED"
-            if (h2 == 0x4F43 /* "CO" */ && rx_last_len == 7) goto wcr_ok;
-            if (h2 == 0x4C41 /* "AL" */) goto wcr_ok;
-            if (h2 == 0x4B4F /* "OK" */) goto wcr_ok;
-
-            // ERRORES - prefix checks (ya verificamos rx_last_len >= 2 arriba)
-            if (h2 == 0x4E44 /* "DN" */) { ui_err("DNS failed"); goto wcr_fail; }
-            if (h2 == 0x4C43 /* "CL" */) { ui_err(S_CONN_REFUSED); goto wcr_fail; }
-            if (h2 == 0x6F63 /* "co" */) { ui_err(S_CONN_REFUSED); goto wcr_fail; }
-            if (h2 == 0x5245 /* "ER" */) { ui_err("Connection error"); goto wcr_fail; }
-            rx_pos = 0;
-        }
-        frames++;
-    }
-
-    ui_err(S_TIMEOUT);
-    return 0;
-wcr_fail:
-    rx_pos = 0;
-    return 0;
-wcr_ok:
-    rx_pos = 0;
-    return 1;
-}
-
 
 // FIX-H6: redundant externs removed - already in spectalk.h with correct types
 
@@ -372,9 +331,9 @@ do_connect:
     set_attr_priv();
     main_puts2("Connecting to ", irc_server); main_putc(':'); main_puts2(irc_port, "... ");
     
-    force_disconnect();
-    sntp_init();  // self-guarded
-    if (sntp_init_sent) (void)wait_for_response(S_OK, 50);
+    net_disconnect();
+    clock_init();  // self-guarded
+    if (clock_setup_state) (void)wait_for_response(S_OK, 50);
     if (!use_saved_session) {
         search_pattern[0] = 0;
         autojoin_channels[0] = 0;
@@ -383,47 +342,36 @@ do_connect:
     result = 0;
     
     draw_status_bar(); cursor_visible = 0; redraw_input_full(); 
-    
-    esp_at_cmd(S_AT_CIPMUX0);
-    esp_at_cmd(S_AT_CIPSERVER0);
-    esp_at_cmd("AT+CIPDINFO=0");
-    if (use_ssl) { esp_at_cmd("AT+CIPSSLSIZE=4096"); }
+
+    net_prepare(use_ssl);
 
     // If the WiFi-idle SNTP path has not produced a clock yet, use raw UDP NTP
     // before opening the IRC TCP link. This also covers old AT firmwares that
     // lack CIPSNTPTIME.
-    sntp_udp_fallback();
+    clock_sync_fallback();
     if (connection_state < STATE_WIFI_OK) {
         ui_err(S_FAIL);
         goto connect_cleanup;
     }
 
-    // Settle ESP and clear any tail OK/ERROR lines before CIPSTART. Without
-    // this, a stale terminal status from the prior AT cmd can be misread by
-    // wait_for_connection_result as the CIPSTART verdict → spurious failure.
-    wait_drain(20);
-    flush_all_rx_buffers();
-
-    uart_send_string("AT+CIPSTART=\"");
-    uart_send_string(use_ssl ? "SSL" : S_TCP);
-    uart_send_string("\",\""); uart_send_string(irc_server); uart_send_string("\","); uart_send_line(irc_port);
-
-    { uint16_t fl = use_ssl ? TIMEOUT_SSL : TIMEOUT_DNS; result = wait_for_connection_result(fl); }
-
-    if (result == 0) goto connect_fail;
+    result = net_connect(irc_server, irc_port, use_ssl);
+    if (result != NET_CONNECT_OK) {
+        if (result == NET_CONNECT_CANCELLED) ui_err(S_CANCELLED);
+        else if (result == NET_CONNECT_DNS_FAILED) ui_err("DNS failed");
+        else if (result == NET_CONNECT_REFUSED) ui_err(S_CONN_REFUSED);
+        else if (result == NET_CONNECT_ERROR) ui_err("Connection error");
+        else ui_err(S_TIMEOUT);
+        goto connect_fail;
+    }
 
     set_attr_priv(); main_print(S_OK);
 
-    wait_drain(20);
-    rb_tail = rb_head; rx_pos = 0;
-
-    uart_send_line("AT+CIPMODE=1");
-    if (!wait_for_response(S_OK, 100)) { ui_err("CIPMODE FAIL"); goto connect_fail; }
-    
-    wait_drain(20);
-    uart_send_string("AT+CIPSEND\r\n");
-    
-    if (!wait_for_prompt_char('>', TIMEOUT_PROMPT)) {
+    result = net_start_stream();
+    if (result == NET_STREAM_MODE_FAILED) {
+        ui_err("CIPMODE FAIL");
+        goto connect_fail;
+    }
+    if (result == NET_STREAM_PROMPT_FAILED) {
         // rx_line has captured data — scan for IRC ban numeric (465/466)
         char *p = (char *)rx_line;
         while (*p) {
@@ -451,13 +399,13 @@ do_connect:
         
         if (irc_pass[0]) irc_send_cmd1("PASS", irc_pass);
         irc_send_cmd1(S_NICK_CMD, irc_nick);
-        uart_send_string("USER "); uart_send_string(irc_nick); 
-        uart_send_string(" 0 * :"); uart_send_line(irc_nick);
+        net_send_string("USER "); net_send_string(irc_nick);
+        net_send_string(" 0 * :"); net_send_line(irc_nick);
 
         rx_pos = 0;
         
         while (!loop_done) {
-            frame_wait_drain();
+            net_frame_wait();
             if (in_inkey() == KEY_BREAK) {
                 abort_msg = "Aborted.";
                 abort_disc = 1;
@@ -506,7 +454,7 @@ do_connect:
                         ls = skip_spaces(ls);
                         if (*ls == '*') { ls++; ls = skip_spaces(ls); }
                         if (ls[0] == 'L' && ls[1] == 'S') {
-                            uart_send_line(S_CAP_END);
+                            net_send_line(S_CAP_END);
                             rx_pos = 0; continue;
                         }
                     }
@@ -519,7 +467,7 @@ do_connect:
 
                     if (params) {
                         params = skip_spaces(params);
-                        uart_send_string(S_PONG); uart_send_line(params);
+                        net_send_string(S_PONG); net_send_line(params);
                         rx_pos = 0; continue;
                     }
                 }
@@ -527,9 +475,12 @@ do_connect:
                 // ERROR : - siempre al inicio de línea
                 // FIX P0-1: Verificar longitud antes de acceder a índices
                 // FIX-H5: usar longitud restante desde 'line', no rx_last_len global
+                // The command is exactly five bytes; line[5] is its token boundary.
                 {
                 uint16_t remaining = rx_last_len - (uint16_t)(line - rx_line);
-                if (remaining >= 6 && line[0] == 'E' && line[1] == 'R' && line[5] == 'R') {
+                if (remaining >= 5 && line[0] == 'E' && line[1] == 'R' &&
+                    line[2] == 'R' && line[3] == 'O' && line[4] == 'R' &&
+                    (remaining == 5 || line[5] == ' ')) {
                     abort_msg = "Server error";
                     abort_disc = 1;
                     goto join_fail;
@@ -565,17 +516,17 @@ join_fail:
         if (abort_msg) {
             // OPT L3: inlined cmd_connect_abort
             ui_err(abort_msg);
-            if (abort_disc) force_disconnect();
+            if (abort_disc) net_disconnect();
             abort_msg = 0;
             reset_rx_state();
         }
     } else {
-        force_disconnect();
+        net_disconnect();
     }
     goto connect_cleanup;
 
     connect_fail:
-        force_disconnect();
+        net_disconnect();
 
     connect_cleanup:
         cursor_visible = 1; draw_status_bar(); redraw_input_full();
@@ -904,7 +855,7 @@ static void cmd_notice(const char *args) __z88dk_fastcall
 
     autoaway_counter = 0;
     if (autoaway_active) {
-        uart_send_line(S_AWAY_CMD);
+        net_send_line(S_AWAY_CMD);
         autoaway_active = 0;
     }
 
@@ -964,7 +915,7 @@ void cmd_quit(const char *args) __z88dk_fastcall
 
     irc_send_cmd2("QUIT", NULL, msg);
 
-    force_disconnect();
+    net_disconnect();
 
     rx_pos = 0;
     rx_overflow = 0;
@@ -985,14 +936,14 @@ static void cmd_me(const char *args) __z88dk_fastcall
     // Nivel 3: Requiere estar DENTRO de un canal/query válido
     if (!check_status(LVL_CHAN)) return;
     
-    uart_send_string(S_PRIVMSG);
-    uart_send_string(irc_channel);
-    uart_send_string(S_SP_COLON);
-    ay_uart_send(1);            // SOH
-    uart_send_string(S_ACTION);
-    uart_send_string(args);
-    ay_uart_send(1);            // SOH
-    uart_send_crlf();
+    net_send_string(S_PRIVMSG);
+    net_send_string(irc_channel);
+    net_send_string(S_SP_COLON);
+    net_send_byte(1);            // SOH
+    net_send_string(S_ACTION);
+    net_send_string(args);
+    net_send_byte(1);            // SOH
+    net_send_crlf();
     
     current_attr = ATTR_MSG_SELF;
     main_puts2(S_ASTERISK, irc_nick);
@@ -1049,7 +1000,7 @@ static void cmd_raw(const char *args) __z88dk_fastcall
 {
     if (!ensure_args(args, "raw IRC_COMMAND")) return;
     if (!check_status(LVL_IRC)) return; // Nivel 2
-    uart_send_line(args);
+    net_send_line(args);
 }
 
 static void cmd_whois(const char *args) __z88dk_fastcall
@@ -1155,18 +1106,18 @@ static void cmd_mode(const char *args) __z88dk_fastcall
 
     if (!args || !*args || args[0] == '+' || args[0] == '-') {
         REQUIRE_CHAN();
-        uart_send_string(K_MODE_SP);
-        uart_send_string(irc_channel);
+        net_send_string(K_MODE_SP);
+        net_send_string(irc_channel);
         if (args && *args) {
-            ay_uart_send(' ');
-            uart_send_string(args);
+            net_send_byte(' ');
+            net_send_string(args);
         }
-        uart_send_crlf();
+        net_send_crlf();
         return;
     }
 
-    uart_send_string(K_MODE_SP);
-    uart_send_line(args);
+    net_send_string(K_MODE_SP);
+    net_send_line(args);
 }
 
 static void cmd_search(const char *args) __z88dk_fastcall
@@ -1231,15 +1182,15 @@ static void cmd_kick(const char *args) __z88dk_fastcall
 
     reason = split_at_space(nick);
 
-    uart_send_string("KICK ");
-    uart_send_string(irc_channel);
-    ay_uart_send(' ');
-    uart_send_string(nick);
+    net_send_string("KICK ");
+    net_send_string(irc_channel);
+    net_send_byte(' ');
+    net_send_string(nick);
     if (reason && *reason) {
-        uart_send_string(S_SP_COLON);
-        uart_send_string(reason);
+        net_send_string(S_SP_COLON);
+        net_send_string(reason);
     }
-    uart_send_crlf();
+    net_send_crlf();
 
     notify2("Kicking ", nick, ATTR_MSG_SYS);
 }
@@ -1252,11 +1203,13 @@ static void enter_overlay_mode(uint8_t m) __z88dk_fastcall
     cursor_visible = 0;
 }
 
-static void sys_status(const char *args) __z88dk_fastcall
+static void sys_status(const char *args) __z88dk_fastcall ST_NAKED
 {
     (void)args;
-    enter_overlay_mode(OVERLAY_STATUS);
-    overlay_exec(3, 0);
+    __asm
+    ld de,0x0304
+    jr sys_overlay_common
+    __endasm;
 }
 
 
@@ -1265,18 +1218,31 @@ static void sys_about(const char *args) __z88dk_fastcall;
 // overlay_header: frameless ASM in 40_text_numeric_screen.asm
 
 // overlay_config_render — moved to SPCTLK5.OVL entry 0
-static void sys_config(const char *args) __z88dk_fastcall
+static void sys_config(const char *args) __z88dk_fastcall ST_NAKED
 {
     (void)args;
-    enter_overlay_mode(OVERLAY_CONFIG);
-    overlay_exec(4, 0);
+    __asm
+    ld de,0x0403
+    jr sys_overlay_common
+    __endasm;
 }
 
-static void sys_whatsnew(const char *args) __z88dk_fastcall
+static void sys_whatsnew(const char *args) __z88dk_fastcall ST_NAKED
 {
     (void)args;
-    enter_overlay_mode(OVERLAY_WHATSNEW);
-    overlay_exec(2, 0);
+    __asm
+    ld de,0x0205
+sys_overlay_common:
+    ld a,e
+    ld (_overlay_mode),a
+    xor a
+    ld (_cursor_visible),a
+    ld e,d
+    ld d,a
+    push de
+    call _overlay_exec
+    ret
+    __endasm;
 }
 
 static void sys_init(const char *args) __z88dk_fastcall
@@ -1285,8 +1251,17 @@ static void sys_init(const char *args) __z88dk_fastcall
     uint8_t result;
     
     set_attr_priv();
+#ifdef SPECTALK_SPECTRANEXT
+    main_puts(S_INIT_DOTS);
+    main_putc(' ');
+#else
     main_puts("Re-initializing ESP... ");
+#endif
     
+#ifdef SPECTALK_SPECTRANEXT
+    /* The cartridge owns sockets directly; do not use the Classic UART path. */
+    net_disconnect();
+#else
     flush_all_rx_buffers(); 
     uart_send_line(S_AT_CMD);  // OPT M7
     
@@ -1294,20 +1269,25 @@ static void sys_init(const char *args) __z88dk_fastcall
         uart_send_line(S_AT_CIPCLOSE);
         wait_for_response(NULL, 10);
     } 
+#endif
     
     connection_state = STATE_DISCONNECTED;
     reset_all_channels();
     network_name[0] = '\0';
     user_mode[0] = '\0';
     
-    result = esp_init();
+    result = net_init();
     
     if (result == 0) {
+#ifdef SPECTALK_SPECTRANEXT
+        ui_err(S_FAIL);
+#else
         ui_err("FAILED: no ESP response");
+#endif
     } else if (connection_state == STATE_WIFI_OK) {
         set_attr_priv();
         main_print("WiFi connected");
-        sntp_init();  // Sync clock after successful reinit
+        clock_init();  // Sync clock after successful reinit
     } else {
         ui_err("no WiFi");
     }
@@ -1479,7 +1459,7 @@ void cmd_save(const char *args) __z88dk_fastcall
     (void)args;
     if (overlay_mode != OVERLAY_BOOKMARKS) snapshot_autojoin_channels();
     overlay_exec(3, 1);
-    uart_drain_to_buffer();
+    net_pump_rx();
     if (discard || rb_head != rb_tail) rx_overflow = 1;
 }
 

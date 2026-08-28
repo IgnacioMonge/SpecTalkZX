@@ -18,16 +18,6 @@ extern char    network_name[];
 extern uint8_t ping_latency;
 extern uint16_t uptime_minutes;
 extern void reset_rx_state(void);
-#define MAX_CHANNELS    10
-#define CH_SIZE         32
-#define CH_FLAG_ACTIVE  0x01
-#define CH_FLAG_QUERY   0x02
-#define CH_FLAGS_OFF    30
-#define STATE_DISCONNECTED  0
-#define STATE_WIFI_OK       1
-#define STATE_TCP_CONNECTED 2
-#define STATE_IRC_READY     3
-
 static const char ss_nick[]  = "Nick:";
 static const char ss_srv[]   = "Server:";
 static const char ss_net[]   = "Network:";
@@ -122,8 +112,6 @@ extern char *cfg_put(char *p, const char *s) __z88dk_callee;
 extern char *cfg_kv(char *p, const char *key, const char *val) __z88dk_callee;
 extern char *cfg_put_friends(char *p) __z88dk_fastcall;
 extern char *cfg_put_ignores(char *p) __z88dk_fastcall;
-extern void esx_fcreate(const char *path) __z88dk_fastcall;
-extern void esx_fwrite(void);
 extern void main_puts(const char *s) __z88dk_fastcall;
 extern void main_print(const char *s) __z88dk_fastcall;
 extern void set_attr_sys(void);
@@ -222,6 +210,14 @@ void save_config_ovl(void)
         goto done;
     }
 
+#ifdef SPECTALK_SPECTRANEXT
+    esx_buf = (uint16_t)overlay_slot;
+    esx_count = (uint16_t)(p - (char *)overlay_slot);
+    if (!esx_replace_write(K_CFG_PRI)) {
+        ui_err("Write error");
+        goto done;
+    }
+#else
     esx_fcreate(K_CFG_PRI);
     if (!esx_handle) esx_fcreate(K_CFG_ALT);
     if (!esx_handle) { ui_err("Cannot write config"); goto done; }
@@ -242,6 +238,12 @@ void save_config_ovl(void)
             config_dirty = 0;
         }
     }
+#endif
+
+#ifdef SPECTALK_SPECTRANEXT
+    if (overlay_mode != OVERLAY_BOOKMARKS) main_print("OK");
+    config_dirty = 0;
+#endif
 
 done:
     input_cache_invalidate();

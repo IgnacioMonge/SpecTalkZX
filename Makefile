@@ -14,7 +14,7 @@
 # ------------------------------------------------------------
 CC      = zcc
 TARGET  = +zx
-PYTHON  ?= "C:/Program Files/Python311/python.exe"
+PYTHON  ?= python3
 
 # ------------------------------------------------------------
 # Project
@@ -25,6 +25,7 @@ MAP     = $(OUTPUT).map
 BUILD_DIR = build
 LOG     = $(BUILD_DIR)/build.log
 BPE_STAMP = $(BUILD_DIR)/.bpe.stamp
+TOOLCHAIN_VERSION = $(BUILD_DIR)/toolchain.version
 EVIDENCE_DIR = $(BUILD_DIR)/evidence
 
 # ------------------------------------------------------------
@@ -32,10 +33,38 @@ EVIDENCE_DIR = $(BUILD_DIR)/evidence
 # ------------------------------------------------------------
 C_SOURCES    = src/main_build.c
 
+PLATFORM ?= classic
+SPXN_DIR ?=
+
+ifeq ($(PLATFORM),spectranext)
+ifeq ($(strip $(SPXN_DIR)),)
+$(error SPXN_DIR must point to the SpectraNext driver directory)
+endif
+override SPXN_DIR := $(subst \,/,$(SPXN_DIR))
+override SPXN_DIR := $(abspath $(SPXN_DIR))
+C_SOURCES += $(SPXN_DIR)/spxresolve.c
+ASM_SOURCES  = asm/spectalk_asm.asm asm/overlay_loader.asm \
+               $(SPXN_DIR)/spxn_rom.asm \
+               $(SPXN_DIR)/adapters/xfs_compat.asm
+TARGET_FLAGS = -DSPECTALK_SPECTRANEXT -Ca-DSPECTALK_SPECTRANEXT \
+               -Ca-DSPXN_XFS_STATE_BASE=0x5B80 \
+               -Ca-DSPXN_XFS_DIR_SCRATCH=0x5CB6 \
+               -Ca-DSPXN_XFS_SCRATCH_PRESERVE_BASE=0x5CB6 \
+               -Ca-DSPXN_XFS_SCRATCH_PRESERVE_SIZE=128 \
+               -Ca-DSPXN_XFS_SCRATCH_PRESERVE_BACKUP=0x5B00 \
+               -I$(SPXN_DIR)
+TARGET_ASM_FLAGS = -DSPECTALK_SPECTRANEXT
+UART_DESC = Spectranext ROM sockets (no UART/ESP-AT)
+else
+ASM_SOURCES  = asm/divmmc_uart.asm asm/spectalk_asm.asm asm/overlay_loader.asm
+TARGET_FLAGS =
+TARGET_ASM_FLAGS =
+UART_DESC = divMMC/divTiesus (115200 baud)
+endif
+
 # ------------------------------------------------------------
 # Build options
 # ------------------------------------------------------------
-ASM_SOURCES  = asm/divmmc_uart.asm asm/spectalk_asm.asm asm/overlay_loader.asm
 ASM_MODULE_SOURCES = asm/spectalk_asm/00_preamble.asm \
                      asm/spectalk_asm/10_core_helpers.asm \
                      asm/spectalk_asm/20_rx_ring_uart.asm \
@@ -46,15 +75,18 @@ ASM_MODULE_SOURCES = asm/spectalk_asm/00_preamble.asm \
                      asm/spectalk_asm/70_input_lookup.asm \
                      asm/spectalk_asm/80_ui_runtime.asm
 ASM_DEP_SOURCES = $(ASM_SOURCES) $(ASM_MODULE_SOURCES)
-BPE_INPUTS = src/spectalk.c src/irc_handlers.c src/user_cmds.c include/spectalk.h \
-             src/SPECTALK.DAT src/SPECTALK_HELP.txt overlay/overlay_api.h \
+BPE_INPUTS = src/spectalk.c src/irc_handlers.c src/user_cmds.c src/net_classic.c src/clock_classic.c \
+             src/net_spectranext.c src/clock_spectranext.c \
+             include/spectalk.h include/spectalk_net.h include/spectalk_clock.h \
+             src/SPECTALK.DAT src/SPECTALK_HELP.txt overlay/overlay_api.h overlay/xfs_write_ovl.asm \
              overlay/overlay_entry2.asm overlay/earth_about_render.asm \
              tools/bpe_build.py tools/bpe_compress.py \
              release/about_earth/earth_frame0.compact.bin \
              release/about_earth/earth_frame_deltas.bin \
              release/about_earth/earth_attr0.compact4.bin \
              release/about_earth/earth_attr_deltas.compact4.bin \
-             release/about_earth/earth_logo.bin
+             release/about_earth/earth_logo.bin \
+             tools/gen_whatsnew.py release/logo.png release/changes.txt release/version.txt
 ZORG        = 24000
 STACK_SIZE  = 512
 BSS_RING_GUARD ?= 96
@@ -72,6 +104,8 @@ else
 ZCC_EVIDENCE_FLAGS =
 Z80ASM_EVIDENCE_FLAGS =
 endif
+ZCC_EVIDENCE_FLAGS += $(TARGET_FLAGS)
+Z80ASM_EVIDENCE_FLAGS += $(TARGET_ASM_FLAGS)
 CFLAGS = -vn -SO3 -startup=31 -compiler=sdcc -clib=sdcc_iy \
          -zorg=$(ZORG) --opt-code-size --fomit-frame-pointer \
          -Cc--Werror \
@@ -84,7 +118,6 @@ CFLAGS = -vn -SO3 -startup=31 -compiler=sdcc -clib=sdcc_iy \
 # ------------------------------------------------------------
 # Helpers
 # ------------------------------------------------------------
-UART_DESC = divMMC/divTiesus (115200 baud)
 SIZE_TAP  = wc -c < "$(TAP)"
 BUILD_CMD = $(CC) $(TARGET) $(CFLAGS) $(EXTRA_CFLAGS) $(MAX_ALLOC_CFLAGS) $(C_SOURCES) $(ASM_SOURCES) -m -o $(OUTPUT) -create-app
 
@@ -139,7 +172,7 @@ endef
 # ------------------------------------------------------------
 # Phony targets
 # ------------------------------------------------------------
-.PHONY: all check clean bpe build restore_bpe trim overlay overlay_build info help evidence gather_evidence release RELEASE
+.PHONY: all check clean bpe build restore_bpe trim overlay overlay_build info help evidence gather_evidence release RELEASE toolchain_guard spectranext test-spectranext-network test-spectranext-storage test-spectranext-configuration test-spectranext-clock
 
 # ------------------------------------------------------------
 # Default pipeline
@@ -171,7 +204,7 @@ help:
 # ------------------------------------------------------------
 # CHECK phase
 # ------------------------------------------------------------
-check:
+check: toolchain_guard
 	$(call HR)
 	@printf "$(C_BOLD)$(C_CYNB)SpecTalkZX - Build Pipeline$(C_RESET)\n"
 	$(call HR)
@@ -179,7 +212,7 @@ check:
 	@mkdir -p $(BUILD_DIR)
 	@sh -c '\
 		fail=0; \
-		for t in zcc z80asm z88dk-appmake wc sh grep sed head tail cat dd; do \
+		for t in zcc z80asm z88dk-appmake z88dk-copt wc sh grep sed head tail cat dd; do \
 			command -v "$$t" >/dev/null 2>&1 || { echo "[ERR] Missing tool: $$t"; fail=1; }; \
 		done; \
 		$(PYTHON) -c "import sys; raise SystemExit(sys.version_info < (3, 8))" >/dev/null 2>&1 || { echo "[ERR] Missing usable Python 3: $(PYTHON)"; fail=1; }; \
@@ -190,13 +223,31 @@ check:
 	'
 	@$(PYTHON) tools/test_bpe_transaction.py
 	@$(PYTHON) tools/test_config_keys.py
+	@$(PYTHON) tools/test_network_seam.py
+	@$(PYTHON) tools/test_spectranext_release_blockers.py
+	@$(PYTHON) tools/test_spectranext_audit_followups.py
+	@$(PYTHON) tools/test_clock_seam.py
 	@$(PYTHON) tools/test_earth_packet_bounds.py
 	@$(PYTHON) tools/test_udp_tx_timeout.py
+	@$(PYTHON) tools/test_rtc_validation.py
+	@$(PYTHON) tools/test_copt_label_safety.py
 	@$(PYTHON) tools/test_scroll_contract.py
 	@$(PYTHON) tools/check_memory_layout.py --self-test
 	@$(PYTHON) tools/test_esxdos_cache_contract.py
+	@$(PYTHON) tools/test_registration_error.py
+	@$(PYTHON) tools/test_copt_contract.py
 	$(call OK,Dependencies OK)
 	$(call HR)
+
+toolchain_guard:
+	@mkdir -p "$(BUILD_DIR)"
+	@version="$$($(CC) --version 2>&1 | sed -n 's/^zcc - Frontend for the z88dk Cross-C Compiler - //p' | head -1)"; \
+	if [ -z "$$version" ]; then \
+		echo "[ERR] Unable to identify compiler selected by CC=$(CC)"; \
+		exit 2; \
+	fi; \
+	{ echo "CC=$(CC)"; echo "TARGET=$(TARGET)"; echo "zcc=$$version"; } >"$(TOOLCHAIN_VERSION)"; \
+	echo "[OK] Compiler recorded in $(TOOLCHAIN_VERSION)"
 
 # ------------------------------------------------------------
 # CLEAN phase
@@ -222,6 +273,22 @@ bpe:
 	$(MAKE) --no-print-directory restore_bpe || exit $$?; \
 	exit $$status
 
+spectranext:
+	@$(PYTHON) tools/test_spectranext_driver_contract.py "$(SPXN_DIR)"
+	@$(MAKE) --no-print-directory PLATFORM=spectranext SPXN_DIR="$(SPXN_DIR)" all
+
+test-spectranext-network:
+	@$(PYTHON) tools/test_spectranext_port.py network
+
+test-spectranext-storage:
+	@$(PYTHON) tools/test_spectranext_port.py storage
+
+test-spectranext-configuration:
+	@$(PYTHON) tools/test_spectranext_port.py configuration
+
+test-spectranext-clock:
+	@$(PYTHON) tools/test_spectranext_port.py clock
+
 $(BPE_STAMP): $(BPE_INPUTS)
 	$(call STEP,2/4,BPE compression)
 	@rm -f "$(BPE_STAMP)" "$(BPE_STAMP).tmp"
@@ -236,7 +303,8 @@ $(BPE_STAMP): $(BPE_INPUTS)
 # ------------------------------------------------------------
 build:
 	@status=0; \
-	$(MAKE) --no-print-directory $(BPE_STAMP) || status=$$?; \
+	$(MAKE) --no-print-directory toolchain_guard || status=$$?; \
+	if [ "$$status" -eq 0 ]; then $(MAKE) --no-print-directory $(BPE_STAMP) || status=$$?; fi; \
 	if [ "$$status" -eq 0 ]; then $(MAKE) --no-print-directory $(TAP) || status=$$?; fi; \
 	$(MAKE) --no-print-directory restore_bpe || exit $$?; \
 	exit $$status
@@ -289,7 +357,7 @@ trim: $(TAP) $(MAP)
 	  rm -f $(BUILD_DIR)/trimmed.bin; \
 	  printf "$(C_GRN)[OK]$(C_RESET) BSS trimmed: %d -> %d bytes (-%d bytes of zeros)\n" "$$full" "$$trim" "$$saved"; \
 	'
-	@$(PYTHON) tools/check_memory_layout.py "$(MAP)" --bss-guard "$(BSS_RING_GUARD)" --bss-warn "$(BSS_RING_WARN)"
+	@$(PYTHON) tools/check_memory_layout.py "$(MAP)" --platform "$(PLATFORM)" --bss-guard "$(BSS_RING_GUARD)" --bss-warn "$(BSS_RING_WARN)"
 
 # ------------------------------------------------------------
 # OVERLAY phase - compile help_overlay.c against resident symbols
@@ -354,10 +422,14 @@ overlay_build: $(TAP)
 	zcc +z80 -clib=sdcc_iy --no-crt --opt-code-size $(ZCC_EVIDENCE_FLAGS) \
 		-Ioverlay -c overlay/bookmark_store_ovl.c -o $(BUILD_DIR)/bookmark_store_ovl.o 2>&1 || exit 1; \
 	z80asm $(Z80ASM_EVIDENCE_FLAGS) -I$(BUILD_DIR) overlay/overlay_entry3.asm 2>&1 || exit 1; \
+	if [ "$(PLATFORM)" = "spectranext" ]; then \
+		z80asm $(Z80ASM_EVIDENCE_FLAGS) -I$(BUILD_DIR) overlay/xfs_write_ovl.asm 2>&1 || exit 1; \
+	fi; \
 	z80asm $(Z80ASM_EVIDENCE_FLAGS) -b -r0x$$SLOT -o=$(BUILD_DIR)/SPCTLK3.OVL \
 		overlay/overlay_entry3.o \
 		$(BUILD_DIR)/spectalk_ovl3.o \
 		$(BUILD_DIR)/bookmark_store_ovl.o \
+		$(if $(filter spectranext,$(PLATFORM)),overlay/xfs_write_ovl.o) \
 		$(BUILD_DIR)/overlay_defs.o 2>&1 || exit 1; \
 	ovl3_size=$$(wc -c < $(BUILD_DIR)/SPCTLK3.OVL); \
 	if [ "$$ovl3_size" -gt 2048 ]; then \
@@ -372,6 +444,7 @@ overlay_build: $(TAP)
 	z80asm $(Z80ASM_EVIDENCE_FLAGS) -b -r0x$$SLOT -o=$(BUILD_DIR)/SPCTLK4.OVL \
 		overlay/overlay_entry4.o \
 		$(BUILD_DIR)/spectalk_ovl4.o \
+		$(if $(filter spectranext,$(PLATFORM)),overlay/xfs_write_ovl.o) \
 		$(BUILD_DIR)/overlay_defs.o 2>&1 || exit 1; \
 	ovl4_size=$$(wc -c < $(BUILD_DIR)/SPCTLK4.OVL); \
 	if [ "$$ovl4_size" -gt 2048 ]; then \
@@ -398,10 +471,15 @@ overlay_build: $(TAP)
 	echo "  Building SPCTLK6.OVL..."; \
 	zcc +z80 -clib=sdcc_iy --no-crt --opt-code-size $(ZCC_EVIDENCE_FLAGS) \
 		-Ioverlay -c overlay/switcher_ovl.c -o $(BUILD_DIR)/switcher_ovl.o 2>&1 || exit 1; \
+	if [ "$(PLATFORM)" = "spectranext" ]; then \
+		zcc +z80 -clib=sdcc_iy --no-crt --opt-code-size $(ZCC_EVIDENCE_FLAGS) \
+			-Ioverlay -c overlay/spectranext_clock_ovl.c -o $(BUILD_DIR)/spectranext_clock_ovl.o 2>&1 || exit 1; \
+	fi; \
 	z80asm $(Z80ASM_EVIDENCE_FLAGS) -I$(BUILD_DIR) overlay/overlay_entry6.asm 2>&1 || exit 1; \
 	z80asm $(Z80ASM_EVIDENCE_FLAGS) -b -r0x$$SLOT -o=$(BUILD_DIR)/SPCTLK6.OVL \
 		overlay/overlay_entry6.o \
 		$(BUILD_DIR)/switcher_ovl.o \
+		$(if $(filter spectranext,$(PLATFORM)),$(BUILD_DIR)/spectranext_clock_ovl.o) \
 		$(BUILD_DIR)/overlay_defs.o 2>&1 || exit 1; \
 	ovl6_size=$$(wc -c < $(BUILD_DIR)/SPCTLK6.OVL); \
 	if [ "$$ovl6_size" -gt 2048 ]; then \
@@ -503,6 +581,7 @@ gather_evidence:
 	@rm -f "$(BUILD_DIR)"/*.bin 2>/dev/null || true
 	@if [ -d "$(BUILD_DIR)/bpe_src" ]; then mv "$(BUILD_DIR)/bpe_src" "$(EVIDENCE_DIR)/"; fi
 	@if [ -d "$(BUILD_DIR)/bpe_final" ]; then mv "$(BUILD_DIR)/bpe_final" "$(EVIDENCE_DIR)/"; fi
+	@$(PYTHON) tools/test_copt_contract.py --listing-dir "$(EVIDENCE_DIR)"
 	$(call OK,Evidence collected in $(EVIDENCE_DIR).)
 
 release:

@@ -11,12 +11,18 @@
 extern uint8_t bookmark_sel;
 extern uint8_t bookmark_active_slot;
 
+#ifdef SPECTALK_SPECTRANEXT
+static char bm_path_buf[] = "/CFG/SPTBM1.CFG";
+#define BM_PATH_SLOT 10
+#else
 static char bm_path_buf[] = "/SYS/CONFIG/SPTBM1.CFG";
+#define BM_PATH_SLOT 17
+#endif
 static const char bm_error[] = "Error";
 
 static const char *bm_path(uint8_t slot) __z88dk_fastcall
 {
-    bm_path_buf[17] = (uint8_t)('1' + slot);
+    bm_path_buf[BM_PATH_SLOT] = (uint8_t)('1' + slot);
     return bm_path_buf;
 }
 
@@ -122,6 +128,14 @@ void bookmarks_save_ovl(void)
     p[-1] = '\n';
 
     expected = (uint16_t)(p - (char *)overlay_slot);
+#ifdef SPECTALK_SPECTRANEXT
+    esx_buf = (uint16_t)overlay_slot;
+    esx_count = expected;
+    if (!esx_replace_write(bm_path(bookmark_sel))) {
+        input_cache_invalidate();
+        goto err;
+    }
+#else
     esx_fcreate(bm_path(bookmark_sel));
     if (!esx_handle) {
         input_cache_invalidate();
@@ -131,10 +145,15 @@ void bookmarks_save_ovl(void)
     esx_count = expected;
     esx_fwrite();
     esx_fclose();
+#endif
     input_cache_invalidate();
 
+#ifdef SPECTALK_SPECTRANEXT
+    overlay_slot[0] = 1;
+#else
     overlay_slot[0] = (esx_result == expected);
     if (!overlay_slot[0]) goto err;
+#endif
     reset_rx_state();
     return;
 err:

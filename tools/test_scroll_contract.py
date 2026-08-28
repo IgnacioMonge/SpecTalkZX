@@ -6,6 +6,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ASM = ROOT / "asm" / "spectalk_asm" / "40_text_numeric_screen.asm"
+MAIN_OUTPUT_ASM = ROOT / "asm" / "spectalk_asm" / "50_main_output.asm"
 
 
 def words(text):
@@ -97,9 +98,19 @@ def prove_source_contract():
     assert "scroll_main_zone(void)" not in c_source
 
 
+def prove_cold_space_contract():
+    source = MAIN_OUTPUT_ASM.read_text(encoding="utf-8")
+    cold_space = source.split("puts_opt_emit:", 1)[1].split("puts_opt_space_cached:", 1)[0]
+    compact = words(cold_space)
+
+    assert words("ld hl, cache_row_y cp (hl) jr z, puts_opt_space_cached") in compact
+    assert words("ld h, 32 jr puts_opt_char") in compact
+
+
 def main():
     prove_geometry()
     prove_source_contract()
+    prove_cold_space_contract()
     print("Scroll contract check OK")
 
 

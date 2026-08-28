@@ -8,7 +8,7 @@
 #ifndef SPECTALK_CONTRACT_H
 #define SPECTALK_CONTRACT_H
 
-#define VERSION "1.3.8"
+#define VERSION "1.3.9"
 
 #define RING_BUFFER_SIZE 2048
 #define RING_BUFFER_MASK (RING_BUFFER_SIZE - 1)
@@ -27,6 +27,23 @@
 
 #define MAX_FRIENDS 5
 #define MAX_IGNORES 5
+
+/* Connection state values shared by resident code and status overlays. */
+#define STATE_DISCONNECTED  0
+#define STATE_WIFI_OK       1
+#define STATE_TCP_CONNECTED 2
+#define STATE_IRC_READY     3
+
+/* Channel table contract: each entry is 32B and flags are at byte 30. */
+#define MAX_CHANNELS         10
+#define CH_SIZE              32
+#define CH_FLAGS_OFF         30
+#define CH_FLAG_ACTIVE       0x01
+#define CH_FLAG_QUERY        0x02
+#define CH_FLAG_UNREAD       0x04
+#define CH_FLAG_MENTION      0x08
+#define CH_FLAG_NAMING       0x10
+#define CH_FLAG_COUNT_DIRTY  0x20
 
 /* Timezone sentinel: user explicitly selected hardware RTC mode. */
 #define TZ_RTC 127

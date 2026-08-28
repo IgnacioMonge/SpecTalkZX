@@ -63,6 +63,11 @@ udg_zero_loop:
     ld (hl), a
     inc hl
     djnz udg_zero_loop
+IFDEF SPECTALK_SPECTRANEXT
+    ; The fixed user-mode string is outside compiler BSS.  An initial NUL is
+    ; sufficient to make it empty before the first status-bar render.
+    ld (_user_mode), a
+ENDIF
     ; --- IM2 removed ---
     ; IM2 was dead code: frame_wait() uses IM1 exclusively.
     ; The CRT IM2 setup was overwriting BSS at $FC00+ (bpe_dict, esx_* vars).
@@ -106,7 +111,11 @@ RX_LINE_MAX     EQU 510         ; == RX_LINE_SIZE - 2  (spectalk.h:103)
 ; =============================================================================
 ; PUBLIC FUNCTIONS (visible from C)
 ; =============================================================================
+IFDEF SPECTALK_SPECTRANEXT
+EXTERN _esx_detect
+ELSE
 PUBLIC _esx_detect
+ENDIF
 PUBLIC _hl_mul32
 PUBLIC _a_sext_mul32
 PUBLIC _l_mul32
@@ -256,6 +265,10 @@ EXTERN _rx_last_len
 ; Fixed high RAM: ring_buffer ends at $FCFF, stack reserve starts at $FD58.
 PUBLIC _ignore_list
 defc _ignore_list = 0xFD00  ; 80B (MAX_IGNORES * 16), $FD00-$FD4F
+IFDEF SPECTALK_SPECTRANEXT
+PUBLIC _user_mode
+defc _user_mode = 0xFD50    ; 6B, immediately before the $FD58 stack reserve
+ENDIF
 EXTERN _ignore_count
 ; _big_status removed (big mode eliminated)
 
@@ -304,12 +317,24 @@ defc _nb_p             = 0x5BFE  ; 2B
 ; =============================================================================
 SECTION bss_user
 ; Not CRT-zeroed. cache_row_y is explicitly invalidated to avoid false hits.
+IFDEF SPECTALK_SPECTRANEXT
+; Target-only persistent tail after the driver-owned XFS state ($5B80-$5B93).
+; The XFS directory scratch is elsewhere ($5CB6-$5DB5).
+PUBLIC _theme_attrs
+PUBLIC _last_pm_nick
+defc _theme_attrs  = 0x5B94  ; 20B, $5B94-$5BA7
+defc _last_pm_nick = 0x5BA8  ; 18B, $5BA8-$5BB9
+defc cache_scr_base = 0x5BBA ; 2B
+defc cache_atr_base = 0x5BBC ; 2B
+defc cache_row_y     = 0x5BBE ; 1B; $5BBF remains free
+ELSE
 cache_scr_base: defs 2  ; Screen base addr cacheada (print_str64_char)
 cache_atr_base: defs 2  ; Attr base addr cacheada (print_str64_char)
 cache_row_y:   defs 1   ; Fila Y del cache (0xFF = inv?lido)
                         ; NOTA: cache_row_y DEBE estar en BSS. Si esxDOS
                         ; dejase aquí un valor != 0xFF coincidente con y
                         ; actual, next lookup tendría cache hit falso.
+ENDIF
 
 
 SECTION code_user

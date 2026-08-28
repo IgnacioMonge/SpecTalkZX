@@ -28,14 +28,6 @@ static uint8_t cur_seg;     /* currently loaded segment */
 #define SEGMENT_SIZE 512
 #define MAX_SEGS     4      /* up to 2048B of help text */
 
-#define MAX_CHANNELS    10
-#define CH_SIZE         32
-#define CH_FLAG_ACTIVE  0x01
-#define CH_FLAG_QUERY   0x02
-#define CH_FLAG_UNREAD  0x04
-#define CH_FLAG_MENTION 0x08
-#define CH_FLAGS_OFF    30
-
 static const char s_hnot[] = "ANY KEY: NEXT / BREAK: EXIT";
 
 /* Read help text segment N from SPECTALK.DAT into overlay_slot.

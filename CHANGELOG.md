@@ -1,48 +1,189 @@
 # SpecTalkZX Changelog
 
-## [Unreleased] - Changes since v1.3.8
+## [v1.3.9] - Juno - Release candidate
 
-These changes are present on `main` after the `v1.3.8: Hermes` tag. They have passed the documented build and static checks.
+Juno is the complete development line after `v1.3.8: Hermes`. Its headline
+feature is native support for the **SpectraNext cartridge**, delivered as a
+separate compile-time target without removing or weakening the Classic
+ZX/divMMC build. The release also includes every network, storage,
+configuration, overlay, scrolling and presentation change completed since the
+published 1.3.8 tag.
 
-### User-visible fixes
+Final release-profile verification recorded on 2026-08-28:
 
-- Configuration loading now matches all 23 supported keys exactly. Unknown keys and prefix collisions are rejected instead of being accepted by the former two-byte dispatch.
-- Maximum friend and ignore lists now use fixed screen-safe packing, keeping the footer visible instead of allowing long entries to run into later rows.
+- Classic command: `make release NO_COLOR=1 PLATFORM=classic`.
+- SpectraNext command:
+  `make release NO_COLOR=1 PLATFORM=spectranext SPXN_DIR=C:/dev/SpectraNext/driver`.
+- Result: **both builds OK**; driver, network, storage, configuration and clock
+  contracts **OK** against SpectraNext authority `a4ae350`.
+- Classic TAP: **35,386 bytes**.
+- Classic BSS guard: **0xEFDD < 0xF500**, **1,315 bytes free** before
+  `ring_buffer`.
+- Classic overlays: **1700 / 1902 / 1739 / 1745 / 1934 / 1798 / 1816 /
+  1893 bytes**.
+- Classic packed `SPECTALK.OVL`: **14,591 bytes**.
+- SpectraNext TAP: **36,474 bytes**.
+- SpectraNext BSS guard: **0xF3F5 < 0xF500**, **267 bytes free** before
+  `ring_buffer`.
+- SpectraNext overlays: **1700 / 1902 / 1787 / 1828 / 1490 / 1920 / 1816 /
+  1885 bytes**.
+- SpectraNext packed `SPECTALK.OVL`: **14,392 bytes**.
+- Shared `SPECTALK.DAT`: **16,469 bytes**.
+- Installer: `SPECTALK.INS` **3,247 bytes**, `SPECTALK.PKG` **43,670 bytes**,
+  loading screen **6,912 bytes**.
+- Published 1.3.8 Classic TAP: **36,181 bytes**.
+- Net Classic TAP delta: **-795 bytes**, despite the added safety work, Juno
+  screen/data and the common platform seams used by the new target.
 
-### Runtime and hardware safety
+### User-visible features
 
-- Hardened ABOUT/Earth packet decoding against zero or oversized lengths, truncated COPY data, missing terminators, decoded bitmap/attribute overruns, and packet data extending beyond the 512-byte input buffer. Malformed packets now fail closed and close the DAT handle.
-- Moved ABOUT's per-frame esxDOS reads, seeks, validation, and close path behind explicit interrupt boundaries, while preserving the existing timed animation cadence.
-- Bounded raw UDP/NTP UART transmission to 192 busy samples per byte. A timeout inside a partial AT command or payload now stops transmission, marks the connection offline, and prevents unsafe follow-up commands from being appended to the damaged stream.
-- Replaced the chat scroll's temporary VRAM stack, self-modifying operands, shadow-register transfers, and PUSH-based clearing with a byte-exact forward `LDI` implementation that keeps IM1 usable during the long copy and returns under the normal mainline interrupt contract.
-- Added fail-closed linker validation for BSS, overlay scratch, CHANS/Printer RAM, the RX ring, ignore list, reserved stack, friend storage, and UDG regions. Missing, moved, aliased, or overlapping required symbols now fail the build.
-- Invalidated the input redraw cache at every runtime esxDOS boundary, including failure exits. Persistent notification and renderer state was moved out of firmware-clobberable Printer RAM into compiler BSS.
-- Added defensive NAMES bounds checks before notification-buffer indexing or consumption.
+#### Native SpectraNext support
 
-### Build and verification
+- Added a dedicated `PLATFORM=spectranext` build for ZX Spectrum models
+  supported by the SpectraNext cartridge firmware.
+- Networking uses cartridge ROM sockets and DNS directly. No UART, ESP-AT
+  command stream or runtime backend selector is linked into this target.
+- Configuration and all five bookmark slots persist in local XFS under `/CFG`.
+- The displayed clock is obtained through UDP/SNTP before the IRC TCP socket is
+  opened and uses the configured numeric timezone.
+- Startup detection and fatal diagnostics identify the required cartridge/XFS
+  environment instead of reporting Classic divMMC requirements.
+- The title banner is target-specific: Classic remains “IRC Client for ZX
+  Spectrum”; the cartridge build reports “IRC Client for Spectranext”.
+- `!init` closes the active cartridge socket and reinitializes the native
+  backend without sending ESP-AT text into the IRC stream.
 
-- Made BPE preprocessing transactional: backups are staged and validated before publication, interrupted or failed generation restores all eight mutable inputs, stale transactions recover on the next run, and recovery data is retained until byte equality is verified.
-- Hardened the resident build so the real `zcc` exit status is preserved, stale or partial TAP files cannot masquerade as success, and the compiler log remains available after failure.
-- Made `make info` read-only, removed the incomplete `nobpe`/`copydat` bypass pipeline, and added opt-in `make evidence` output under `build/evidence/` without changing normal build artifacts.
-- Added a tracked seed `src/SPECTALK.DAT` so a clean checkout can run the normal preprocessing/build pipeline.
-- Added shared resident/overlay constants in `include/spectalk_contract.h` and documented the build tools in `tools/README.md`.
-- Added automated checks for BPE transactions, exact config keys, Earth packet bounds, esxDOS/cache contracts, scroll geometry and forbidden stack/SMC patterns, UDP TX timeouts/fail-stop behavior, and complete memory-layout invariants.
+#### Resource Index installer and updates
 
-Final synchronized audit build recorded on 2026-07-10:
+- Added the official manifest-driven SpectraNext resource: remote `boot.zx`,
+  product installer, SPXI package, loading screen, `package.json` and
+  `index.txt`.
+- The loading artwork keeps the installation panel at the bottom of the screen.
+- The installer validates the package, writes the application to local XFS slot
+  0 and launches the installed product.
+- Normal updates replace immutable application files while preserving
+  `/CFG/SPECTALK.CFG` and `/CFG/SPTBM1.CFG` through `SPTBM5.CFG`.
+- The release installer is built without the development
+  `--force-install` override.
+- Added managed FuseX direct and installer launch paths for repeatable emulator
+  checks. Public hardware installation remains the Resource Index route.
 
-- Command: `make NO_COLOR=1 evidence`
-- Result: **BUILD OK / STATIC AUDIT OK / HW PENDING**.
-- TAP: **35,240 bytes**.
-- BSS guard: **0xEF4B < 0xF500**, **1,461 bytes free** before `ring_buffer`.
-- Overlays: **1700 / 1902 / 1953 / 1745 / 1941 / 1798 / 1816 / 1893 bytes**.
-- Packed `SPECTALK.OVL`: **14,812 bytes**.
-- `SPECTALK.DAT`: **15,704 bytes**.
-- Evidence bundle: **57 retained listing, symbol, generated-ASM, and BPE-stage files**.
-- Independent ABI/stack, C/data, and Spectrum/firmware residual reviews found no remaining static HIGH or MEDIUM issue after the final CHANS-to-BSS adjacency guard.
+#### Juno What's New and visual presentation
 
-### Documentation
+- Added the complete Juno artwork to `release/logo.png` and streams its packed
+  64x88 image from `SPECTALK.DAT` instead of consuming overlay code space.
+- The What's New screen contains twelve curated 1.3.9 entries and always ends
+  with the magenta “And much, much more!” line.
+- Replaced the obsolete 1.3.8 screenshot gallery with nineteen fresh Juno
+  captures, grouped and captioned by installation, IRC workflow, tools/session
+  management and themes.
+- Corrected status-result rendering so successful operations use the intended
+  leading-space form instead of `[OK]` or a clipped `[ OK`.
+- Polished the status-clock placement and target banner without changing the
+  three established themes.
 
-- Added Codex contributor credit to the project documentation.
+#### About/Earth while connected
+
+- Hardened Earth packet bounds and delta validation before animation data can be
+  applied.
+- Kept esxDOS reads inside the required interrupt state and reset shared RX
+  state safely when overlays exit.
+- The SpectraNext About pump now performs at most eight cartridge ROM calls per
+  frame instead of as many as 128, removing the dominant connected-session
+  animation jitter observed on hardware.
+- PING/PONG, peer close and keepalive state remain serviced while About owns the
+  screen.
+
+#### Network and recovery reliability
+
+- Bounded Classic UART TX-ready polling; a stuck BUSY state no longer waits
+  forever.
+- Bounded ESP-AT command and raw UDP transmission paths.
+- Partial raw UDP writes now stop and recover instead of continuing with a
+  malformed datagram.
+- Network and clock acquisition are separated behind compile-time seams, keeping
+  IRC policy common while each target owns only its hardware transport.
+- SpectraNext clock retries defer while another overlay owns the shared buffer.
+- SNTP validation rejects malformed replies, mismatched peers and a zero
+  transmit timestamp instead of accepting a permanently synchronized midnight.
+
+#### Configuration, storage and UI safety
+
+- Configuration keys require exact matches; malformed prefixes are no longer
+  accepted as valid settings.
+- Packed config, friend and ignore lists are bounded to their storage and screen
+  capacities.
+- Every firmware-sensitive file operation invalidates the shared input cache at
+  the correct boundary.
+- SpectraNext XFS scratch preservation protects live UI state during config and
+  bookmark operations.
+- `!save` and bookmark completion retain the interface and use the corrected
+  status-result prefix.
+- Replaced stack-based chat scrolling with an interrupt-safe implementation
+  that does not borrow temporary display RAM as a stack.
+- Registration-time `ERROR` recognition checks the complete token and boundary,
+  avoiding prefix false positives.
+- Overlay exit paths discard reused parser/ring state so loaded code or data
+  cannot be consumed as IRC input.
+
+### Build, layout and reproducibility
+
+- Added fail-closed Classic/SpectraNext memory-layout checks for resident BSS,
+  the overlay ring, stack, Printer/CHANS areas and XFS scratch/state bindings.
+- Added source contracts for network, clock, storage, configuration, SNTP,
+  installer, COPT control flow, registration errors and stale artifacts.
+- The build records the selected z88dk version in `build/toolchain.version` for
+  reproducibility but deliberately does not pin or reject a particular release.
+- Generated `SPECTALK.DAT`, all eight overlays and the TAP are treated as one
+  inseparable build set.
+- The SpectraNext installer records exact file sizes and SHA-256 values in its
+  generated manifest.
+
+### SpectraNext limitations
+
+- IRC uses plaintext on the configured server port. Cartridge TLS is exposed
+  only through its fixed port-443 service, so IRC TLS on port 6697 is
+  unavailable.
+- The cartridge exposes no RTC syscall to Z80 software. `tz=rtc` therefore
+  falls back to the last numeric timezone and time comes from UDP/SNTP.
+- SpecTalkZX owns one cartridge socket at a time. Clock synchronization runs
+  while the IRC socket is closed.
+- Successful config/bookmark saves persist. The compact XFS compatibility
+  writer is not an atomic rollback transaction if power or I/O fails during an
+  existing-file overwrite.
+
+### Hardware status
+
+Verified on physical SpectraNext hardware during release preparation:
+
+- Guided resource installation reaches and launches SpecTalkZX 1.3.9.
+- Updating preserves the existing `/CFG/SPECTALK.CFG`.
+- Saving configuration survives restart and reloads the expected settings.
+- The Juno What's New artwork and release list render correctly.
+- Connected About animation is materially smoother after the bounded pump
+  change.
+
+The platform-specific banners are verified in the release binaries; this is
+build evidence, not promoted as a separate hardware observation.
+
+These observations do not silently promote untested fault-injection, long soak,
+all-theme, maximum-list, unexpected-NMI or power-cut cases; those remain
+hardware-pending where applicable.
+
+### Publication
+
+Classic installation remains the GitHub release archive of TAP, OVL and DAT.
+SpectraNext public installation is the Resource Index route, not that archive.
+
+The generated resource directory (`boot.zx`, `SPECTALK.INS`, `SPECTALK.PKG`,
+`SPECTALK.SCR`, `package.json`, `index.txt`) must be hosted unchanged over
+HTTPS, verified in a desktop browser, then submitted at
+[spectranext.net/submit-resource.html](https://spectranext.net/submit-resource.html).
+A GitHub Release zip is not a mountable resource. The published installer must
+be compiled without `--force-install`. The recorded 1.3.9 installer sizes are
+`SPECTALK.INS` **3,247 bytes** and `SPECTALK.PKG` **43,670 bytes**. Resource
+Index listing was still pending when this candidate was prepared. See
+[README.md](README.md#publishing-the-spectranext-resource).
 
 ---
 

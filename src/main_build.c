@@ -32,4 +32,11 @@
 
 #include "irc_handlers.c"
 #include "user_cmds.c"
+#ifdef SPECTALK_SPECTRANEXT
+#include "net_spectranext.c"
+#include "clock_spectranext.c"
+#else
+#include "net_classic.c"
+#include "clock_classic.c"
+#endif
 #include "spectalk.c"

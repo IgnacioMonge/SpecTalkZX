@@ -137,10 +137,10 @@ attr_print:
 ; -----------------------------------------------------------------------------
 ; copt fused call targets for frequent ld hl,const / call fn patterns
 ; -----------------------------------------------------------------------------
-EXTERN _uart_send_string
+EXTERN _net_send_string
 PUBLIC _puts_colon_sp
-PUBLIC _uart_sp_colon
-PUBLIC _uart_privmsg
+PUBLIC _net_sp_colon
+PUBLIC _net_privmsg
 EXTERN _SB_COLON_SP
 EXTERN _S_SP_COLON
 EXTERN _S_PRIVMSG
@@ -148,12 +148,12 @@ EXTERN _S_PRIVMSG
 _puts_colon_sp:
     ld hl, _SB_COLON_SP
     jp _main_puts
-_uart_sp_colon:
+_net_sp_colon:
     ld hl, _S_SP_COLON
-    jp _uart_send_string
-_uart_privmsg:
+    jp _net_send_string
+_net_privmsg:
     ld hl, _S_PRIVMSG
-    jp _uart_send_string
+    jp _net_send_string
 
 ; =============================================================================
 ; COMPACT KEYBOARD READER (replaces z88dk in_inkey)
@@ -866,8 +866,10 @@ cst_list_cmd:
 ; =============================================================================
 PUBLIC _frame_wait
 PUBLIC _frame_wait_drain
+IFNDEF SPECTALK_SPECTRANEXT
 EXTERN uartRead
 EXTERN _rb_push
+ENDIF
 _frame_wait:
     push iy
     ld iy, 0x5C3A      ; ROM ISR expects IY = system variables
@@ -881,6 +883,10 @@ _frame_wait:
 ; Use uartRead/_rb_push here, not _uart_drain_to_buffer: the fast drain uses
 ; EXX shadow state, and IM1 must stay enabled while this wait polls for FRAMES.
 _frame_wait_drain:
+IFDEF SPECTALK_SPECTRANEXT
+    call _frame_wait
+    jp _net_pump_rx
+ELSE
     push iy
     ld iy, 0x5C3A
     ld a, (0x5C78)      ; FRAMES low byte
@@ -901,6 +907,7 @@ fwd_check_frame:
     di
     pop iy
     ret
+ENDIF
 
 ; =============================================================================
 ; SYSTEM RAM HIJACKING - Variables mapped to unused ZX system areas
@@ -915,7 +922,8 @@ fwd_check_frame:
 PUBLIC _input_cache_char
 
 defc _input_cache_char = 0x5B00  ; 128 bytes (INPUT_LINES * SCREEN_COLS)
-; 0x5B80-0x5BBF: free
+; Classic: 0x5B80-0x5BBF free. SpectraNext: XFS state + persistent target data,
+; with the exact owners locked by tools/check_memory_layout.py.
 ; 0x5BC0-0x5BFF: scratch transitorio mapeado en 00_preamble.asm. No persistente
 ; a llamadas esxDOS; render paths no cruzan esxDOS → estable mid-render.
 ; irc_pass, nickserv_pass, network_name en BSS (deben sobrevivir esxDOS).

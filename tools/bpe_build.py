@@ -18,6 +18,7 @@ import os
 import re
 import sys
 import shutil
+import subprocess
 import tempfile
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -102,27 +103,27 @@ SAFE_CONSTANTS = [
     "S_USAGE_NOTICE",
 ]
 
-# New SB_ constants for indirect screen-only usage
-NEW_SB_CONSTANTS_DECL = """
-extern const char SB_ABORTED[];
-extern const char SB_INVALID_NICK[];
-extern const char SB_AUTH_FAILED[];
-extern const char SB_BANNED[];
-extern const char SB_SERVER_ERR[];
-extern const char SB_CONN_LOST[];
-extern const char SB_WIFI_OK[];
-extern const char SB_IRC_READY[];
-extern const char SB_UNKNOWN_MODE[];"""
+# New SB_ constants for indirect screen-only usage. Each row drives the
+# declaration, definition, and source replacement so they cannot drift.
+SB_CONSTANTS = (
+    ("SB_ABORTED", "Aborted.", 'abort_msg = "Aborted.";'),
+    ("SB_INVALID_NICK", "Invalid nick", 'abort_msg = "Invalid nick";'),
+    ("SB_AUTH_FAILED", "Auth failed", 'abort_msg = "Auth failed";'),
+    ("SB_BANNED", "Banned", 'abort_msg = "Banned";'),
+    ("SB_SERVER_ERR", "Server error", 'abort_msg = "Server error";'),
+    ("SB_CONN_LOST", "Connection lost", 'abort_msg = "Connection lost";'),
+    ("SB_WIFI_OK", "WiFi OK", 'st = "WiFi OK";'),
+    ("SB_IRC_READY", "IRC ready", 'st = "IRC ready";'),
+    ("SB_UNKNOWN_MODE", "(unknown)", 'mode_text = "(unknown)";'),
+)
 
-NEW_SB_CONSTANTS_DEF = """const char SB_ABORTED[] = "Aborted.";
-const char SB_INVALID_NICK[] = "Invalid nick";
-const char SB_AUTH_FAILED[] = "Auth failed";
-const char SB_BANNED[] = "Banned";
-const char SB_SERVER_ERR[] = "Server error";
-const char SB_CONN_LOST[] = "Connection lost";
-const char SB_WIFI_OK[] = "WiFi OK";
-const char SB_IRC_READY[] = "IRC ready";
-const char SB_UNKNOWN_MODE[] = "(unknown)";"""
+NEW_SB_CONSTANTS_DECL = "\n" + "\n".join(
+    f"extern const char {symbol}[];" for symbol, _, _ in SB_CONSTANTS
+)
+NEW_SB_CONSTANTS_DEF = "\n".join(
+    f'const char {symbol}[] = "{literal}";'
+    for symbol, literal, _ in SB_CONSTANTS
+)
 
 
 def read_file(path):
@@ -184,30 +185,20 @@ def patch_user_cmds_c(content, bpe_load_size=691):
     content = content.replace("ring_buffer + 373", f"ring_buffer + {bpe_load_size}")
 
     # Replace inline literals with SB_ constants
-    content = content.replace('abort_msg = "Aborted.";', "abort_msg = SB_ABORTED;")
-    content = content.replace(
-        'abort_msg = "Invalid nick";', "abort_msg = SB_INVALID_NICK;"
-    )
-    content = content.replace(
-        'abort_msg = "Auth failed";', "abort_msg = SB_AUTH_FAILED;"
-    )
-    content = content.replace('abort_msg = "Banned";', "abort_msg = SB_BANNED;")
-    content = content.replace(
-        'abort_msg = "Server error";', "abort_msg = SB_SERVER_ERR;"
-    )
-    content = content.replace(
-        'abort_msg = "Connection lost";', "abort_msg = SB_CONN_LOST;"
-    )
-    content = content.replace('st = "WiFi OK";', "st = SB_WIFI_OK;")
-    content = content.replace('st = "IRC ready";', "st = SB_IRC_READY;")
+    for symbol, _, context in SB_CONSTANTS:
+        if context.startswith(("abort_msg =", "st =")):
+            lhs = context.split("=", 1)[0]
+            content = content.replace(context, lhs + "= " + symbol + ";")
     return content
 
 
 def patch_irc_handlers_c(content):
     """Replace (unknown) mode text."""
-    content = content.replace(
-        'mode_text = "(unknown)";', "mode_text = SB_UNKNOWN_MODE;"
-    )
+    for symbol, _, context in SB_CONSTANTS:
+        if context.startswith("mode_text ="):
+            lhs = context.split("=", 1)[0]
+            content = content.replace(context, lhs + "= " + symbol + ";")
+            break
     return content
 
 
@@ -395,15 +386,12 @@ def load_earth_assets():
         raise SystemExit("  [BPE ABORT] Earth delta frame count mismatch")
 
     packets = []
-    earth_packet_size = 0
     for frame_delta, attr_delta in zip(frame_parts, attr_parts):
         if len(attr_delta) > 255:
             raise SystemExit(f"  [BPE ABORT] attr delta too large: {len(attr_delta)}")
         packet_size = 2 + len(frame_delta) + 1 + len(attr_delta)
         if packet_size > EARTH_PACKET_SIZE_LIMIT:
             raise SystemExit(f"  [BPE ABORT] Earth packet too large: {packet_size}")
-        if packet_size > earth_packet_size:
-            earth_packet_size = packet_size
         packet = bytearray()
         packet.extend(len(frame_delta).to_bytes(2, "little"))
         packet.extend(frame_delta)
@@ -563,7 +551,18 @@ def build_bpe():
         + (b"\0" * earth_delta_pad)
         + earth_deltas
     )
-    help_offset = earth_offset + len(earth_block)
+    subprocess.check_call(
+        [sys.executable, os.path.join(ROOT, "tools", "gen_whatsnew.py")],
+        cwd=ROOT,
+    )
+    wn_logo_path = os.path.join(BUILD_DIR, "whatsnew_logo.bin")
+    with open(wn_logo_path, "rb") as f:
+        wn_logo = f.read()
+    if not wn_logo:
+        raise SystemExit("  [BPE ABORT] build/whatsnew_logo.bin is empty")
+    wn_logo_offset = earth_offset + len(earth_block)
+    earth_offsets["WN_LOGO_OFFSET"] = wn_logo_offset
+    help_offset = wn_logo_offset + len(wn_logo)
 
     # Step 4b: Fix offsets in compressed sources if dict size differs from default
     DEFAULT_OFFSET = 691  # legacy placeholder patched to the real BPE load size
@@ -608,18 +607,7 @@ def build_bpe():
         help_text = f.read()  # tracked help text source
 
     # Pad help text so 512-byte segment boundaries never split a line.
-    # Insert newlines before lines that would cross a boundary.
-    padded = bytearray()
-    for byte in help_text:
-        # Check if this byte would cross a 512-byte boundary mid-line
-        seg_pos = len(padded) % 512
-        if seg_pos == 511 and byte != 0x0A and byte != 0x0D:
-            # Last byte of segment and not a newline — find last newline
-            # and insert padding there instead
-            pass  # handled below
-        padded.append(byte)
-
-    # Better approach: split into lines, reassemble with NUL padding at boundaries
+    # Split into lines and reassemble with NUL padding at boundaries.
     help_lines = help_text.split(b"\n")
     padded = bytearray()
     for i, line in enumerate(help_lines):
@@ -641,7 +629,7 @@ def build_bpe():
 
     dat_out = os.path.join(BUILD_DIR, "SPECTALK.DAT")
     with open(dat_out, "wb") as f:
-        f.write(bytes(header) + dict_bin + earth_block + bytes(padded))
+        f.write(bytes(header) + dict_bin + earth_block + wn_logo + bytes(padded))
 
     # Step 6: Install compressed files for compilation
     for f in SRC_FILES:
@@ -656,7 +644,8 @@ def build_bpe():
     print(
         f"  BPE: {screen_count} strings, {len(dictionary)} tokens, "
         f"{content_bytes}B -> {compressed_bytes}B (-{saved}B), "
-        f"Earth {len(earth_block)}B ({earth_packet_size}B packets), help @{help_offset}"
+        f"Earth {len(earth_block)}B ({earth_packet_size}B packets), "
+        f"whatsnew logo {len(wn_logo)}B @{wn_logo_offset}, help @{help_offset}"
     )
 
 

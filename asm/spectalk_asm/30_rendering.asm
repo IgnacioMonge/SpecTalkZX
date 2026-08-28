@@ -624,11 +624,11 @@ _ikkle_draw:
 id_char_loop:
     ld a, c
     cp 64
-    jp nc, id_done
+    jr nc, id_done
 
     ld a, (hl)
     or a
-    jp z, id_done
+    jr z, id_done
 
     push hl
 

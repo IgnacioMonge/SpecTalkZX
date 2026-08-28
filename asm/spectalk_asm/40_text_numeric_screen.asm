@@ -255,6 +255,10 @@ stu16_loop:
 ; Env?a string por UART
 ; input: HL = puntero al string
 ; -----------------------------------------------------------------------------
+IFDEF SPECTALK_SPECTRANEXT
+EXTERN _net_send_string
+DEFC _uart_send_string = _net_send_string
+ELSE
 _uart_send_string:
 usend_loop:
     ld a, (hl)
@@ -267,6 +271,7 @@ usend_loop:
     pop hl
     inc hl
     jr usend_loop
+ENDIF
 
 
 ; =============================================================================
@@ -447,6 +452,10 @@ DRAIN_UART_DATA_REG     EQU 0xC6
 DRAIN_UART_STAT_REG     EQU 0xC7
 DRAIN_UART_BYTE_RECIVED EQU 0x80
 
+IFDEF SPECTALK_SPECTRANEXT
+EXTERN _net_pump_rx
+DEFC _uart_drain_to_buffer = _net_pump_rx
+ELSE
 _uart_drain_to_buffer:
     ld a, (_uart_drain_limit)
     or a
@@ -541,6 +550,7 @@ drain_commit_ret:
     ld (_rb_head), hl
     exx
     ret
+ENDIF
 
 ; =============================================================================
 ; Internal chat scroll. Only _main_newline calls this after saving IX/IY.
@@ -715,7 +725,7 @@ mn_no_pagination:
     ld a, (_main_line)
     cp 19               ; MAIN_END = 19
     jr c, mn_inc_line_do
-    call _uart_drain_to_buffer
+    call _net_pump_rx
     call _scroll_main_zone
     jr mn_indent
 

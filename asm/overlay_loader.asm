@@ -18,7 +18,7 @@ EXTERN _esx_buf
 EXTERN _esx_count
 EXTERN _esx_result
 EXTERN _ui_err
-EXTERN _uart_drain_to_buffer
+EXTERN _net_pump_rx
 EXTERN _rx_overflow
 EXTERN _overlay_exit_full
 EXTERN _input_cache_invalidate
@@ -33,7 +33,7 @@ _overlay_exec:
     call ___sdcc_enter_ix
 
     ; Drain UART before overlay (ring_buffer will be overwritten)
-    call _uart_drain_to_buffer
+    call _net_pump_rx
 
     ; Open SPECTALK.OVL
     ld hl, ovl_filename

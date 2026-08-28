@@ -18,7 +18,13 @@ extern uint8_t bookmark_sel;
 extern uint8_t bookmark_active_slot;
 extern uint8_t bookmark_rows[];
 
+#ifdef SPECTALK_SPECTRANEXT
+static char bm_path_buf[] = "/CFG/SPTBM1.CFG";
+#define BM_PATH_SLOT 10
+#else
 static char bm_path_buf[] = "/SYS/CONFIG/SPTBM1.CFG";
+#define BM_PATH_SLOT 17
+#endif
 static const char bm_title[] = "BOOKMARKS";
 static const char bm_footer[] = "ENTER:CONNECT  S:STORE  A:AUTO  D:DELETE  BREAK:SAVE/EXIT";
 static const char bm_empty[] = "empty";
@@ -30,7 +36,7 @@ void bookmarks_cursor_ovl(void);
 
 static const char *bm_path(uint8_t slot) __z88dk_fastcall
 {
-    bm_path_buf[17] = (uint8_t)('1' + slot);
+    bm_path_buf[BM_PATH_SLOT] = (uint8_t)('1' + slot);
     return bm_path_buf;
 }
 
@@ -225,15 +231,22 @@ void bookmarks_delete_ovl(void)
         return;
     }
 
+#ifdef SPECTALK_SPECTRANEXT
+    esx_funlink(bm_path(bookmark_sel));
+    if (!esx_result) {
+#else
     esx_fcreate(bm_path(bookmark_sel));
     if (!esx_handle) {
+#endif
         input_cache_invalidate();
         overlay_slot[0] = 0;
         ui_err("Delete error");
         reset_rx_state();
         return;
     }
+#ifndef SPECTALK_SPECTRANEXT
     esx_fclose();
+#endif
     input_cache_invalidate();
     if ((bookmark_active_slot & 0x7F) == bookmark_sel + 1) {
         bookmark_active_slot = 0;

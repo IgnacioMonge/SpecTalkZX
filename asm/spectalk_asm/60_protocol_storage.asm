@@ -115,9 +115,41 @@ _main_puts2:
 ; =============================================================================
 EXTERN _connection_state
 EXTERN _S_SP_COLON
+IFNDEF SPECTALK_SPECTRANEXT
 ; S_CRLF removed ? use uart_send_crlf instead
 EXTERN _uart_send_crlf
 EXTERN _ay_uart_send
+
+; Classic backend aliases. They resolve to the existing entry points without
+; adding code; a later target root can bind the net_send ABI differently.
+PUBLIC _net_send_string
+PUBLIC _net_send_byte
+PUBLIC _net_send_crlf
+PUBLIC _net_pump_rx
+PUBLIC _net_frame_wait
+DEFC _net_send_string = _uart_send_string
+DEFC _net_send_byte = _ay_uart_send
+DEFC _net_send_crlf = _uart_send_crlf
+DEFC _net_pump_rx = _uart_drain_to_buffer
+DEFC _net_frame_wait = _frame_wait_drain
+ELSE
+; Compatibility symbols referenced by dormant Classic helpers in the shared
+; assembly root. They contain no UART I/O in this target.
+PUBLIC _ay_uart_send
+PUBLIC _ay_uart_init
+PUBLIC uartRead
+EXTERN _net_send_byte
+EXTERN _net_send_string
+EXTERN _net_send_crlf
+EXTERN _net_pump_rx
+EXTERN _net_frame_wait
+DEFC _ay_uart_send = _net_send_byte
+_ay_uart_init:
+    ret
+uartRead:
+    or a
+    ret
+ENDIF
 
 ; void irc_send_cmd_internal(const char *cmd, const char *p1, const char *p2)
 ; Sends: CMD [p1] [ :p2]\r\n
@@ -146,7 +178,7 @@ _irc_send_cmd_internal:
     
     ; Send cmd (audit W02: preserve DE=p1 ? ay_uart_send clobbers DE)
     push de
-    call _uart_send_string
+    call _net_send_string
     pop de
 
     ; Check p1
@@ -160,9 +192,9 @@ _irc_send_cmd_internal:
     ; Send " " + p1
     push de
     ld l, ' '
-    call _ay_uart_send
+    call _net_send_byte
     pop hl
-    call _uart_send_string
+    call _net_send_string
     
 isci_check_p2:
     ; Check p2
@@ -178,18 +210,23 @@ isci_check_p2:
     ; Send " :" + p2
     push hl
     ld hl, _S_SP_COLON
-    call _uart_send_string
+    call _net_send_string
     pop hl
-    call _uart_send_string
+    call _net_send_string
     
 isci_crlf:
-    jp _uart_send_crlf      ; tail call (saves 3B: no string load needed)
+    jp _net_send_crlf       ; tail call (saves 3B: no string load needed)
 
 
 ; =============================================================================
 ; ABOUT OVERLAY UART PUMP
 ; =============================================================================
 
+IFDEF SPECTALK_SPECTRANEXT
+PUBLIC _about_pump
+EXTERN _spectranext_about_pump
+DEFC _about_pump = _spectranext_about_pump
+ELSE
 EXTERN uartRead
 EXTERN _rx_line
 EXTERN _rx_pos
@@ -286,6 +323,7 @@ ap_store_pos_ret:
     sbc hl, bc                ; HL = rx_pos
     ld (_rx_pos), hl
     ret
+ENDIF
 
 
 ; =============================================================================
@@ -295,6 +333,8 @@ ap_store_pos_ret:
 ; No stack manipulation whatsoever. IY preserved via push/pop.
 ; IX set = HL for F_OPEN (esxDOS requirement).
 ; =============================================================================
+
+IFNDEF SPECTALK_SPECTRANEXT
 
 ; -----------------------------------------------------------------------------
 ; uint8_t esx_detect(void)
@@ -454,6 +494,57 @@ esx_pop_ix_iy_ret:
     pop ix
     pop iy
     ret
+
+ELSE
+
+; =============================================================================
+; SPECTRANEXT XFS PRODUCT POLICY
+; =============================================================================
+
+PUBLIC _esx_detect
+PUBLIC _esx_fseek_set
+EXTERN _spxn_rom_detect
+EXTERN _esx_fclose
+EXTERN _esx_opendir
+EXTERN _esx_mkdir
+EXTERN _esx_handle
+EXTERN _spxn_xfs_fseek
+DEFC _esx_fseek_set = _spxn_xfs_fseek
+
+storage_cfg_dir:
+    defm "/CFG", 0
+
+; Detect the cartridge, ensure /CFG, verify it with OPENDIR, then close it.
+_esx_detect:
+    call _spxn_rom_detect
+    dec hl
+    ld a, h
+    or l
+    jr nz, storage_false
+    ld hl, storage_cfg_dir
+    call _esx_opendir
+    ld a, (_esx_handle)
+    or a
+    jr nz, storage_detect_close
+    ld hl, storage_cfg_dir
+    call _esx_mkdir
+    ld hl, storage_cfg_dir
+    call _esx_opendir
+    ld a, (_esx_handle)
+    or a
+    jr z, storage_false
+storage_detect_close:
+    call _esx_fclose
+    ld a, l
+    or a
+    jr nz, storage_false
+    ld l, 1
+    ret
+storage_false:
+    ld l, 0
+    ret
+
+ENDIF
 
 
 

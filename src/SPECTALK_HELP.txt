@@ -1,51 +1,51 @@
-!help	Show this help
-!status	Connection status
-!init	Reset WiFi/ESP
-!config	Show all settings
+!help	Show this help (!h)
+!status	Connection status (!s)
+!init	Reset network backend (!i)
+!config	Show all settings (!cfg)
 !theme	Theme 1|2|3
 !about	About SpecTalkZX
 !beep	Toggle sound
 !click	Toggle key click
-!notif	Toggle notifications
+!notif	Toggle notifications (!nf)
 !changelog	What's New
-!save	Save config/session
-!clear	Clear chat screen
+!save	Save config/session (!sv)
+!clear	Clear chat screen (!cls)
 !traffic	Toggle join/part msgs
 !divider	Toggle separators
-!countsync	Toggle count resync
-!bm	IRC bookmarks
-!timestamps	Toggle time display
-!nickcolor	Toggle nick colors
-!autoconnect	Toggle auto-connect
+!countsync	Toggle count resync (!cs)
+!bookmarks	IRC bookmarks (!bm)
+!timestamps	Cycle off/on/smart (!ts)
+!nickcolor	Toggle nick colors (!nc)
+!autoconnect	Toggle auto-connect (!ac)
 !autojoin	Toggle saved channels
-!autoaway	Auto-away (min, 0=off)
-!tz	Timezone (-12..+14)
-!friend	Add/remove friend nick
+!autoaway	Auto-away (min, 0=off; !aa)
+!tz	TZ -12..+12; rtc Classic only
+!friend	List/toggle friend nick
 
 IRC commands
-/server	Connect host (/connect)
+/server	No args: show/reconnect; host[:port] /connect
 /nick	Change nickname
-/pass	Set server password
+/pass	Stored pass; clear|none next conn; no IRC PASS
 /id	Identify with NickServ
-/join	Join #channel
-/part	Leave current channel
-/msg	Private: /msg nick text
+/join	Join bare, # or & channel (/j)
+/part	Leave [#channel|&channel] [message] (/p)
+/msg	Private: /msg nick text (/m)
 /reply	Reply to last PM
 /notice	Notice: /notice nick text
-/query	Open PM window
+/query	Open PM window (/q)
 /close	Close current window
 /quit	Disconnect from IRC
 /me	Action: /me does stuff
 /away	Set away: /away [reason]
 /raw	Send raw IRC command
-/whois	Lookup user info
-/who	List users in #channel
-/list	List channels (pattern)
-/names	List users in #channel
-/topic	View/set channel topic
+/whois	Lookup user info (/wi)
+/who	WHO [channel|nick], current by default
+/list	List channels (pattern) (/ls)
+/names	List [#channel|&channel] users
+/topic	View/set [#channel] [text]
 /mode	View/set IRC modes
-/search	Search in /list results
+/search	#pattern (LIST) or nick (WHO)
 /ignore	Ignore nick (-nick undo)
-/kick	Kick: /kick nick [reason]
-/channels	List open windows
-/0-9	Switch to window 0-9
+/kick	Kick: /kick nick [reason] (/k)
+/channels	List open windows (/w)
+/0-9	Switch to window 0-9; !0-9 also works

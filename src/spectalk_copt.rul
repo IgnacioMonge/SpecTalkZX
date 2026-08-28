@@ -330,19 +330,33 @@
 	EXTERN _puts_colon_sp
 %0call%1_puts_colon_sp
 
-;; OPT-COPT-30: ld hl,_S_SP_COLON + call _uart_send_string → call _uart_sp_colon (6→3, 6 sites)
+;; OPT-COPT-30: Classic net alias + common payload -> fused net helper (6->3)
 %0ld%1hl,_S_SP_COLON
 %0call%1_uart_send_string
 =
-	EXTERN _uart_sp_colon
-%0call%1_uart_sp_colon
+	EXTERN _net_sp_colon
+%0call%1_net_sp_colon
 
-;; OPT-COPT-31: ld hl,_S_PRIVMSG + call _uart_send_string → call _uart_privmsg (6→3, 3 sites)
+;; OPT-COPT-30N: SpectraNext net seam + common payload -> fused net helper (6->3)
+%0ld%1hl,_S_SP_COLON
+%0call%1_net_send_string
+=
+	EXTERN _net_sp_colon
+%0call%1_net_sp_colon
+
+;; OPT-COPT-31: Classic net alias + PRIVMSG payload -> fused net helper (6->3)
 %0ld%1hl,_S_PRIVMSG
 %0call%1_uart_send_string
 =
-	EXTERN _uart_privmsg
-%0call%1_uart_privmsg
+	EXTERN _net_privmsg
+%0call%1_net_privmsg
+
+;; OPT-COPT-31N: SpectraNext net seam + PRIVMSG payload -> fused net helper (6->3)
+%0ld%1hl,_S_PRIVMSG
+%0call%1_net_send_string
+=
+	EXTERN _net_privmsg
+%0call%1_net_privmsg
 
 ;; OPT-COPT-32: st_copy_n cdecl cleanup fusion (call + pop×2 + inc sp → call wrapper)
 ;; 24 sites × 4 bytes saved - wrapper cost
@@ -367,19 +381,3 @@
 %0pop%1af
 =
 %0call%1_st_stristr
-
-;; OPT-COPT-35: Boolean materialization NZ (7→5 bytes, ~19 sites)
-;; jr NZ,L1 / ld a,1 / jr L2 / L1: / xor a / L2: → ld a,0 / jr NZ,L2 / inc a / L2:
-%0jr	NZ,%2
-%0ld	a,0x01
-%0jr	%3
-%2:
-%0xor	a,a
-%3:
-=
-%0ld	a,0x00
-%0jr	NZ,%3
-%0inc	a
-%3:
-
-

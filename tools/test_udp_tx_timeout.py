@@ -74,7 +74,7 @@ def main():
     assert not re.search(r"\b(?:call udp_|out\b|cmd_)", fatal)
 
     connect = words(USER_CMDS.read_text(encoding="utf-8"))
-    guard = "sntp_udp_fallback(); if (connection_state < STATE_WIFI_OK) { ui_err(S_FAIL); goto connect_cleanup; }"
+    guard = "clock_sync_fallback(); if (connection_state < STATE_WIFI_OK) { ui_err(S_FAIL); goto connect_cleanup; }"
     assert words(guard) in connect
     assert source.count("call udp_uart_send") == 3
     assert source.count("call udp_send_string") == 6
