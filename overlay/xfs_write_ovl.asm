@@ -40,12 +40,18 @@ _esx_replace_write:
     or a
     jr nz, xfs_write_cleanup
 
-    ld a, (xfs_write_created)
-    or a
-    jr z, xfs_write_true
+    ; XFS is overlayed: overwriting a committed file leaves the new content in
+    ; RAMFS, so it survives a reset and a power cut restores the old version.
+    ; Commit on every path, not only on create. On the overwrite path the
+    ; write already succeeded and the file is published either way, so a
+    ; failed commit is not worth discarding the save for; on create it is,
+    ; because an uncommitted new file is simply lost.
     push ix
     pop hl
     call _esx_commit
+    ld a, (xfs_write_created)
+    or a
+    jr z, xfs_write_true
     ld a, (_esx_result)
     or a
     jr z, xfs_write_cleanup
