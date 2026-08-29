@@ -218,32 +218,16 @@ configuration, bookmarks or What's New.
 
 ### SpectraNext cartridge
 
-SpectraNext does **not** use the Classic divMMC copy procedure. Do not put
-<code>SpecTalkZX.tap</code>, <code>SPECTALK.OVL</code> or
-<code>SPECTALK.DAT</code> on an SD card. The public install is an HTTPS
-resource. The canonical root, hosted on this repository's GitHub Pages, is:
-
-<code>https://ignaciomonge.github.io/SpecTalkZX/</code>
-
 1. Configure the cartridge and Wi-Fi using the
    [official SpectraNext instructions](https://docs.spectranext.net/tutorials/setting-up-mounts).
-2. At the BASIC prompt:
-
-```text
-%umount 2
-%mount 2, "https://ignaciomonge.github.io/SpecTalkZX/"
-%fs 2
-%cat
-%load "boot.zx"
-```
-
-   <code>boot.zx</code> is tokenized BASIC. Do not <code>%tapein</code> it.
+2. In the SpectraNext menu, select **Load Resource URL** and enter:
+   <code>https://ignaciomonge.github.io/SpecTalkZX/</code>.
 3. The guided installer validates the package, writes
    <code>SPECTALK.tap</code>, <code>SPECTALK.OVL</code>,
    <code>SPECTALK.DAT</code>, <code>SPECTALK.ZX</code> and the version marker
    to local XFS slot 0, then launches the client.
-4. Afterwards start <code>SPECTALK.ZX</code> from local XFS. To update, mount
-   the same HTTPS root and load <code>boot.zx</code> again;
+4. Afterwards start <code>SPECTALK.ZX</code> from local XFS. To update, use
+   **Load Resource URL** again;
    <code>/CFG/SPECTALK.CFG</code> and the five bookmark files are preserved.
 
 A GitHub Release zip is not a mountable resource. Maintainer hosting steps:
@@ -601,7 +585,7 @@ release on that review. Update the user install notes only after it appears.
 | Indicator is ready but IRC will not connect | Wi-Fi credentials, hostname and plaintext IRC port |
 | Startup stops on esxDOS/DAT | Classic divMMC mounted; all three files together and from one build |
 | Help/About/bookmarks fail | `SPECTALK.OVL` or `SPECTALK.DAT` is missing or stale |
-| SpectraNext install does not start | Mount the GitHub Pages HTTPS root; do not `%tapein` `boot.zx` |
+| SpectraNext install does not start | Select **Load Resource URL** and enter `https://ignaciomonge.github.io/SpecTalkZX/` |
 | Clock remains at `00:00` | SNTP access and numeric timezone; Classic may also use `!tz rtc` |
 | NickServ identify fails | Use `/id`, `nickpass=` or the `nickserv=` override |
 | Too much JOIN/PART noise | Toggle `!traffic` |

@@ -219,33 +219,17 @@ configuración, bookmarks o What's New.
 
 ### Cartucho SpectraNext
 
-SpectraNext **no** utiliza el procedimiento de copia para divMMC de Classic. No
-pongas <code>SpecTalkZX.tap</code>, <code>SPECTALK.OVL</code> ni
-<code>SPECTALK.DAT</code> en una SD. La instalación pública es un recurso
-HTTPS. La raíz canónica, en GitHub Pages de este repositorio, es:
-
-<code>https://ignaciomonge.github.io/SpecTalkZX/</code>
-
 1. Configura el cartucho y el Wi-Fi con las
    [instrucciones oficiales de SpectraNext](https://docs.spectranext.net/tutorials/setting-up-mounts).
-2. En el prompt de BASIC:
-
-```text
-%umount 2
-%mount 2, "https://ignaciomonge.github.io/SpecTalkZX/"
-%fs 2
-%cat
-%load "boot.zx"
-```
-
-   <code>boot.zx</code> es BASIC tokenizado. No uses <code>%tapein</code>.
+2. En el menú de SpectraNext, selecciona **Load Resource URL** e introduce:
+   <code>https://ignaciomonge.github.io/SpecTalkZX/</code>.
 3. El instalador guiado valida el paquete, escribe
    <code>SPECTALK.tap</code>, <code>SPECTALK.OVL</code>,
    <code>SPECTALK.DAT</code>, <code>SPECTALK.ZX</code> y el marcador de
    versión en el slot 0 del XFS local, y arranca el cliente.
 4. En adelante inicia <code>SPECTALK.ZX</code> desde el XFS local. Para
-   actualizar, monta la misma raíz HTTPS y carga <code>boot.zx</code> otra
-   vez; se conservan <code>/CFG/SPECTALK.CFG</code> y los cinco bookmarks.
+   actualizar, vuelve a usar **Load Resource URL**; se conservan
+   <code>/CFG/SPECTALK.CFG</code> y los cinco bookmarks.
 
 Un zip de GitHub Release no es un recurso montable. Pasos de publicación:
 [Publicación del recurso SpectraNext](#publicación-del-recurso-spectranext).
@@ -603,7 +587,7 @@ release por esa revisión. Cambia las notas de usuario solo cuando aparezca.
 | La red está lista pero IRC no conecta | Credenciales Wi-Fi, hostname y puerto IRC en texto plano |
 | El arranque se detiene en esxDOS/DAT | divMMC montado y los tres ficheros juntos de la misma build |
 | Fallan ayuda/About/bookmarks | Falta `SPECTALK.OVL` o `SPECTALK.DAT`, o pertenece a otra build |
-| No empieza la instalación SpectraNext | Monta la raíz HTTPS de GitHub Pages; no uses `%tapein` con `boot.zx` |
+| No empieza la instalación SpectraNext | Selecciona **Load Resource URL** e introduce `https://ignaciomonge.github.io/SpecTalkZX/` |
 | El reloj sigue en `00:00` | Acceso SNTP y zona numérica; Classic también admite `!tz rtc` |
 | Falla NickServ | Usa `/id`, `nickpass=` o el override `nickserv=` |
 | Demasiados JOIN/PART | Alterna `!traffic` |
