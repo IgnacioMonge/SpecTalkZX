@@ -58,10 +58,6 @@ limits and final build measurements.
 
 ## Screenshots
 
-Every image below was captured from SpecTalkZX 1.3.9. The FuseX frame was
-removed and a small, consistent ZX border was retained. No screenshot from the
-1.3.8 gallery is reused.
-
 ### Getting started and navigation
 
 <table>
