@@ -58,9 +58,6 @@ técnicos y medidas finales de compilación.
 
 ## Capturas
 
-Todas las imágenes corresponden a SpecTalkZX 1.3.9. Se ha eliminado el
-marco de FuseX y se conserva un borde ZX pequeño y uniforme. No se reutiliza
-ninguna captura de la galería 1.3.8.
 
 ### Primeros pasos y navegación
 
