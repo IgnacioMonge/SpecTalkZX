@@ -1,5 +1,23 @@
 # SpecTalkZX Changelog
 
+## [v1.3.9-2] - installation fix
+
+Same program as 1.3.9. Only the SpectraNext cartridge package changed, so the
+in-app What's New screen still reads `1.3.9. Juno`.
+
+- The installation no longer disappears when the computer is switched off. It
+  used to survive a reset but not a power cut, so the cartridge had to be
+  reinstalled on every cold boot.
+- Saved configuration is kept as well. Previously only the very first save
+  lasted; every later one was lost on power-off and the earlier settings came
+  back.
+
+Both had the same cause: on the cartridge's overlayed filesystem a file that
+has been written still lives in RAM until it is committed to flash, and
+neither the installer nor the configuration writer was committing.
+
+Nothing else changed. The Classic divMMC + ESP-AT build is untouched.
+
 ## [v1.3.9] - Juno
 
 This release is the main development line after `v1.3.8: Hermes`. The headline
