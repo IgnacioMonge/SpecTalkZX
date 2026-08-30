@@ -204,10 +204,13 @@ def driver_contract() -> None:
     makefile = text("Makefile")
     target = section(makefile, "spectranext:\n", "\ntest-spectranext-network:")
     check = "test_spectranext_driver_contract.py"
+    atlas = '"$(BUILD_DIR)/SPECTALK.OVL"'
     assert target.count(check) == 1
     assert f'{check} "$(SPXN_DIR)"' in target
     assert makefile.count(check) == 1
+    assert target.index(f"rm -f {atlas}") < target.index(check)
     assert target.index(check) < target.index("$(MAKE)")
+    assert f"test -s {atlas}" in target
 
 
 def save_args_contract() -> None:
