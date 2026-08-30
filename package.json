@@ -7,13 +7,13 @@
     },
     {
       "name": "SPECTALK.INS",
-      "sha256": "16a306897891ca71005471fc85143dc9ce4041b2700c200ebe29f40b3716217d",
-      "size": 3247
+      "sha256": "af53f01b36713725cf8f97ff99bea70496404ddb220d40e0f68f9d8dbbcf0c8e",
+      "size": 3310
     },
     {
       "name": "SPECTALK.PKG",
-      "sha256": "37607792015b1edcc5bc9d5a182a780d61fc6f652e77fe45eb6d73bad0c23e72",
-      "size": 43670
+      "sha256": "ae3609e8a46d5ea2bee179fb82ee3d027485c49022becf160baa7ecf8bb97a21",
+      "size": 43862
     },
     {
       "name": "SPECTALK.SCR",
@@ -23,5 +23,5 @@
   ],
   "minimum_firmware": "0.9-6fc153a3",
   "resource": "SpecTalkZX",
-  "version": "1.3.9"
+  "version": "1.3.9-2"
 }

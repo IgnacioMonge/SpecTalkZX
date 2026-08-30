@@ -1,5 +1,5 @@
 type=file name=boot.zx size=273
-type=file name=SPECTALK.INS size=3247
-type=file name=SPECTALK.PKG size=43670
+type=file name=SPECTALK.INS size=3310
+type=file name=SPECTALK.PKG size=43862
 type=file name=SPECTALK.SCR size=6912
-type=file name=package.json size=687
+type=file name=package.json size=689
