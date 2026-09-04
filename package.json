@@ -2,26 +2,26 @@
   "files": [
     {
       "name": "boot.zx",
-      "sha256": "0d112e7226830a1b08b6fb052e0b44d9c48bb593dc52e2ef8d00eecac45185a0",
-      "size": 273
+      "sha256": "0c410bd80d626c90d82dc0e9de32934557fa553aea2209650bd017b65a4bd68e",
+      "size": 221
     },
     {
-      "name": "SPECTALK.INS",
-      "sha256": "af53f01b36713725cf8f97ff99bea70496404ddb220d40e0f68f9d8dbbcf0c8e",
-      "size": 3310
+      "name": "SPCTX.INS",
+      "sha256": "10ee8649f98fb946c9d9890512b764ec49169d8678489efb9a3c520c6bfcede4",
+      "size": 3299
     },
     {
-      "name": "SPECTALK.PKG",
-      "sha256": "ae3609e8a46d5ea2bee179fb82ee3d027485c49022becf160baa7ecf8bb97a21",
-      "size": 43862
+      "name": "SPCTX.PKG",
+      "sha256": "07eb3cb4549bfa89a2ecbeb76ee7d0cd28f139d9ed50c226807f61ce2cd83d4e",
+      "size": 43768
     },
     {
-      "name": "SPECTALK.SCR",
-      "sha256": "67ccfa1d4447f3acd0870b7f124911e4faf6016e7070360bcf05c4b11ecdc433",
+      "name": "SPCTX.SCR",
+      "sha256": "cb696028537dae78762c9759cc620cfd0712d709afb071d10a129a27ea877636",
       "size": 6912
     }
   ],
   "minimum_firmware": "0.9-6fc153a3",
   "resource": "SpecTalkZX",
-  "version": "1.3.9-2"
+  "version": "1.4.0"
 }
