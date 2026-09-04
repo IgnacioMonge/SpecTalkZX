@@ -18,14 +18,11 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Plataforma-ZX%20Spectrum%20%7C%20Next%20%7C%20Spectranext-blue" alt="Plataforma: ZX Spectrum, Next y Spectranext">
   <img src="https://img.shields.io/badge/Licencia-GPLv2-green" alt="Licencia: GPLv2">
-  <img src="https://img.shields.io/badge/Desarrollo-1.4.0-orange" alt="Versión en desarrollo: 1.4.0">
+  <img src="https://img.shields.io/badge/Versión-1.4.0-orange" alt="Versión: 1.4.0">
 </p>
 
-Esta rama contiene **SpecTalkZX 1.4.0 Proteus**, todavía no publicado. La última
-versión pública es
-[1.3.9.1](https://github.com/IgnacioMonge/SpecTalkZX/releases/tag/v1.3.9.1):
-el programa Classic sigue siendo 1.3.9 y el instalador Spectranext corregido
-identifica su paquete como `1.3.9-2`.
+Versión actual:
+[SpecTalkZX 1.4.0 Proteus](https://github.com/IgnacioMonge/SpecTalkZX/releases/tag/v1.4.0).
 
 La versión 1.4.0 añade soporte nativo para Spectrum Next y un nuevo sistema de
 paginación para el cartucho Spectranext. La edición Classic ZX/divMMC mantiene
@@ -86,8 +83,8 @@ cartucho. Next nativo utiliza un único <code>SPECTALK.NEX</code> autónomo.
 
 ### ZX Classic / divMMC
 
-1. Descarga `spectalk_divmmc_v1.3.9.zip` desde la
-   [versión 1.3.9](https://github.com/IgnacioMonge/SpecTalkZX/releases/tag/v1.3.9).
+1. Descarga `spectalk_divmmc_v1.4.0.zip` desde la
+   [versión 1.4.0](https://github.com/IgnacioMonge/SpecTalkZX/releases/tag/v1.4.0).
 2. Copia <code>SpecTalkZX.tap</code>, <code>SPECTALK.OVL</code> y
    <code>SPECTALK.DAT</code> al mismo directorio de la tarjeta SD.
 3. Configura el puente ESP-AT a **115200 baudios**. Las credenciales Wi-Fi se
@@ -98,18 +95,17 @@ cartucho. Next nativo utiliza un único <code>SPECTALK.NEX</code> autónomo.
 
 ### Spectrum Next nativo
 
-El soporte para Next nativo se publicará con 1.4.0. Hasta entonces, compila esta
-rama con `make next NO_COLOR=1`.
-
-1. Configura el ESP interno del Spectrum Next para la red Wi-Fi deseada.
-2. Copia <code>build/SPECTALK.NEX</code> a la tarjeta SD del Next.
-3. Ejecútalo desde el navegador de NextZXOS. La configuración y los marcadores
+1. Descarga `spectalk_next_v1.4.0.zip` desde la
+   [versión 1.4.0](https://github.com/IgnacioMonge/SpecTalkZX/releases/tag/v1.4.0).
+2. Configura el ESP interno del Spectrum Next para la red Wi-Fi deseada.
+3. Copia <code>SPECTALK.NEX</code> a la tarjeta SD del Next.
+4. Ejecútalo desde el navegador de NextZXOS. La configuración y los marcadores
    se guardan en <code>/SYS/CONFIG</code>, con <code>/SYS</code> como alternativa.
 
 ### Cartucho Spectranext
 
-El instalador público ofrece actualmente SpecTalkZX 1.3.9, revisión de paquete
-`1.3.9-2`.
+El instalador público ofrece SpecTalkZX 1.4.0 y requiere firmware Spectranext
+`0.9-6fc153a3` o posterior.
 
 1. Conecta el cartucho a la red Wi-Fi.
 2. En el menú de Spectranext, selecciona **Load Resource URL** e introduce:
@@ -150,8 +146,8 @@ marca para el arranque, **ENTER** conecta, **D** borra y **BREAK** guarda y sale
 
 ## Capturas
 
-La galería combina capturas de la versión 1.4.0 en desarrollo para Spectrum
-Next nativo y Spectranext con capturas de Classic.
+La galería combina capturas de la versión 1.4.0 para Spectrum Next nativo,
+Spectranext y Classic.
 
 ### Primeros pasos y navegación
 

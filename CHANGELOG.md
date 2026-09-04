@@ -2,7 +2,7 @@
 
 Only user-visible changes and compatibility notes are listed here.
 
-## 1.4.0 - Proteus - Unreleased
+## [1.4.0] - Proteus - 2026-09-04
 
 ### Added
 
@@ -23,6 +23,20 @@ Only user-visible changes and compatibility notes are listed here.
   `/SYS/CONFIG` is unavailable.
 - The Spectranext installer artwork and package have been updated for 1.4.0.
 
+### Release verification
+
+- Classic: TAP **35,386 bytes**; BSS ends at **0xEFDD**, leaving **1,315
+  bytes** before the receive ring; overlays **1705 / 1902 / 1573 / 1745 / 1934
+  / 1798 / 1816 / 1973 bytes**; packed `SPECTALK.OVL` **14,510 bytes**.
+- Native Next: `SPECTALK.NEX` **147,968 bytes**; resident **35,466 bytes**; BSS
+  ends at **0xF086**, leaving **1,146 bytes**; overlays **1688 / 1882 / 1581 /
+  1745 / 1965 / 1787 / 1816 / 1994 bytes**; embedded data **16,633 bytes**.
+- Spectranext: TAP **36,512 bytes**; BSS ends at **0xF420**, leaving **224
+  bytes**; overlays **1705 / 1922 / 746 / 2532 / 1490 / 1937 / 1816 / 1906
+  bytes**; packed `SPECTALK.OVL` **14,374 bytes**.
+- Spectranext resource: `SPCTX.INS` **3,299 bytes**, `SPCTX.PKG` **43,768
+  bytes**, `SPCTX.SCR` **6,912 bytes**.
+
 ### Compatibility
 
 - Classic ZX remains compatible with the 1.3.9 configuration format and
@@ -31,8 +45,7 @@ Only user-visible changes and compatibility notes are listed here.
 - Native Next requires NextZXOS and a configured internal ESP.
 - Existing Classic and Spectranext configuration and bookmark files need no
   migration.
-- 1.4.0 is not published yet. The latest public release is 1.3.9.1; its
-  Spectranext installer identifies the package as `1.3.9-2`.
+- Spectranext requires cartridge firmware `0.9-6fc153a3` or later.
 
 ## [1.3.9.1] - Spectranext installation fix - 2026-08-30
 
@@ -136,6 +149,7 @@ by the cartridge package format. Classic ZX is unchanged.
 Earlier releases are available on the
 [GitHub Releases page](https://github.com/IgnacioMonge/SpecTalkZX/releases).
 
+[1.4.0]: https://github.com/IgnacioMonge/SpecTalkZX/releases/tag/v1.4.0
 [1.3.9.1]: https://github.com/IgnacioMonge/SpecTalkZX/releases/tag/v1.3.9.1
 [1.3.9]: https://github.com/IgnacioMonge/SpecTalkZX/releases/tag/v1.3.9
 [1.3.8]: https://github.com/IgnacioMonge/SpecTalkZX/releases/tag/v1.3.8
