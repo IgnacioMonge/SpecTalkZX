@@ -26,9 +26,14 @@ EXTERN _status_bar_dirty
 DEFC TZ_RTC = 127
 DEFC RAW_WAIT_BUDGET = 250
 DEFC UDP_TX_POLL_BUDGET = $C0
+IFDEF SPECTALK_NEXT
+DEFC UDP_UART_TX_STATUS    = $133B
+DEFC UDP_UART_TX_BUSY      = $02
+ELSE
 DEFC UDP_ZXUNO_ADDR        = $FC3B
 DEFC UDP_UART_DATA_REG     = $C6
 DEFC UDP_UART_STAT_REG     = $C7
+ENDIF
 
     dw 2
     dw _sntp_udp_ovl
@@ -44,6 +49,21 @@ ELSE
 ; L=byte. CF=0 sent; CF=1 TX stayed busy for the complete poll budget.
 udp_uart_send:
     ld d, UDP_TX_POLL_BUDGET
+IFDEF SPECTALK_NEXT
+    ld bc, UDP_UART_TX_STATUS
+udp_uart_wait:
+    in a, (c)
+    and UDP_UART_TX_BUSY
+    jr z, udp_uart_ready
+    dec d
+    jr nz, udp_uart_wait
+    scf
+    ret
+udp_uart_ready:
+    out (c), l
+    or a
+    ret
+ELSE
     ld bc, UDP_ZXUNO_ADDR
     ld a, UDP_UART_STAT_REG
     out (c), a
@@ -64,6 +84,7 @@ udp_uart_ready:
     out (c), l
     or a
     ret
+ENDIF
 
 udp_send_string:
     ld a, (hl)

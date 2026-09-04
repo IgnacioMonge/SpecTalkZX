@@ -8,13 +8,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 EXPECTED_IO_COUNTS = {
-    "asm/overlay_loader.asm": 6,
-    "asm/spectalk_asm/60_protocol_storage.asm": 7,
-    "overlay/bookmark_store_ovl.c": 6,
-    "overlay/bookmarks_ovl.c": 5,
+    "asm/overlay_loader.asm": 9,
+    "asm/spectalk_asm/60_protocol_storage.asm": 9,
+    "overlay/bookmark_store_ovl.c": 8,
+    "overlay/bookmarks_ovl.c": 7,
     "overlay/earth_about_render.asm": 7,
     "overlay/overlay_entry2.asm": 2,
     "overlay/rtc_seed_ovl.asm": 2,
+    "overlay/spxn_page_loader.asm": 3,
     "overlay/spectalk_ovl.c": 5,
     "overlay/spectalk_ovl3.c": 4,
     "overlay/spectalk_ovl4.c": 4,
@@ -22,8 +23,10 @@ EXPECTED_IO_COUNTS = {
     "src/spectalk.c": 6,
 }
 
-C_IO = re.compile(r"\besx_f(?:open|create|read|write|close|seek_set)\s*\(")
-ASM_IO = re.compile(r"\bcall\s+_esx_f(?:open|create|read|write|close|seek_set)\b", re.I)
+C_IO = re.compile(r"\b(?:esx_f(?:open|create|read|write|close|seek_set)|"
+                  r"data_(?:open|fread|close|fseek_set))\s*\(")
+ASM_IO = re.compile(r"\bcall\s+(?:_esx_f(?:open|create|read|write|close|seek_set)|"
+                    r"data_f(?:read|seek))\b", re.I)
 RST8 = re.compile(r"^\s*rst\s+8\b", re.I | re.M)
 
 
@@ -72,7 +75,7 @@ def main():
 
     changes = [line.strip() for line in source("release/changes.txt").splitlines()
                if line.strip()]
-    assert len(changes) == 12
+    assert 2 <= len(changes) <= 12
     assert changes[-1] == "And much, much more!"
     assert max(map(len, changes[:-1])) <= 40
 
@@ -99,15 +102,15 @@ def main():
     help_c = source("overlay/spectalk_ovl.c")
     help_io = words(block(help_c, "static void help_load_segment", "static uint8_t load_next_seg"))
     assert "if (!esx_handle) goto help_io_fail" in help_io
-    assert "esx_fclose(); goto help_io_fail" in help_io
-    assert "esx_fclose(); input_cache_invalidate()" in help_io
-    assert "help_io_fail: input_cache_invalidate(); overlay_mode = 0" in help_io
+    assert "data_close(); goto help_io_fail" in help_io
+    assert "data_close(); input_cache_invalidate()" in help_io
+    assert "help_io_fail: input_cache_invalidate(); overlay_slot[0] = 0; overlay_mode = 0" in help_io
 
     whatsnew = words(block(source("overlay/spectalk_ovl3.c"),
                           "static void blit_logo", "void whatsnew_render"))
     assert "if (!esx_handle) goto finish" in whatsnew
-    assert "if (!esx_fseek_set(WN_LOGO_OFFSET)) goto finish_close" in whatsnew
-    assert "finish_close: esx_fclose(); finish: input_cache_invalidate()" in whatsnew
+    assert "if (!data_fseek_set(WN_LOGO_OFFSET)) goto finish_close" in whatsnew
+    assert "finish_close: data_close(); finish: input_cache_invalidate()" in whatsnew
 
     whatsnew_render = words(block(source("overlay/spectalk_ovl3.c"),
                                   "void whatsnew_render"))
@@ -126,18 +129,22 @@ def main():
     store_c = source("overlay/bookmark_store_ovl.c")
     store_line = words(block(store_c, "static const char *bm_line", "static const char *bm_next_field"))
     store_save = words(block(store_c, "void bookmarks_save_ovl"))
+    assert "if (!esx_handle) esx_fopen(bm_path_alt(slot))" in store_line
     assert "if (!esx_handle) { input_cache_invalidate(); return 0; }" in store_line
     assert "esx_fclose(); input_cache_invalidate()" in store_line
     assert "if (!esx_handle) { input_cache_invalidate(); goto err; }" in store_save
+    assert "if (!esx_handle) esx_fcreate(bm_path_alt(bookmark_sel))" in store_save
     assert store_save.find("input_cache_invalidate()", store_save.rfind("esx_fclose();")) >= 0
     assert store_save.find("input_cache_invalidate()", store_save.find("esx_replace_write")) >= 0
 
     bookmarks_c = source("overlay/bookmarks_ovl.c")
     bookmarks_line = words(block(bookmarks_c, "static const char *bm_line", "static uint8_t bm_server_eq"))
     bookmarks_delete = words(block(bookmarks_c, "void bookmarks_delete_ovl"))
+    assert "if (!esx_handle) esx_fopen(bm_path_alt(slot))" in bookmarks_line
     assert "if (!esx_handle) { input_cache_invalidate(); return 0; }" in bookmarks_line
     assert "esx_fclose(); input_cache_invalidate()" in bookmarks_line
     assert "if (!esx_handle)" in bookmarks_delete
+    assert "if (!esx_handle) esx_fcreate(bm_path_alt(bookmark_sel))" in bookmarks_delete
     assert "if (!esx_result)" in bookmarks_delete
     assert bookmarks_delete.find("input_cache_invalidate()", bookmarks_delete.rfind("esx_fclose();")) >= 0
     assert bookmarks_delete.find("input_cache_invalidate()", bookmarks_delete.find("esx_funlink")) >= 0

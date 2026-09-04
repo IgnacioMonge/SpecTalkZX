@@ -7,16 +7,38 @@ EXTERN _about_packet_slot
 EXTERN _esx_handle
 EXTERN _esx_buf
 EXTERN _esx_count
+IFDEF SPECTALK_NEXT
+EXTERN _dat_fread
+EXTERN _dat_fseek_set
+DEFC DATA_FREAD = _dat_fread
+DEFC DATA_FSEEK = _dat_fseek_set
+ELSE
 EXTERN _esx_fread
+EXTERN _esx_fseek_set
+DEFC DATA_FREAD = _esx_fread
+DEFC DATA_FSEEK = _esx_fseek_set
+ENDIF
 EXTERN _esx_result
 EXTERN _earth_apply_frame_delta
 EXTERN _earth_apply_attr_delta
 EXTERN _earth_validate_frame_delta
 EXTERN _earth_validate_attr_delta
-EXTERN _esx_fseek_set
 EXTERN _earth_draw_frame
-
 DEFC EARTH_PACKET_SIZE  = 512
+
+IFDEF SPECTALK_NEXT
+; Native overlay pages persist between calls.  Use their zero-filled tail as
+; private scratch; $3FFE..$3FFF remains the payload-length trailer.
+DEFC EARTH_PACKET_BUFFER = $3DFE
+ELSE
+IFDEF SPECTALK_SPECTRANEXT
+EXTERN _ring_buffer
+DEFC EARTH_PACKET_BUFFER = _ring_buffer
+ELSE
+DEFC EARTH_PACKET_BUFFER = _about_packet_slot
+ENDIF
+ENDIF
+
 DEFC EARTH_FRAME_COUNT  = 24
 DEFC EARTH_DELTA_OFFSET = 2048
 
@@ -44,20 +66,27 @@ _globe_tick_ovl:
     ; _about_render_ovl (frame 0) or by previous tick.
     call _earth_draw_frame
 
-    ld hl, _about_packet_slot
+    ld hl, EARTH_PACKET_BUFFER
     ld (_esx_buf), hl
     ld hl, EARTH_PACKET_SIZE
     ld (_esx_count), hl
     di
-    call _esx_fread
+    call DATA_FREAD
 
+IFDEF SPECTALK_SPECTRANEXT
+    ld hl, (_esx_result)
+    ld de, EARTH_PACKET_SIZE
+    or a
+    sbc hl, de
+ELSE
     ld hl, EARTH_PACKET_SIZE
     or a
     sbc hl, bc
+ENDIF
     jr nz, _about_close_ovl       ; tail-call if read fails
 
     ; Packet: u16 frame_len, frame stream, u8 attr_len, attr stream.
-    ld bc, (_about_packet_slot)
+    ld bc, (EARTH_PACKET_BUFFER)
     ld a, b
     or c
     jp z, about_tick_fail
@@ -66,7 +95,7 @@ _globe_tick_ovl:
     sbc hl, bc
     jp c, about_tick_fail
 
-    ld hl, _about_packet_slot + 2
+    ld hl, EARTH_PACKET_BUFFER + 2
     call _earth_validate_frame_delta
     jp c, about_tick_fail
 
@@ -79,7 +108,7 @@ _globe_tick_ovl:
 
     push hl
     add hl, bc
-    ld de, _about_packet_slot + EARTH_PACKET_SIZE + 1
+    ld de, EARTH_PACKET_BUFFER + EARTH_PACKET_SIZE + 1
     or a
     sbc hl, de
     pop hl
@@ -87,13 +116,17 @@ _globe_tick_ovl:
 
     call _earth_validate_attr_delta
     jp c, about_tick_fail
+IFNDEF SPECTALK_SPECTRANEXT
+IFNDEF SPECTALK_NEXT
     ei
+ENDIF
+ENDIF
 
-    ld hl, _about_packet_slot + 2
+    ld hl, EARTH_PACKET_BUFFER + 2
     call _earth_apply_frame_delta
 
-    ld hl, (_about_packet_slot)
-    ld de, _about_packet_slot + 3
+    ld hl, (EARTH_PACKET_BUFFER)
+    ld de, EARTH_PACKET_BUFFER + 3
     add hl, de
     call _earth_apply_attr_delta
 
@@ -106,10 +139,14 @@ _globe_tick_ovl:
 
     ld hl, EARTH_DELTA_OFFSET
     di
-    call _esx_fseek_set
+    call DATA_FSEEK
     dec l
     jr nz, _about_close_ovl       ; tail-call if seek fails
+IFNDEF SPECTALK_SPECTRANEXT
+IFNDEF SPECTALK_NEXT
     ei
+ENDIF
+ENDIF
     ld a, l
     ld (_frame_idx), a
     ret

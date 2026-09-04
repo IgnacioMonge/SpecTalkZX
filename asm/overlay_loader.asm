@@ -1,6 +1,6 @@
 ;; overlay_loader.asm — Load and execute overlays from esxDOS
 ;; All overlays packed in SPECTALK.OVL as a variable-length atlas.
-;; OVL code loaded into ring_buffer (2048B) for execution.
+;; Classic executes from ring_buffer; Spectranext stages into cartridge Page B.
 ;; overlay_slot (512B, aliased to rx_line) available as scratch data buffer for overlays.
 
 SECTION code_user
@@ -24,11 +24,101 @@ EXTERN _overlay_exit_full
 EXTERN _input_cache_invalidate
 EXTERN ___sdcc_enter_ix
 
+IFDEF SPECTALK_SPECTRANEXT
+EXTERN _spxn_rom_held
+PUBLIC _spxn_overlay_page
+PUBLIC _spxn_page_ready
+
+OVL_CODE_BASE       EQU 0x2000
+SPXN_PAGEIN         EQU 0x3FF9
+SPXN_PAGEOUT        EQU 0x007C
+SPXN_SET_PAGE_B     EQU 0x3E36
+
+SECTION bss_user
+_spxn_overlay_page: defs 1
+_spxn_page_ready:   defs 1
+spxn_call_scratch:  defs 2
+
+SECTION code_user
+ELSE
+OVL_CODE_BASE       EQU _ring_buffer
+ENDIF
+
 OVL_ATLAS_HEADER_LEN EQU 64
 
 ; void overlay_exec(uint8_t ovl_id, uint8_t entry_id) __z88dk_callee
 ; SDCC stack: [IX+4]=ovl_id, [IX+5]=entry_id
 PUBLIC _overlay_exec
+IFDEF SPECTALK_SPECTRANEXT
+SPXN_BOOTSTRAP_OFFSET EQU OVL_ATLAS_HEADER_LEN
+SPXN_BOOTSTRAP_SIZE   EQU 256
+SPXN_BOOTSTRAP_LOAD_SIZE EQU OVL_ATLAS_HEADER_LEN + SPXN_BOOTSTRAP_SIZE
+
+_overlay_exec:
+    call ___sdcc_enter_ix
+    call _net_pump_rx
+
+    ld hl, ovl_filename
+    call _esx_fopen
+    ld a, (_esx_handle)
+    or a
+    jr z, ovl_spxn_exec_fail
+
+    ld hl, _ring_buffer
+    ld (_esx_buf), hl
+    ld hl, SPXN_BOOTSTRAP_LOAD_SIZE
+    ld (_esx_count), hl
+    call _esx_fread
+    ld hl, (_esx_result)
+    ld de, SPXN_BOOTSTRAP_LOAD_SIZE
+    or a
+    sbc hl, de
+    jr nz, ovl_spxn_exec_fail_close
+
+    ld a, (ix+4)
+    call _ring_buffer + SPXN_BOOTSTRAP_OFFSET
+    jr c, ovl_spxn_exec_fail
+
+    ; The bootstrap overwrote ring_buffer. Preserve the existing fragmented
+    ; line contract before handing control to Page B.
+    ld hl, (_rb_head)
+    ld de, (_rb_tail)
+    ld (_rb_tail), hl
+    or a
+    sbc hl, de
+    ld a, h
+    or l
+    ld hl, (_rx_pos)
+    or h
+    or l
+    ld hl, _rx_overflow
+    or (hl)
+    jr z, ovl_spxn_rx_ready
+    ld a, 1
+ovl_spxn_rx_ready:
+    ld (hl), a
+
+    ld a, (ix+5)
+    ld (spxn_call_scratch), a
+    pop ix
+    pop de
+    pop bc
+    push de
+    ld a, (spxn_call_scratch)
+    jp ovl_spxn_call
+
+ovl_spxn_exec_fail_close:
+    call _esx_fclose
+    call _input_cache_invalidate
+ovl_spxn_exec_fail:
+    pop ix
+    pop de
+    pop bc
+    push de
+    call _overlay_exit_full
+    ld hl, ovl_err_msg
+    jp _ui_err
+ELSE
 _overlay_exec:
     call ___sdcc_enter_ix
 
@@ -199,12 +289,18 @@ ovl_atlas_size_ok:
 ovl_atlas_bad:
     scf
     ret
+ENDIF
 
 ; void overlay_call(uint8_t entry_id) __z88dk_fastcall
-; Call entry in ALREADY-LOADED overlay (ring_buffer). No disk I/O.
+; Call entry in the already-loaded Classic ring or Spectranext SRAM page.
+; No disk I/O.
 ; Used for per-frame animation ticks while overlay is resident.
 PUBLIC _overlay_call
 _overlay_call:
+IFDEF SPECTALK_SPECTRANEXT
+    ld      a, l
+    jp      ovl_spxn_call
+ELSE
     ld      a, l             ; entry_id (fastcall: param in L)
     ld      hl, _ring_buffer
     cp      (hl)             ; entry_id < entry_count?
@@ -220,13 +316,14 @@ _overlay_call:
     ret     c
     ex      de, hl
     jp      (hl)             ; jump — overlay's ret returns to caller
+ENDIF
 
 ; DE = candidate entry address. Carry set means outside the loaded body.
 ; Fixed-format overlays initialize this to 2048; atlas loading will narrow it.
 ovl_entry_in_loaded:
     push    de
     ex      de, hl
-    ld      de, _ring_buffer
+    ld      de, OVL_CODE_BASE
     or      a
     sbc     hl, de           ; HL = entry - ring_buffer
     jr      c, ovl_entry_bad
@@ -245,16 +342,21 @@ ovl_entry_bad:
 
 ovl_loaded_len:
     DEFW    2048
+IFDEF SPECTALK_SPECTRANEXT
+PUBLIC _spxn_overlay_len
+DEFC _spxn_overlay_len = ovl_loaded_len
+ENDIF
 
 ; void overlay_call_timed(uint8_t entry_id) __z88dk_fastcall
-; Same ABI as overlay_call, but enables IM1 interrupts while the overlay entry
-; runs. Use only for ABOUT animation ticks: this lets ROM FRAMES advance during
-; long DAT/draw work while keeping the normal mainline DI contract elsewhere.
-; Timed entries must not call resident render/text routines that use IYL.
-; Timed entries must bracket every esxDOS RST 8 wrapper with DI and restore EI
-; only after checking success; close/error paths must remain DI.
+; Same ABI as overlay_call. Classic enables IM1 during the ABOUT tick;
+; Spectranext remains DI and lets frame_wait() page out for the interrupt.
 PUBLIC _overlay_call_timed
 _overlay_call_timed:
+IFDEF SPECTALK_SPECTRANEXT
+    ; Page B covers the IM1 vector while an overlay runs. Target overlays stay
+    ; DI and use frame_wait(), which briefly pages the cartridge out safely.
+    jp      _overlay_call
+ELSE
     push    iy
     ld      iy, 0x5C3A        ; ROM ISR expects IY = system variables
     ei
@@ -262,6 +364,60 @@ _overlay_call_timed:
     di
     pop     iy
     ret
+ENDIF
+
+IFDEF SPECTALK_SPECTRANEXT
+; A=entry id. Map the reusable page, validate its absolute entry pointer, and
+; return through ovl_spxn_return so the cartridge never leaks mapped state.
+ovl_spxn_call:
+    ld (spxn_call_scratch), a
+    ld a, (_spxn_page_ready)
+    or a
+    ret z
+    di
+    call SPXN_PAGEIN
+    ld a, (_spxn_overlay_page)
+    call SPXN_SET_PAGE_B
+    ld a, 1
+    ld (_spxn_rom_held), a
+
+    ld a, (spxn_call_scratch)
+    ld hl, OVL_CODE_BASE
+    cp (hl)
+    jr nc, ovl_spxn_call_bad
+    add a, a
+    jr c, ovl_spxn_call_bad
+    ld e, a
+    ld d, 0
+    ld hl, OVL_CODE_BASE + 2
+    add hl, de
+    ld e, (hl)
+    inc hl
+    ld d, (hl)
+    call ovl_entry_in_loaded
+    jr c, ovl_spxn_call_bad
+    ld hl, ovl_spxn_return
+    push hl
+    push de
+    ret
+
+ovl_spxn_call_bad:
+    call ovl_spxn_pageout
+    ret
+
+ovl_spxn_return:
+    ld (spxn_call_scratch), hl
+    call ovl_spxn_pageout
+    ld hl, (spxn_call_scratch)
+    ret
+
+ovl_spxn_pageout:
+    di
+    xor a
+    ld (_spxn_rom_held), a
+    call SPXN_PAGEOUT
+    ret
+ENDIF
 
 ovl_filename:
     DEFM "SPECTALK.OVL"

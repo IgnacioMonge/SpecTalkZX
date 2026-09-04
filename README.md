@@ -1,62 +1,155 @@
 # SpecTalkZX
 
 <p align="center">
-  <img src="images/spectalkzx-banner.png" alt="SpecTalkZX" width="80%">
+  <img src="images/spectalkzx-banner.png" alt="SpecTalkZX" width="90%">
 </p>
 
-**IRC client for ZX Spectrum and the SpectraNext cartridge**
+<p align="center"><strong>IRC client for ZX Spectrum, Spectrum Next and the Spectranext cartridge</strong></p>
 
-:es: [Leer en español](READMEsp.md)
+<p align="center">🇪🇸 <a href="READMEsp.md">Leer en español</a></p>
 
-**Installation:** [Classic ZX / divMMC](#classic-zx--divmmc) ·
-[SpectraNext cartridge](#spectranext-cartridge)
+<p align="center">
+  <strong>Installation:</strong>
+  <a href="#classic-zx--divmmc">Classic ZX / divMMC</a> ·
+  <a href="#native-spectrum-next">Native Spectrum Next</a> ·
+  <a href="#spectranext-cartridge">Spectranext cartridge</a>
+</p>
 
-![Platform](https://img.shields.io/badge/Platform-ZX%20Spectrum%20%7C%20SpectraNext-blue)
-![License](https://img.shields.io/badge/License-GPLv2-green)
-![Version](https://img.shields.io/badge/Version-1.3.9-orange)
+<p align="center">
+  <img src="https://img.shields.io/badge/Platform-ZX%20Spectrum%20%7C%20Next%20%7C%20Spectranext-blue" alt="Platform: ZX Spectrum, Next and Spectranext">
+  <img src="https://img.shields.io/badge/License-GPLv2-green" alt="License: GPLv2">
+  <img src="https://img.shields.io/badge/Development-1.4.0-orange" alt="Development version: 1.4.0">
+</p>
 
-SpecTalkZX 1.3.9 is the first release with native SpectraNext support.
-It brings the complete IRC client to the cartridge through ROM sockets, XFS
-storage and a guided HTTPS installer, while preserving the established
-Classic ZX/divMMC build. This release also contains every reliability and UI
-change completed since the published 1.3.8 release.
+This branch contains **SpecTalkZX 1.4.0 Proteus**, which is not released yet.
+The latest public release is
+[1.3.9.1](https://github.com/IgnacioMonge/SpecTalkZX/releases/tag/v1.3.9.1):
+the Classic program remains 1.3.9 and the corrected Spectranext installer labels
+its package `1.3.9-2`.
+
+Version 1.4.0 adds native Spectrum Next support and a new paging system for the
+Spectranext cartridge. The Classic ZX/divMMC edition keeps the same interface,
+commands and configuration format.
 
 ---
 
-## Highlights in 1.3.9
+## Contents
 
-- **Native SpectraNext target** using cartridge ROM sockets and DNS directly,
-  with no UART/ESP-AT translation layer.
-- **Guided SpectraNext installer** that verifies the package, installs a
-  local XFS copy and preserves configuration and bookmarks during updates.
-- **Persistent SpectraNext sessions** under <code>/CFG</code>, including all
-  five bookmark slots, saved channels, autoconnect and autojoin.
-- **UDP/SNTP clock for SpectraNext**, with numeric timezone handling before the
-  single IRC socket is opened.
-- **Classic remains fully supported** with the same three-file divMMC release
-  and the same user interface and IRC command set.
-- **Bounded UART, ESP-AT and raw UDP waits** replace paths that could previously
-  stall indefinitely or continue after partial transmission.
-- **Safer configuration and lists** through exact key matching, capacity checks
-  and bounded friend/ignore rendering.
-- **Storage-safe interface state** across config, bookmark and overlay file
-  operations on both backends.
-- **More robust About/Earth animation**, including packet validation,
-  interrupt-safe file reads and responsive SpectraNext network pumping while
-  connected.
-- **Interrupt-safe chat scrolling** without using temporary screen RAM as a
-  stack.
-- **Clearer IRC registration failures** through exact <code>ERROR</code> token
-  handling.
-- **Presentation update** with complete artwork, twelve release entries,
-  corrected status-result spacing and a banner identifying the active target.
+- [Highlights in 1.4.0](#highlights-in-140)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Screenshots](#screenshots)
+- [Interface](#interface)
+- [Keyboard Controls](#keyboard-controls)
+- [IRC Behaviour](#irc-behaviour)
+- [Commands](#commands)
+- [Configuration](#configuration)
+- [Spectranext limits](#spectranext-limits)
+- [Build](#build)
+- [Troubleshooting](#troubleshooting)
+- [License](#license)
+- [Author](#author)
 
-See [CHANGELOG.md](CHANGELOG.md) for the complete change history, technical
-limits and final build measurements.
+---
+
+## Highlights in 1.4.0
+
+- **Native Spectrum Next support**, with the same SpecTalkZX interface and IRC
+  commands.
+- **New Spectranext paging system**, keeping incoming IRC data separate from
+  secondary screens and commands.
+- **More resilient startup on native Next**, including recovery from an
+  unresponsive ESP and BREAK cancellation.
+
+See [CHANGELOG.md](CHANGELOG.md) for the complete user-visible change history
+and compatibility notes.
+
+---
+
+## Requirements
+
+| Target | Computer | Storage | Network |
+|---|---|---|---|
+| Classic | ZX Spectrum 48K, 128K, +2, +2A, +3 or compatible | divMMC/esxDOS SD storage | Supported 115200-baud UART with ESP8266 or compatible ESP-AT bridge |
+| Native Next | ZX Spectrum Next with NextZXOS/esxDOS | SD card for the NEX and writable `/SYS/CONFIG` or `/SYS` | Configured internal ESP |
+| Spectranext | ZX Spectrum model supported by the Spectranext cartridge firmware | Local cartridge XFS | Native cartridge Wi-Fi and ROM sockets |
+
+Classic uses <code>SpecTalkZX.tap</code>, <code>SPECTALK.OVL</code> and
+<code>SPECTALK.DAT</code>. Keep all three files from the same release.
+Spectranext installs its own matching TAP, OVL and DAT files in cartridge
+storage. Native Next uses one self-contained <code>SPECTALK.NEX</code>.
+
+---
+
+## Installation
+
+### Classic ZX / divMMC
+
+1. Download `spectalk_divmmc_v1.3.9.zip` from the
+   [1.3.9 release](https://github.com/IgnacioMonge/SpecTalkZX/releases/tag/v1.3.9).
+2. Copy <code>SpecTalkZX.tap</code>, <code>SPECTALK.OVL</code> and
+   <code>SPECTALK.DAT</code> into the same directory on the SD card.
+3. Configure the ESP-AT bridge for **115200 baud**. Wi-Fi credentials can be
+   prepared with [NetManZX](https://github.com/IgnacioMonge/NetManZX) or an
+   equivalent ESP-AT setup tool.
+4. Load <code>SpecTalkZX.tap</code>, wait for the network indicator and connect
+   to IRC.
+
+### Native Spectrum Next
+
+Native Next support will be published with 1.4.0. Until then, build this branch
+with `make next NO_COLOR=1`.
+
+1. Configure the Spectrum Next internal ESP for the desired Wi-Fi network.
+2. Copy <code>build/SPECTALK.NEX</code> to the Next SD card.
+3. Launch it from the NextZXOS browser. Configuration and bookmarks are written
+   under <code>/SYS/CONFIG</code>, with <code>/SYS</code> as a fallback.
+
+### Spectranext cartridge
+
+The public installer currently provides SpecTalkZX 1.3.9 package revision
+`1.3.9-2`.
+
+1. Connect the cartridge to Wi-Fi.
+2. In the Spectranext menu, select **Load Resource URL** and enter:
+   <code>https://ignaciomonge.github.io/SpecTalkZX/</code>.
+3. The guided installer validates the package, writes
+   <code>SPECTALK.tap</code>, <code>SPECTALK.OVL</code>,
+   <code>SPECTALK.DAT</code> and <code>SPECTALK.ZX</code> to local XFS, then
+   launches the client.
+4. Afterwards start <code>SPECTALK.ZX</code> from local XFS. To update, use
+   **Load Resource URL** again;
+   <code>/CFG/SPECTALK.CFG</code> and the five bookmark files are preserved.
+
+---
+
+## Quick Start
+
+```text
+/nick YourNick
+/server irc.libera.chat 6667
+/join #spectrum
+```
+
+Useful first setup:
+
+```text
+!theme 1
+!timestamps smart
+!notif on
+!nickcolor on
+!save
+```
+
+To save a complete session, open `!bm`. In bookmarks: **UP/DOWN** selects a slot, **S** stores the current server/channel snapshot, **A** marks it for startup, **ENTER** connects, **D** deletes, and **BREAK** saves/exits.
 
 ---
 
 ## Screenshots
+
+The gallery combines 1.4.0 development captures from native Spectrum Next and
+Spectranext with Classic captures.
 
 ### Getting started and navigation
 
@@ -64,8 +157,8 @@ limits and final build measurements.
   <tr>
     <td align="center" valign="top" width="50%">
       <strong>Guided installer</strong><br>
-      <a href="images/snapshot-spectranext-installer.png"><img src="images/snapshot-spectranext-installer.png" width="420" alt="SpecTalkZX guided installer on SpectraNext"></a><br>
-      <sub>The HTTPS resource starts the guided installer. It verifies and writes the application to local XFS while leaving the user's <code>/CFG</code> data untouched.</sub>
+      <a href="images/snapshot-spectranext-installer.png"><img src="images/snapshot-spectranext-installer.png" width="420" alt="SpecTalkZX 1.4.0 guided installer on Spectranext"></a><br>
+      <sub>The Spectranext installer writes the client to local XFS while preserving configuration and bookmarks.</sub>
     </td>
     <td align="center" valign="top" width="50%">
       <strong>Choose your nick</strong><br>
@@ -77,7 +170,7 @@ limits and final build measurements.
     <td align="center" valign="top" width="50%">
       <strong>Connected server</strong><br>
       <a href="images/snapshot-connected.png"><img src="images/snapshot-connected.png" width="420" alt="Connected to Libera Chat"></a><br>
-      <sub>The server window after the native SpectraNext socket reaches IRC.</sub>
+      <sub>The server window after Spectranext connects to IRC.</sub>
     </td>
     <td align="center" valign="top" width="50%">
       <strong>Window navigation</strong><br>
@@ -98,13 +191,13 @@ limits and final build measurements.
     </td>
     <td align="center" valign="top" width="33%">
       <strong>Live conversation</strong><br>
-      <a href="images/snapshot-chat.png"><img src="images/snapshot-chat.png" width="280" alt="Normal IRC conversation"></a><br>
-      <sub>64-column chat with timestamps, nick colours, modes and unread state.</sub>
+      <a href="images/snapshot-chat.png"><img src="images/snapshot-chat.png" width="280" alt="IRC conversation on native Spectrum Next"></a><br>
+      <sub>Native Spectrum Next chat with timestamps, nick colours, modes and unread state.</sub>
     </td>
     <td align="center" valign="top" width="33%">
       <strong>Fast private reply</strong><br>
       <a href="images/snapshot-fast-reply.png"><img src="images/snapshot-fast-reply.png" width="280" alt="Fast reply to a private message"></a><br>
-      <sub>PM notifications support immediate ENTER-to-open reply workflow.</sub>
+      <sub>Press ENTER on a private-message notification to open the conversation.</sub>
     </td>
   </tr>
   <tr>
@@ -150,17 +243,17 @@ limits and final build measurements.
     <td align="center" valign="top" width="33%">
       <strong>Command help</strong><br>
       <a href="images/snapshot-help.png"><img src="images/snapshot-help.png" width="280" alt="Built-in command help"></a><br>
-      <sub>The generated five-page help covers local and IRC commands inside the ZX.</sub>
+      <sub>Built-in help covers local and IRC commands without leaving the client.</sub>
     </td>
     <td align="center" valign="top" width="33%">
       <strong>About</strong><br>
-      <a href="images/snapshot-about.png"><img src="images/snapshot-about.png" width="280" alt="Animated About screen"></a><br>
-      <sub>The Earth animation keeps IRC PING/PONG and connection handling alive.</sub>
+      <a href="images/snapshot-about.png"><img src="images/snapshot-about.png" width="280" alt="Animated About screen on native Spectrum Next"></a><br>
+      <sub>The animated Earth and native Spectrum Next banner shown during a live connection.</sub>
     </td>
     <td align="center" valign="top" width="33%">
       <strong>What's New</strong><br>
-      <a href="images/snapshot-changes.png"><img src="images/snapshot-changes.png" width="280" alt="SpecTalkZX What's New screen"></a><br>
-      <sub>The 1.3.9 release screen combines the SpecTalkZX artwork with twelve concise changes.</sub>
+      <a href="images/snapshot-changes.png"><img src="images/snapshot-changes.png" width="280" alt="SpecTalkZX 1.4.0 Proteus What's New screen on Spectrum Next"></a><br>
+      <sub>The 1.4.0 Proteus screen presents the native Next edition and new Spectranext paging system.</sub>
     </td>
   </tr>
 </table>
@@ -182,91 +275,23 @@ limits and final build measurements.
     <td align="center" valign="top" width="33%">
       <strong>Theme 3</strong><br>
       <a href="images/snapshot-theme-3.png"><img src="images/snapshot-theme-3.png" width="280" alt="Theme 3"></a><br>
-      <sub>High-contrast blue/red palette demonstrating theme-safe rendering.</sub>
+      <sub>High-contrast blue/red palette.</sub>
     </td>
   </tr>
 </table>
 
 ---
 
-## Requirements
-
-| Target | Computer | Storage | Network |
-|---|---|---|---|
-| Classic | ZX Spectrum 48K, 128K, +2, +2A, +3 or compatible | divMMC/esxDOS SD storage | Supported 115200-baud UART with ESP8266 or compatible ESP-AT bridge |
-| SpectraNext | ZX Spectrum model supported by the SpectraNext cartridge firmware | Local cartridge XFS | Native cartridge Wi-Fi and ROM sockets |
-
-Both builds use a matching runtime set: <code>SpecTalkZX.tap</code>,
-<code>SPECTALK.OVL</code> and <code>SPECTALK.DAT</code>. Never mix files from
-different builds. A stale atlas or data file can break help, About,
-configuration, bookmarks or What's New.
-
----
-
-## Installation
-
-### Classic ZX / divMMC
-
-1. Download the **Classic** archive from the GitHub release.
-2. Copy <code>SpecTalkZX.tap</code>, <code>SPECTALK.OVL</code> and
-   <code>SPECTALK.DAT</code> into the same directory on the SD card.
-3. Configure the ESP-AT bridge for **115200 baud**. Wi-Fi credentials can be
-   prepared with [NetManZX](https://github.com/IgnacioMonge/NetManZX) or an
-   equivalent ESP-AT setup tool.
-4. Load <code>SpecTalkZX.tap</code>, wait for the network indicator and connect
-   to IRC.
-
-### SpectraNext cartridge
-
-1. Configure the cartridge and Wi-Fi using the
-   [official SpectraNext instructions](https://docs.spectranext.net/tutorials/setting-up-mounts).
-2. In the SpectraNext menu, select **Load Resource URL** and enter:
-   <code>https://ignaciomonge.github.io/SpecTalkZX/</code>.
-3. The guided installer validates the package, writes
-   <code>SPECTALK.tap</code>, <code>SPECTALK.OVL</code>,
-   <code>SPECTALK.DAT</code>, <code>SPECTALK.ZX</code> and the version marker
-   to local XFS slot 0, then launches the client.
-4. Afterwards start <code>SPECTALK.ZX</code> from local XFS. To update, use
-   **Load Resource URL** again;
-   <code>/CFG/SPECTALK.CFG</code> and the five bookmark files are preserved.
-
-A GitHub Release zip is not a mountable resource. Maintainer hosting steps:
-[Publishing the SpectraNext resource](#publishing-the-spectranext-resource).
-
----
-
-## Quick Start
-
-```text
-/nick YourNick
-/server irc.libera.chat 6667
-/join #spectrum
-```
-
-Useful first setup:
-
-```text
-!theme 1
-!timestamps smart
-!notif on
-!nickcolor on
-!save
-```
-
-To save a complete session, open `!bm`. In bookmarks: **UP/DOWN** selects a slot, **S** stores the current server/channel snapshot, **A** marks it for startup, **ENTER** connects, **D** deletes, and **BREAK** saves/exits.
-
----
-
 ## Interface
 
 - **64-column chat display** with a custom 4-pixel font.
-- **Up to 10 windows**: server window `0` plus channel/query windows `1` to `9`.
+- **Up to 10 windows**: server window `0` plus channel or private-chat windows `1` to `9`.
 - **Direct window switching** with `!0` through `!9` or `/0` through `/9`.
-- **EDIT switcher** with unread/mention markers and direct numeric selection.
-- **Three themes** with distinct badges and colour behaviour.
-- **Nick colouring** based on stable nick hashing, with `!nickcolor`.
+- **EDIT selector** with unread/mention markers and direct numeric selection.
+- **Three themes** with distinct status indicators and colour behaviour.
+- **Per-nick colours** with `!nickcolor`.
 - **Smart notifications** using the Ikkle-4 mini-font at the bottom row.
-- **PM quick reply**: ENTER on a PM notification opens that sender's query.
+- **PM quick reply**: ENTER on a PM notification opens a private chat with the sender.
 - **Optional timestamps**: off, on, or smart.
 - **Channel context dividers** with `!divider`.
 - **Status bar** with nick, current window, network/modes, user count, clock, away marker, and three-state connection indicator.
@@ -276,15 +301,15 @@ To save a complete session, open `!bm`. In bookmarks: **UP/DOWN** selects a slot
 
 | Key | Action |
 |-----|--------|
-| **ENTER** | Send message, run command, accept overlay action |
-| **EDIT** | Open/close the channel switcher |
+| **ENTER** | Send message, run command, or accept an action |
+| **EDIT** | Open or close the channel selector |
 | **DELETE** | Delete character behind cursor |
-| **LEFT/RIGHT** | Move cursor or overlay selection |
-| **UP/DOWN** | Command history or overlay row selection |
+| **LEFT/RIGHT** | Move cursor or selection |
+| **UP/DOWN** | Command history or row selection |
 | **Symbol Shift + LEFT/RIGHT** | Word-by-word cursor movement |
 | **Symbol Shift + DELETE** | Delete previous word |
-| **BREAK** | Dismiss notification, cancel paging, or leave overlay |
-| **ENTER on PM notification** | Open the sender query window |
+| **BREAK** | Dismiss notification, cancel paging, or leave a secondary screen |
+| **ENTER on PM notification** | Open a private chat with the sender |
 
 ---
 
@@ -295,10 +320,10 @@ To save a complete session, open `!bm`. In bookmarks: **UP/DOWN** selects a slot
 - Supports CTCP `VERSION`, `PING`, `TIME`, and `ACTION`.
 - NickServ can be used manually with `/id` or automatically with `nickpass=`.
 - `nickserv=` can override the service nick when a network does not use standard `NickServ` naming.
-- Friends are monitored through `!friend`; join/NAMES batches generate compact notifications.
+- Friends are monitored through `!friend`; JOIN/NAMES results generate compact notifications.
 - Ignores are managed with `/ignore`, including `-nick` removal.
 - Away state supports manual `/away` and idle `!autoaway`.
-- Keepalive detects silent disconnects and is also active during the About overlay.
+- Connection checks detect silent disconnects and remain active during About.
 - Long sessions keep channel user counts more stable through NAMES handling and optional `!countsync`.
 
 ---
@@ -310,7 +335,7 @@ To save a complete session, open `!bm`. In bookmarks: **UP/DOWN** selects a slot
 |---------|-------|-------------|
 | `!help` | `!h` | Show command help |
 | `!status` | `!s` | Show connection, latency, uptime, and window status |
-| `!init` | `!i` | Reset the active network backend |
+| `!init` | `!i` | Restart the network connection |
 | `!config` | `!cfg` | Show all current settings |
 | `!theme N` | | Switch theme `1`, `2`, or `3` |
 | `!about` | | Animated About screen |
@@ -319,7 +344,7 @@ To save a complete session, open `!bm`. In bookmarks: **UP/DOWN** selects a slot
 | `!save` | `!sv` | Save config and current session |
 | `!autoconnect` | `!ac` | Toggle startup server connection |
 | `!autojoin` | | Toggle replay of saved channels after registration |
-| `!tz` | | Show/set timezone `-12`..`+12`; `rtc` uses the Classic RTC |
+| `!tz` | | Show/set timezone `-12`..`+12`; `rtc` uses a supported local RTC |
 | `!timestamps` | `!ts` | Cycle off/on/smart timestamp modes |
 | `!notif` | `!nf` | Toggle notifications |
 | `!beep` | | Toggle mention sound |
@@ -339,7 +364,7 @@ Toggle commands with no argument alternate their state; they accept `on`/`off`/`
 
 | Command | Alias | Description |
 |---------|-------|-------------|
-| `/server [host[:port]]` | `/connect` | No args: show state or reconnect saved server; otherwise connect to `host[:port]` |
+| `/server [host [port]\|host:port]` | `/connect` | No args: show state or reconnect saved server; otherwise connect to the given host |
 | `/nick [name]` | | View or set nick |
 | `/pass [password\|clear\|none]` | | View/set stored password; `clear`/`none` remove it for the next connection |
 | `/id [password]` | | Identify with NickServ or detected service nick |
@@ -364,17 +389,19 @@ Toggle commands with no argument alternate their state; they accept `on`/`off`/`
 | `/ignore [nick]` | | List, add, or remove ignored nicks (`-nick`) |
 | `/kick nick [reason]` | `/k` | Kick from current channel |
 | `/channels` | `/w` | List open windows |
-| `/0`..`/9` | | Switch to a physical window slot |
+| `/0`..`/9` | | Switch to a numbered window |
 
 `/pass` only updates the stored password used when opening the next connection; it
 does not send an immediate IRC `PASS` command. The numeric `!0`..`!9` and
-`/0`..`/9` forms are dispatcher shortcuts for physical window slots, not aliases.
+`/0`..`/9` forms select numbered windows directly.
 
 ---
 
 ## Configuration
 
-SpecTalkZX writes the current configuration with `!save`. Classic loads `SPECTALK.CFG` from `/SYS/CONFIG/` with `/SYS/` as fallback. SpectraNext loads `/CFG/SPECTALK.CFG` from local cartridge XFS.
+SpecTalkZX writes the current configuration with `!save`. Classic and native
+Next load `SPECTALK.CFG` from `/SYS/CONFIG/`, with `/SYS/` as a fallback.
+Spectranext loads `/CFG/SPECTALK.CFG` from local cartridge XFS.
 
 ```ini
 nick=MyNick
@@ -408,7 +435,7 @@ Supported settings:
 |---------|--------|-------|
 | `nick` | IRC nick | Default nick |
 | `server` | Hostname/IP | IRC server |
-| `port` | `1`-`65535` | Default IRC port is usually `6667` |
+| `port` | Decimal port | Default IRC port is `6667` |
 | `pass` | Text or empty | Server password |
 | `nickpass` | Text or empty | NickServ password for `/id` / auto-identify |
 | `nickserv` | Nick or empty | Service nick override, for non-standard networks |
@@ -425,7 +452,7 @@ Supported settings:
 | `notif` | `0`/`1` | Bottom-row notifications |
 | `nickcolor` | `0`/`1` | Per-nick colours |
 | `autoaway` | `0`-`60` | Idle minutes, `0` disables |
-| `tz` | `-12`..`+12` or `rtc` | SNTP timezone; `rtc` is Classic RTC mode |
+| `tz` | `-12`..`+12` or `rtc` | Numeric SNTP offset or a local RTC where supported |
 | `tzlast` | `-12`..`+12` | Last numeric timezone used when leaving RTC mode |
 | `friends` | Comma-separated nicks | Up to five tracked friends |
 | `ignores` | Comma-separated nicks | Up to five ignored nicks |
@@ -434,38 +461,50 @@ Notable settings:
 
 - `autoconnect=1` connects to the saved server on startup.
 - `autojoin=1` replays the saved `channels=` list after IRC registration and after any required NickServ grace period.
-- On Classic, `tz=rtc` uses the local RTC seed path and numeric values use ESP/SNTP time. SpectraNext has no Z80-visible RTC: it uses UDP/SNTP and falls back from `rtc` to `tzlast`.
+- On Classic and native Next, `tz=rtc` uses a detected local RTC. Spectranext
+  has no Z80-visible RTC: it uses UDP/SNTP and falls back from `rtc` to
+  `tzlast`.
 - `divider=0` hides future channel context separators.
 - `countsync=0` disables idle count refresh after long sessions.
 - `friends=` and `ignores=` hold up to five nicks each.
 
-Bookmark files are stored separately as `/SYS/CONFIG/SPTBM1.CFG` through `SPTBM5.CFG` on Classic and `/CFG/SPTBM1.CFG` through `SPTBM5.CFG` on SpectraNext.
+Bookmark files use `/SYS/CONFIG/SPTBM1.CFG` through `SPTBM5.CFG` on Classic
+and native Next, falling back to `/SYS/SPTBM1.CFG` through `SPTBM5.CFG` when
+`/SYS/CONFIG` is absent. Spectranext uses `/CFG/SPTBM1.CFG` through
+`SPTBM5.CFG`.
 
 ---
 
-## SpectraNext limits
+## Spectranext limits
 
 - IRC uses plaintext on the configured server port. The cartridge exposes TLS
   only on its fixed port-443 service, so IRC TLS on port 6697 is unavailable.
-- The cartridge exposes no RTC to Z80 software. SpectraNext uses UDP/SNTP;
+- The cartridge exposes no RTC to Z80 software. Spectranext uses UDP/SNTP;
   `tz=rtc` falls back to the last numeric timezone stored in `tzlast`.
-- SpecTalkZX owns one cartridge socket at a time. Clock synchronization runs
-  before the IRC socket opens.
-- Successful configuration and bookmark saves persist in XFS. An I/O failure or
-  power loss during an overwrite is not an atomic rollback transaction in this
-  release.
+- SpecTalkZX uses one cartridge network connection at a time. Clock
+  synchronization runs before the IRC connection opens.
+- Configuration and bookmarks are saved in XFS. A power loss during a write can
+  leave the file incomplete.
 
 ---
 
 ## Build
 
-Requirements: z88dk with SDCC support, GNU Make, and Python 3.8 or newer.
+Requirements: z88dk with SDCC support, GNU Make, Python 3.8 or newer, and a
+POSIX-compatible shell toolset. On Windows, w64devkit provides the required
+Make and shell utilities.
 
 ```sh
+# Classic ZX
 make NO_COLOR=1
+
+# Native Spectrum Next
+make next NO_COLOR=1
+
+# Release builds
 make release NO_COLOR=1
-make release NO_COLOR=1 PLATFORM=spectranext SPXN_DIR=/path/to/SpectraNext/driver
-make clean
+make release NO_COLOR=1 PLATFORM=next
+make release NO_COLOR=1 PLATFORM=spectranext SPXN_DIR=/path/to/Spectranext/driver
 ```
 
 Build outputs:
@@ -473,106 +512,9 @@ Build outputs:
 - `build/SpecTalkZX.tap`
 - `build/SPECTALK.OVL`
 - `build/SPECTALK.DAT`
+- `build/SPECTALK.NEX` from `make next` (self-contained native Next image)
 
-The SpectraNext installer is a separate compilation of those same artifacts.
-See [Publishing the SpectraNext resource](#publishing-the-spectranext-resource).
-
-The project uses a unity C build plus hand-written Z80 modules. Generated data
-includes compressed strings, help, overlay metadata, What's New, the compact
-font and About/Earth animation assets. The compiler version is recorded in
-`build/toolchain.version`; the project records it for reproducibility but
-does not pin or reject a specific z88dk release.
-
----
-
-## Publishing the SpectraNext resource
-
-This is the maintainer path. End users install by mounting the GitHub Pages
-HTTPS directory; they do not copy TAP files onto the cartridge and they do
-not wait for the cartridge author's catalogue. The official Resource Index is
-optional later publicity. The binding host procedure is
-[Publishing a Resource](https://docs.spectranext.net/publishing/publish-a-resource).
-
-### 1. Build and test the release artifacts
-
-Build both targets from the same source, then compile the **release**
-installer **without** `--force-install`:
-
-```sh
-make release NO_COLOR=1 PLATFORM=classic
-make release NO_COLOR=1 PLATFORM=spectranext SPXN_DIR=/path/to/SpectraNext/driver
-/path/to/SpectraNext/tools/dev installer packaging/spectranext/installer.json \
-  build/spectranext-resource
-```
-
-On Windows PowerShell use `tools\dev.cmd`. The output directory must be new or
-empty. `--force-install` is for local reinstalls of the same version only; never
-host that installer.
-
-The published folder is a flat HTTPS directory:
-
-| File | Role |
-|---|---|
-| `boot.zx` | Remote entry. Tokenized BASIC. Never `%tapein`. |
-| `SPECTALK.INS` | Generic installer runtime. |
-| `SPECTALK.PKG` | SPXI package with TAP, OVL and DAT. |
-| `SPECTALK.SCR` | Loading screen. |
-| `package.json` | Resource name, version, sizes and SHA-256. |
-| `index.txt` | HTTP filesystem directory listing. |
-| `index.html` | GitHub Pages root only; not listed in `index.txt`. |
-| `.nojekyll` | GitHub Pages host extra. |
-
-`SPECTALK.ZX` is created on the cartridge during install. It is not a hosted
-file. The remote `boot.zx` must stay on the server; it must not be copied to
-XFS slot 0, where `boot.zx` is the owner's global power-on file.
-
-Use the same TAP/OVL/DAT set recorded in [CHANGELOG.md](CHANGELOG.md). Do not
-substitute a later development rebuild.
-
-### 2. Host the directory over HTTPS
-
-Public resources must be served from a stable `https://` root. Plain HTTP is
-only for local testing. A GitHub Release zip is **not** a mountable resource.
-
-The public host for SpecTalkZX is GitHub Pages on the **stable** repository
-(`https://ignaciomonge.github.io/SpecTalkZX/`), not the development checkout.
-Upload the generated directory **byte-for-byte**. The installer preview PNG is
-a local review file and is not part of the resource.
-
-GitHub Pages returns 404 for a directory URL unless `index.html` exists at
-that root. The cartridge mounts that URL, so a missing `index.html` becomes
-`No such file or directory` even when `boot.zx` and `index.txt` are present.
-Add a small Pages-only `index.html`; do not list it in `index.txt`. Verify
-the root URL itself returns HTTP 200 in a desktop browser before mounting.
-
-### 3. Verify the hosted files in a desktop browser
-
-Open:
-
-- `https://ignaciomonge.github.io/SpecTalkZX/` (must be HTTP 200, not GitHub's 404 page)
-- `https://ignaciomonge.github.io/SpecTalkZX/index.txt`
-- `https://ignaciomonge.github.io/SpecTalkZX/boot.zx`
-- `https://ignaciomonge.github.io/SpecTalkZX/package.json`
-
-Confirm the listing format, the `boot.zx` bytes, and that every SHA-256 in
-`package.json` matches the uploaded file. See the
-[HTTP(s) filesystem](https://docs.spectranext.net/filesystem/https-fs)
-`index.txt` contract.
-
-### 4. Share the HTTPS root
-
-That GitHub Pages root is what the cartridge mounts. Users follow the
-[install steps](#spectranext-cartridge). Do not tell them to `%tapein`
-`boot.zx`. An optional TinyURL-class alias may help typing; it is not the
-canonical URL.
-
-### 5. Optional later listing in the official Resource Index
-
-GitHub Pages is enough for public install. Submitting
-`https://ignaciomonge.github.io/SpecTalkZX/` at
-[spectranext.net/submit-resource.html](https://spectranext.net/submit-resource.html)
-is optional catalogue publicity by the cartridge author. Do not block a
-release on that review. Update the user install notes only after it appears.
+The Spectranext target also needs the driver directory from the Spectranext SDK.
 
 ---
 
@@ -581,12 +523,12 @@ release on that review. Update the user install notes only after it appears.
 | Problem | Check |
 |---|---|
 | Classic indicator stays red | ESP-AT bridge wiring, power and 115200 baud |
-| SpectraNext cartridge is not detected | Cartridge present and local XFS `/CFG` available |
+| Spectranext cartridge is not detected | Cartridge present and local XFS `/CFG` available |
 | Indicator is ready but IRC will not connect | Wi-Fi credentials, hostname and plaintext IRC port |
 | Startup stops on esxDOS/DAT | Classic divMMC mounted; all three files together and from one build |
 | Help/About/bookmarks fail | `SPECTALK.OVL` or `SPECTALK.DAT` is missing or stale |
-| SpectraNext install does not start | Select **Load Resource URL** and enter `https://ignaciomonge.github.io/SpecTalkZX/` |
-| Clock remains at `00:00` | SNTP access and numeric timezone; Classic may also use `!tz rtc` |
+| Spectranext install does not start | Select **Load Resource URL** and enter `https://ignaciomonge.github.io/SpecTalkZX/` |
+| Clock remains at `00:00` | SNTP access and numeric timezone; Classic and native Next may also use `!tz rtc` |
 | NickServ identify fails | Use `/id`, `nickpass=` or the `nickserv=` override |
 | Too much JOIN/PART noise | Toggle `!traffic` |
 | Channel counts drift | Keep `!countsync` enabled or run `/names` |
@@ -602,6 +544,7 @@ v2.0**.
 
 Includes code derived from:
 
+- **BitchZX** IRC client.
 - UART driver work by **Nihirash**.
 - **Ikkle-4** mini font by Jack Oatley.
 

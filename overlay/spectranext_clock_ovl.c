@@ -17,6 +17,7 @@ struct endpoint {
 };
 
 extern uint8_t overlay_slot[];
+extern uint8_t ring_buffer[];
 extern int8_t sntp_tz;
 extern int8_t sntp_tz_last;
 extern uint8_t sntp_waiting;
@@ -27,6 +28,7 @@ extern uint8_t time_second;
 extern uint8_t last_frames_lo;
 extern uint16_t tick_accum;
 extern int16_t spxn_resolve(const char *name, uint8_t *ip4be) __z88dk_callee;
+extern void st_copy_n(char *dst, const char *src, uint8_t max_len);
 extern void frame_wait(void);
 extern void draw_status_bar(void);
 
@@ -103,7 +105,10 @@ static uint8_t fetch_utc(uint8_t *hour, uint8_t *minute, uint8_t *second)
     uint8_t flags;
     uint8_t i;
 
-    if (spxn_resolve("pool.ntp.org", destination.ip4be) != SPXN_OK) return 0u;
+    /* ROM resolver may repage Page B, so stage its overlay-local literal. */
+    st_copy_n((char *)ring_buffer, "pool.ntp.org", 16u);
+    if (spxn_resolve((const char *)ring_buffer, destination.ip4be) != SPXN_OK)
+        return 0u;
     destination.port = NTP_PORT;
     destination.local_port = 0u;
     for (i = 0u; i != NTP_PACKET_SIZE; ++i) overlay_slot[i] = 0u;

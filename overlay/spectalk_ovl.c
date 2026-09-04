@@ -1,6 +1,7 @@
 /*
  * spectalk_ovl.c — Help overlay (SPCTLK1.OVL)
- * Compiled separately, loaded into ring_buffer (2048B) and executed.
+ * Compiled separately; Classic executes it from ring_buffer and Spectranext
+ * from cartridge Page B.
  * overlay_slot (512B, aliased to rx_line) available as scratch data buffer.
  *
  * Entry 0: help_render_ovl
@@ -34,21 +35,23 @@ static const char s_hnot[] = "ANY KEY: NEXT / BREAK: EXIT";
  * Supports any segment index (0, 1, 2, ...). */
 static void help_load_segment(uint8_t segment)
 {
-    esx_fopen(K_DAT);
+    data_open();
+#ifndef SPECTALK_NEXT
     if (!esx_handle) goto help_io_fail;
+#endif
 
     /* Seek directly to the requested 512B help segment. overlay_slot is only
      * 512B, so never use dummy F_READ skips when the help block sits deep in
      * SPECTALK.DAT. */
     esx_buf   = (uint16_t)overlay_slot;
-    if (!esx_fseek_set((uint16_t)(BPE_HELP_OFFSET + ((uint16_t)segment << 9)))) {
-        esx_fclose();
+    if (!data_fseek_set((uint16_t)(BPE_HELP_OFFSET + ((uint16_t)segment << 9)))) {
+        data_close();
         goto help_io_fail;
     }
 
     esx_count = 512;
-    esx_fread();
-    esx_fclose();
+    data_fread();
+    data_close();
     input_cache_invalidate();
     { uint16_t n = esx_result;
       if (n == 0) { overlay_slot[0] = 0; return; }  /* EOF — empty segment */
@@ -60,6 +63,7 @@ static void help_load_segment(uint8_t segment)
 
 help_io_fail:
     input_cache_invalidate();
+    overlay_slot[0] = 0;
     overlay_mode = 0;
 }
 

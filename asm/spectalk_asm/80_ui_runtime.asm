@@ -866,11 +866,62 @@ cst_list_cmd:
 ; =============================================================================
 PUBLIC _frame_wait
 PUBLIC _frame_wait_drain
+IFDEF SPECTALK_NEXT
+EXTERN _next_overlay_active
+EXTERN _next_overlay_suspend
+EXTERN _next_overlay_restore
+ENDIF
+IFDEF SPECTALK_SPECTRANEXT
+EXTERN _spxn_rom_held
+EXTERN _spxn_overlay_page
+DEFC SPXN_PAGEIN     = $3FF9
+DEFC SPXN_PAGEOUT    = $007C
+DEFC SPXN_SET_PAGE_B = $3E36
+ENDIF
 IFNDEF SPECTALK_SPECTRANEXT
+IFNDEF SPECTALK_NEXT
 EXTERN uartRead
 EXTERN _rb_push
 ENDIF
+ENDIF
 _frame_wait:
+IFDEF SPECTALK_NEXT
+    ld a, (_next_overlay_active)
+    or a
+    jr z, frame_wait_plain
+    di
+    call _next_overlay_suspend
+    push iy
+    ld iy, 0x5C3A
+    ei
+    halt
+    di
+    pop iy
+    call _next_overlay_restore
+    ret
+ENDIF
+IFDEF SPECTALK_SPECTRANEXT
+    ld a, (_spxn_rom_held)
+    or a
+    jr z, frame_wait_plain
+    di
+    xor a
+    ld (_spxn_rom_held), a
+    call SPXN_PAGEOUT
+    push iy
+    ld iy, $5C3A
+    ei
+    halt
+    di
+    pop iy
+    call SPXN_PAGEIN
+    ld a, (_spxn_overlay_page)
+    call SPXN_SET_PAGE_B
+    ld a, 1
+    ld (_spxn_rom_held), a
+    ret
+ENDIF
+frame_wait_plain:
     push iy
     ld iy, 0x5C3A      ; ROM ISR expects IY = system variables
     ei
@@ -879,11 +930,15 @@ _frame_wait:
     pop iy              ; restore IY for SDCC
     ret
 
-; Resident-safe frame wait that drains UART while waiting for the next ROM frame.
-; Use uartRead/_rb_push here, not _uart_drain_to_buffer: the fast drain uses
-; EXX shadow state, and IM1 must stay enabled while this wait polls for FRAMES.
+; Paged targets let _frame_wait expose the complete ROM, then drain resident RX.
+; Classic polls uartRead/_rb_push directly while IM1 advances FRAMES; the fast
+; drain cannot be used there because its EXX shadow state is not IRQ-safe.
 _frame_wait_drain:
 IFDEF SPECTALK_SPECTRANEXT
+    call _frame_wait
+    jp _net_pump_rx
+ELSE
+IFDEF SPECTALK_NEXT
     call _frame_wait
     jp _net_pump_rx
 ELSE
@@ -908,6 +963,7 @@ fwd_check_frame:
     pop iy
     ret
 ENDIF
+ENDIF
 
 ; =============================================================================
 ; SYSTEM RAM HIJACKING - Variables mapped to unused ZX system areas
@@ -922,7 +978,7 @@ ENDIF
 PUBLIC _input_cache_char
 
 defc _input_cache_char = 0x5B00  ; 128 bytes (INPUT_LINES * SCREEN_COLS)
-; Classic: 0x5B80-0x5BBF free. SpectraNext: XFS state + persistent target data,
+; Classic: 0x5B80-0x5BBF free. Spectranext: XFS state + persistent target data,
 ; with the exact owners locked by tools/check_memory_layout.py.
 ; 0x5BC0-0x5BFF: scratch transitorio mapeado en 00_preamble.asm. No persistente
 ; a llamadas esxDOS; render paths no cruzan esxDOS → estable mid-render.

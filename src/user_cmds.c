@@ -556,6 +556,15 @@ static void overlay_exec_rx(uint8_t group, uint8_t entry)
 #define BOOKMARK_AUTOLOGIN 0x80
 #define BOOKMARK_OCCUPIED 0x80
 #define bookmark_save_config() cmd_save(NULL)
+#ifdef SPECTALK_SPECTRANEXT
+#define BOOKMARK_STORE_GROUP 3
+#define BOOKMARK_APPLY_ENTRY 2
+#define BOOKMARK_SAVE_ENTRY 3
+#else
+#define BOOKMARK_STORE_GROUP 2
+#define BOOKMARK_APPLY_ENTRY 1
+#define BOOKMARK_SAVE_ENTRY 2
+#endif
 
 static void bookmark_close_overlay(void)
 {
@@ -590,7 +599,7 @@ static void bookmark_load_current(void)
     }
 
     overlay_slot[0] = 0;
-    overlay_exec(2, 1);
+    overlay_exec(BOOKMARK_STORE_GROUP, BOOKMARK_APPLY_ENTRY);
     if (overlay_slot[0] != 1) return;
 
     if (!was_connected) bookmark_close_overlay();
@@ -607,7 +616,7 @@ static void bookmark_save_current(void)
     if (connection_state < STATE_IRC_READY) search_pattern[0] = 0;
     snapshot_autojoin_channels();
 
-    overlay_exec(2, 2);
+    overlay_exec(BOOKMARK_STORE_GROUP, BOOKMARK_SAVE_ENTRY);
     if (overlay_slot[0]) {
         bookmark_render_list();
         if ((bookmark_active_slot & 0x7F) == slot) config_dirty = 1;
@@ -632,7 +641,7 @@ static void bookmark_activate_current(void)
     }
 
     overlay_slot[0] = (active == slot) ? 2 : 1;
-    overlay_exec_rx(2, 1);
+    overlay_exec_rx(BOOKMARK_STORE_GROUP, BOOKMARK_APPLY_ENTRY);
     if (overlay_slot[0] == 1) {
         bookmark_render_rows(prev_slot);
     }
@@ -1262,6 +1271,7 @@ static void sys_init(const char *args) __z88dk_fastcall
     /* The cartridge owns sockets directly; do not use the Classic UART path. */
     net_disconnect();
 #else
+#ifndef SPECTALK_NEXT
     flush_all_rx_buffers(); 
     uart_send_line(S_AT_CMD);  // OPT M7
     
@@ -1269,6 +1279,7 @@ static void sys_init(const char *args) __z88dk_fastcall
         uart_send_line(S_AT_CIPCLOSE);
         wait_for_response(NULL, 10);
     } 
+#endif
 #endif
     
     connection_state = STATE_DISCONNECTED;

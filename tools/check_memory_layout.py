@@ -103,7 +103,7 @@ def read_symbols(path):
 
 
 def validate(symbols, bss_guard=96, bss_warn=128, platform="classic"):
-    if platform not in ("classic", "spectranext"):
+    if platform not in ("classic", "next", "spectranext"):
         raise ValueError(f"unsupported platform: {platform}")
 
     missing = [name for name in REQUIRED if name not in symbols]
@@ -269,6 +269,7 @@ def self_test():
         **persistent,
     }
     validate(symbols, platform="classic")
+    validate(symbols, platform="next")
     target_symbols = {**symbols, **SPECTRANEXT_EXPECTED}
     validate(target_symbols, platform="spectranext")
     try:
@@ -345,7 +346,7 @@ def self_test():
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("map", nargs="?")
-    parser.add_argument("--platform", choices=("classic", "spectranext"), default="classic")
+    parser.add_argument("--platform", choices=("classic", "next", "spectranext"), default="classic")
     parser.add_argument("--bss-guard", type=lambda value: int(value, 0), default=96)
     parser.add_argument("--bss-warn", type=lambda value: int(value, 0), default=128)
     parser.add_argument("--self-test", action="store_true")

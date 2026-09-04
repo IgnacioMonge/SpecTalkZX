@@ -3,13 +3,13 @@
   "product": {
     "name": "SpecTalkZX",
     "slug": "spectalkzx",
-    "stem": "SPECTALK"
+    "stem": "SPCTX"
   },
   "repository": {
     "path": "../..",
     "base": "main",
-    "branch": "codex/spectranext-audit-fixes",
-    "worktree": "SpecTalkZX-SpectraNext"
+    "branch": "main",
+    "worktree": "SpecTalkZX dev"
   },
   "capabilities": {
     "network": true,
@@ -23,7 +23,6 @@
     "preview": "../../build/installer-preview.png"
   },
   "allowed_changes": [
-    ".mex/ROUTER.md",
     "ARCHITECTURE.md",
     "CHANGELOG.md",
     "Makefile",
@@ -81,10 +80,10 @@
       ["make", "NO_COLOR=1", "check"]
     ],
     "classic": [
-      ["make", "NO_COLOR=1"]
+      ["make", "NO_COLOR=1", "SKIP_CHECK=1"]
     ],
     "spectranext": [
-      ["make", "NO_COLOR=1", "spectranext", "SPXN_DIR={spectranext}/driver"]
+      ["make", "NO_COLOR=1", "SKIP_CHECK=1", "spectranext", "SPXN_DIR={spectranext}/driver"]
     ],
     "configuration": [
       ["make", "NO_COLOR=1", "test-spectranext-configuration", "SPXN_DIR={spectranext}/driver"]

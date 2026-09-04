@@ -41,6 +41,9 @@ def network() -> None:
         'const char S_APPDESC[] = "IRC Client for ZX Spectrum";',
         "#endif",
     )
+    assert 'db "SPECTALKZX 1.4.0: IRC CLIENT FOR SPECTRANEXT",0' in text(
+        "overlay/earth_about_render.asm"
+    )
     assert "AT+" not in source and "uart_" not in source.lower()
     assert "#ifdef SPECTALK_SPECTRANEXT" in header
     assert "asm/divmmc_uart.asm" in makefile
@@ -65,7 +68,8 @@ def storage() -> None:
     assert "SPXN_XFS_SCRATCH_PRESERVE_BACKUP=0x5B00" in target
     crt = text("asm/spectalk_asm/00_preamble.asm")
     crt_init = crt.split("SECTION code_crt_init", 1)[1].split("SECTION code_user", 1)[0]
-    ordered(crt_init, "IFDEF SPECTALK_SPECTRANEXT", "ld (_user_mode), a", "ENDIF")
+    assert "ld hl, _spxn_rom_held + 1" in crt_init
+    assert "ld (_spxn_rom_held), a" not in crt_init
     assert "spxf.c" not in target
     assert not (ROOT / "src/storage_spectranext.c").exists()
     assert '#include "storage_spectranext.c"' not in text("src/main_build.c")
@@ -80,7 +84,6 @@ def storage() -> None:
 
 
 def configuration() -> None:
-    storage()
     paths = text("src/user_cmds.c")
     assert '"/CFG/SPECTALK.CFG"' in paths
     assert '"/SYS/CONFIG/SPECTALK.CFG"' in paths
@@ -94,6 +97,7 @@ def configuration() -> None:
         assert '"/CFG/SPTBM1.CFG"' in source
         assert "#define BM_PATH_SLOT 10" in source
         assert '"/SYS/CONFIG/SPTBM1.CFG"' in source
+        assert '"/SYS/SPTBM1.CFG"' in source
     assert "esx_replace_write(bm_path(bookmark_sel))" in bookmark_store
     assert "esx_funlink(bm_path(bookmark_sel))" in bookmarks
 

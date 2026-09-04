@@ -1,6 +1,6 @@
 /*
  * bookmark_store_ovl.c -- cold bookmark load/save/autojoin entries.
- * Linked into SPCTLK3.OVL to keep SPCTLK8 render code under 2K.
+ * Linked into SPCTLK3 on Classic and SPCTLK4 on Spectranext.
  */
 
 #include "overlay_api.h"
@@ -12,25 +12,58 @@ extern uint8_t bookmark_sel;
 extern uint8_t bookmark_active_slot;
 
 #ifdef SPECTALK_SPECTRANEXT
-static char bm_path_buf[] = "/CFG/SPTBM1.CFG";
+#define BM_PATH "/CFG/SPTBM1.CFG"
 #define BM_PATH_SLOT 10
 #else
-static char bm_path_buf[] = "/SYS/CONFIG/SPTBM1.CFG";
+#define BM_PATH "/SYS/CONFIG/SPTBM1.CFG"
 #define BM_PATH_SLOT 17
+#define BM_PATH_ALT "/SYS/SPTBM1.CFG"
+#define BM_PATH_ALT_SLOT 10
+#ifndef SPECTALK_NEXT
+static char bm_path_buf[] = BM_PATH;
+#endif
 #endif
 static const char bm_error[] = "Error";
 
 static const char *bm_path(uint8_t slot) __z88dk_fastcall
 {
+#ifdef SPECTALK_SPECTRANEXT
+    st_copy_n((char *)ring_buffer, BM_PATH, sizeof(BM_PATH));
+    ring_buffer[BM_PATH_SLOT] = (uint8_t)('1' + slot);
+    return (const char *)ring_buffer;
+#elif defined(SPECTALK_NEXT)
+    char *path = (char *)overlay_slot + BM_LINE_MAX;
+    st_copy_n(path, BM_PATH, sizeof(BM_PATH));
+    path[BM_PATH_SLOT] = (uint8_t)('1' + slot);
+    return path;
+#else
     bm_path_buf[BM_PATH_SLOT] = (uint8_t)('1' + slot);
     return bm_path_buf;
+#endif
 }
+
+#ifndef SPECTALK_SPECTRANEXT
+static const char *bm_path_alt(uint8_t slot) __z88dk_fastcall
+{
+#ifdef SPECTALK_NEXT
+    char *path = (char *)overlay_slot + BM_LINE_MAX;
+#else
+    char *path = bm_path_buf;
+#endif
+    st_copy_n(path, BM_PATH_ALT, sizeof(BM_PATH_ALT));
+    path[BM_PATH_ALT_SLOT] = (uint8_t)('1' + slot);
+    return path;
+}
+#endif
 
 static const char *bm_line(uint8_t slot) __z88dk_fastcall
 {
     uint16_t n;
 
     esx_fopen(bm_path(slot));
+#ifndef SPECTALK_SPECTRANEXT
+    if (!esx_handle) esx_fopen(bm_path_alt(slot));
+#endif
     if (!esx_handle) {
         input_cache_invalidate();
         return 0;
@@ -137,6 +170,7 @@ void bookmarks_save_ovl(void)
     }
 #else
     esx_fcreate(bm_path(bookmark_sel));
+    if (!esx_handle) esx_fcreate(bm_path_alt(bookmark_sel));
     if (!esx_handle) {
         input_cache_invalidate();
         goto err;

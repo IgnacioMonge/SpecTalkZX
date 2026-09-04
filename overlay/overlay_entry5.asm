@@ -3,6 +3,9 @@ SECTION code_user
 EXTERN _config_render_ovl
 EXTERN _rtc_seed_ovl
 EXTERN _rtc_enable_ovl
+IFDEF SPECTALK_NEXT
+EXTERN _next_esp_reset_ovl
+ENDIF
 PUBLIC _tz_cmd_ovl
 EXTERN _overlay_slot
 EXTERN _sntp_tz
@@ -27,11 +30,18 @@ EXTERN _K_TZ
 DEFC TZ_RTC        = 127
 DEFC STATE_WIFI_OK = 1
 
-    dw 4                      ; entry_count = 4
+IFDEF SPECTALK_NEXT
+    dw 5                      ; native Next adds the reset-pulse entry
+ELSE
+    dw 4
+ENDIF
     dw _config_render_ovl     ; entry 0 -> config
     dw _rtc_seed_ovl          ; entry 1 -> cold RTC seed
     dw _rtc_enable_ovl        ; entry 2 -> !tz rtc
     dw _tz_cmd_ovl            ; entry 3 -> !tz numeric
+IFDEF SPECTALK_NEXT
+    dw _next_esp_reset_ovl    ; entry 4 -> shared bus/ESP reset pulse
+ENDIF
 
 ; ENTRY 3 — !tz numeric. overlay_slot contains the copied argument string.
 _tz_cmd_ovl:

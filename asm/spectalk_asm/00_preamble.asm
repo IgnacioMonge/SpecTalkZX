@@ -18,8 +18,9 @@
 ; =============================================================================
 ; BSS ZEROING - runs before main() via code_crt_init
 ; Allows the TAP binary to be truncated before BSS (saving ~4KB of zeros)
-; Only compiler BSS is zeroed here; SECTION bss_user must be DAT-loaded or
-; write-before-read before first use.
+; Classic clears compiler BSS. Spectranext also clears the DAT-loaded block
+; and driver state through its ROM-held byte. Native Next clears all bss_user
+; state because its MMU/DAT drivers live beyond compiler BSS.
 ; =============================================================================
 SECTION code_crt_init
 EXTERN __data_compiler_tail
@@ -27,11 +28,31 @@ EXTERN __bss_compiler_tail
 EXTERN ___sdcc_enter_ix
 EXTERN _cur_chan_ptr
 EXTERN _current_channel_idx
+IFDEF SPECTALK_SPECTRANEXT
+EXTERN _spxn_rom_held
+ENDIF
+IFDEF SPECTALK_NEXT
+EXTERN __bss_user_tail
+ENDIF
     ; Mainline DI contract: ROM IM1 needs IY=0x5C3A, while sdcc_iy uses IY.
     ; Only guarded waits, ABOUT ticks, and the internal scroll install ROM IY
     ; before enabling interrupts; every path restores the mainline DI state.
     di
+IFDEF SPECTALK_NEXT
+    ; NEX loaders enter in IM0; frame_wait() requires the ROM IM1 handler.
+    im 1
+ENDIF
+IFDEF SPECTALK_SPECTRANEXT
+    ; DAT repopulates font/theme/BPE data before use.  Clearing through the
+    ; last driver-state byte also invalidates installer residue at no cost.
+    ld hl, _spxn_rom_held + 1
+ELSE
+IFDEF SPECTALK_NEXT
+    ld hl, __bss_user_tail
+ELSE
     ld hl, __bss_compiler_tail
+ENDIF
+ENDIF
     ld de, __data_compiler_tail
     or a
     sbc hl, de          ; HL = total size to zero
@@ -71,7 +92,7 @@ ENDIF
     ; --- IM2 removed ---
     ; IM2 was dead code: frame_wait() uses IM1 exclusively.
     ; The CRT IM2 setup was overwriting BSS at $FC00+ (bpe_dict, esx_* vars).
-    ; IM1 is the default mode after reset ? no setup needed.
+    ; Classic enters in IM1; native NEX sets it explicitly above.
     ; Invalidar cache de fila screen/attr
     ld a, 0xFF
     ld (cache_row_y), a

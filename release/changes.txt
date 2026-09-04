@@ -1,12 +1,3 @@
-Native SpectraNext support
-Guided SpectraNext installer
-More reliable UART transfers
-Safe recovery from UDP failures
-Reliable configuration loading
-Safer friend and ignore lists
-File access preserves the interface
-More robust About/Earth screen
-Interrupt-safe chat scrolling
-Clearer registration errors
-Polished clock and status UI
+Native Spectrum Next support
+New Spectranext paging system
 And much, much more!

@@ -116,6 +116,12 @@ _main_puts2:
 EXTERN _connection_state
 EXTERN _S_SP_COLON
 IFNDEF SPECTALK_SPECTRANEXT
+IFDEF SPECTALK_NEXT
+EXTERN _next_overlay_restore
+EXTERN _next_overlay_suspend
+PUBLIC _next_rtc_drvapi
+PUBLIC _next_rtc_getdate
+ENDIF
 ; S_CRLF removed ? use uart_send_crlf instead
 EXTERN _uart_send_crlf
 EXTERN _ay_uart_send
@@ -343,6 +349,9 @@ IFNDEF SPECTALK_SPECTRANEXT
 ; to catch the case where RST 8 falls through to ROM ERROR_1.
 ; -----------------------------------------------------------------------------
 _esx_detect:
+IFDEF SPECTALK_NEXT
+    call _next_overlay_suspend
+ENDIF
     push iy
     ld hl, (23613)        ; save ERR_SP
     push hl
@@ -352,6 +361,11 @@ _esx_detect:
     ld a, 0xFF            ; get current drive (no change)
     rst 8
     defb 0x89             ; M_GETSETDRV
+IFDEF SPECTALK_NEXT
+    push af
+    call _next_overlay_restore
+    pop af
+ENDIF
     ; If we get here, esxDOS is present (RST 8 was trapped by divMMC)
     pop hl                ; remove our handler from stack
     ld a, 1               ; return 1 (detected)
@@ -359,6 +373,11 @@ _esx_detect:
 esx_det_fail:
     ; ROM ERROR_1 jumped here via ERR_SP ? no esxDOS
     xor a                 ; return 0 (not detected)
+IFDEF SPECTALK_NEXT
+    push af               ; restore MMU1 without changing failure flags/ABI
+    call _next_overlay_restore
+    pop af
+ENDIF
 esx_det_end:
     pop hl                ; restore original ERR_SP (was pushed before handler)
     ld (23613), hl
@@ -402,6 +421,9 @@ _esx_fcreate:
     ld b, 0x0E          ; FA_WRITE | FA_CREATE_AL (0x02 write + 0x0C create/trunc)
 
 esx_open_common:
+IFDEF SPECTALK_NEXT
+    call _next_overlay_suspend
+ENDIF
     push iy
     push ix
     push hl
@@ -409,6 +431,11 @@ esx_open_common:
     ld a, '*'           ; default drive
     rst 8
     defb 0x9A           ; F_OPEN
+IFDEF SPECTALK_NEXT
+    push af
+    call _next_overlay_restore
+    pop af
+ENDIF
     jr nc, esx_open_ok
     xor a               ; error ? handle = 0
 esx_open_ok:
@@ -424,6 +451,9 @@ esx_open_ok:
 ; Preserves IY and IX.
 ; -----------------------------------------------------------------------------
 _esx_fread:
+IFDEF SPECTALK_NEXT
+    call _next_overlay_suspend
+ENDIF
     push iy
     push ix
     ld a, (_esx_handle)
@@ -431,6 +461,11 @@ _esx_fread:
     ld bc, (_esx_count)
     rst 8
     defb 0x9D           ; F_READ
+IFDEF SPECTALK_NEXT
+    push af
+    call _next_overlay_restore
+    pop af
+ENDIF
     jr esx_io_epilogue
 
 ; -----------------------------------------------------------------------------
@@ -439,11 +474,19 @@ _esx_fread:
 ; Preserves IY and IX.
 ; -----------------------------------------------------------------------------
 _esx_fclose:
+IFDEF SPECTALK_NEXT
+    call _next_overlay_suspend
+ENDIF
     push iy
     push ix
     ld a, (_esx_handle)
     rst 8
     defb 0x9B           ; F_CLOSE
+IFDEF SPECTALK_NEXT
+    push af
+    call _next_overlay_restore
+    pop af
+ENDIF
     jr esx_pop_ix_iy_ret
 
 ; esx_fcreate: now merged with esx_fopen above (esx_open_common)
@@ -454,6 +497,9 @@ _esx_fclose:
 ; Output: L = 1 on success, 0 on error. Preserves IX/IY.
 ; -----------------------------------------------------------------------------
 _esx_fseek_set:
+IFDEF SPECTALK_NEXT
+    call _next_overlay_suspend
+ENDIF
     push iy
     push ix
     ld e, l
@@ -463,6 +509,11 @@ _esx_fseek_set:
     ld ix, 0
     rst 8
     defb 0x9F           ; F_SEEK, mode=SET in IXL
+IFDEF SPECTALK_NEXT
+    push af
+    call _next_overlay_restore
+    pop af
+ENDIF
     pop ix
     pop iy
     sbc hl, hl
@@ -477,6 +528,9 @@ _esx_fseek_set:
 ; Preserves IY and IX.
 ; -----------------------------------------------------------------------------
 _esx_fwrite:
+IFDEF SPECTALK_NEXT
+    call _next_overlay_suspend
+ENDIF
     push iy
     push ix
     ld a, (_esx_handle)
@@ -484,6 +538,11 @@ _esx_fwrite:
     ld bc, (_esx_count)
     rst 8
     defb 0x9E           ; F_WRITE
+IFDEF SPECTALK_NEXT
+    push af
+    call _next_overlay_restore
+    pop af
+ENDIF
 
 esx_io_epilogue:
     jr nc, esx_io_ok
@@ -494,6 +553,31 @@ esx_pop_ix_iy_ret:
     pop ix
     pop iy
     ret
+
+IFDEF SPECTALK_NEXT
+;; Overlay-safe direct NextZXOS RTC calls. The resident return point survives
+;; low-memory automapping and restores the executing MMU1 overlay before RET.
+_next_rtc_drvapi:
+    push af
+    call _next_overlay_suspend
+    pop af
+    rst 8
+    defb 0x92
+    jr next_rtc_restore
+
+_next_rtc_getdate:
+    push af
+    call _next_overlay_suspend
+    pop af
+    rst 8
+    defb 0x8E
+
+next_rtc_restore:
+    push af
+    call _next_overlay_restore
+    pop af
+    ret
+ENDIF
 
 ELSE
 

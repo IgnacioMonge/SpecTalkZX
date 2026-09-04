@@ -38,15 +38,18 @@ def parse_size_list(text: str) -> list[int]:
 
 
 def build_atlas(
-    packed: bytes, sizes: list[int], block_size: int, header_len: int
+    packed: bytes, sizes: list[int], block_size: int, header_len: int,
+    prefix: bytes = b"", prefix_size: int = 0,
 ) -> bytes:
     if len(packed) < block_size * len(sizes):
         raise ValueError("packed overlay is smaller than size list requires")
     if header_len < 8 + 4 * len(sizes):
         raise ValueError("header is too small for overlay table")
+    if len(prefix) > prefix_size:
+        raise ValueError(f"prefix size {len(prefix)} exceeds {prefix_size}")
 
     chunks = []
-    offset = header_len
+    offset = header_len + prefix_size
     table = bytearray()
 
     for idx, size in enumerate(sizes):
@@ -63,12 +66,12 @@ def build_atlas(
     header += struct.pack("<H", header_len)
     header += table
     header += bytes(header_len - len(header))
-    return bytes(header) + b"".join(chunks)
+    return bytes(header) + prefix.ljust(prefix_size, b"\0") + b"".join(chunks)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Pack fixed 2K overlay blocks into a build-only variable atlas."
+        description="Pack fixed overlay blocks into a build-only variable atlas."
     )
     parser.add_argument(
         "--packed", default="build/SPECTALK.OVL", help="fixed packed overlay file"
@@ -82,6 +85,8 @@ def main() -> int:
     )
     parser.add_argument("--block-size", type=int, default=DEFAULT_BLOCK_SIZE)
     parser.add_argument("--header-len", type=int, default=DEFAULT_HEADER_LEN)
+    parser.add_argument("--prefix", help="binary payload placed after the header")
+    parser.add_argument("--prefix-size", type=int, default=0)
     parser.add_argument("--no-write", action="store_true", help="measure only")
     args = parser.parse_args()
 
@@ -96,10 +101,13 @@ def main() -> int:
 
     packed_path = Path(args.packed)
     packed = packed_path.read_bytes()
-    atlas = build_atlas(packed, sizes, args.block_size, args.header_len)
+    prefix = Path(args.prefix).read_bytes() if args.prefix else b""
+    atlas = build_atlas(
+        packed, sizes, args.block_size, args.header_len, prefix, args.prefix_size
+    )
 
     payload = sum(sizes)
-    fixed = args.block_size * len(sizes)
+    fixed = args.prefix_size + args.block_size * len(sizes)
     saving = fixed - len(atlas)
     slack = fixed - payload
 
@@ -108,6 +116,8 @@ def main() -> int:
     print(f"payload_size={payload}")
     print(f"fixed_slack={slack}")
     print(f"atlas_header={args.header_len}")
+    if args.prefix_size:
+        print(f"atlas_prefix={args.prefix_size}")
     print(f"atlas_size={len(atlas)}")
     print(f"atlas_saving={saving}")
 

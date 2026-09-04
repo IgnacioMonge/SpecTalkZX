@@ -90,6 +90,7 @@ REQUIRED_VARIABLES = [
     "_bookmark_active_slot",
     "_bookmark_rows",
     # Buffers
+    "_ring_buffer",
     "_overlay_slot",
     "_rx_last_len",
     # Theme / print cursor
@@ -187,6 +188,11 @@ REQUIRED_VARIABLES = [
 ]
 
 OPTIONAL_TARGET_SYMBOLS = [
+    "_dat_open",
+    "_dat_fread",
+    "_dat_fseek_set",
+    "_next_rtc_drvapi",
+    "_next_rtc_getdate",
     "_spxn_resolve",
     "_spxn_rom_hlcall",
     "_spxn_rom_ixcall",
@@ -195,6 +201,9 @@ OPTIONAL_TARGET_SYMBOLS = [
     "_esx_funlink",
     "_esx_freplace",
     "_esx_commit",
+    "_spxn_overlay_page",
+    "_spxn_page_ready",
+    "_spxn_overlay_len",
 ]
 
 

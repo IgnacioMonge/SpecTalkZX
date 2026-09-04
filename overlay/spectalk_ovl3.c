@@ -1,6 +1,6 @@
 /*
  * spectalk_ovl3.c — "What's New" overlay for SpecTalkZX
- * Loaded into ring_buffer from SPCTLK3.OVL on demand.
+ * Loaded from SPCTLK3.OVL on demand (ring_buffer on Classic, Page B on Spectranext).
  * Changelog/version come from tools/gen_whatsnew.py; the packed logo is
  * streamed from SPECTALK.DAT (WN_LOGO_OFFSET) because a dithered bust
  * does not fit the 2048B overlay budget.
@@ -30,7 +30,7 @@ static uint8_t logo_get(void)
             n = OVERLAY_SLOT_SIZE;
         esx_buf = (uint16_t)overlay_slot;
         esx_count = n;
-        esx_fread();
+        data_fread();
         n = esx_result;
         if (!n) {
             logo_left = 0;
@@ -55,10 +55,12 @@ static void blit_logo(uint8_t start_row, uint8_t start_phys_col)
     logo_have = 0;
     logo_left = WN_LOGO_PACKED_SIZE;
 
-    esx_fopen(K_DAT);
+    data_open();
+#ifndef SPECTALK_NEXT
     if (!esx_handle)
         goto finish;
-    if (!esx_fseek_set(WN_LOGO_OFFSET))
+#endif
+    if (!data_fseek_set(WN_LOGO_OFFSET))
         goto finish_close;
 
     for (row = start_row; row < 20; row++) {
@@ -86,7 +88,7 @@ static void blit_logo(uint8_t start_row, uint8_t start_phys_col)
     }
     ok = 1;
 finish_close:
-    esx_fclose();
+    data_close();
 finish:
     input_cache_invalidate();
     if (!ok)

@@ -2,6 +2,10 @@
 SECTION code_user
 EXTERN _status_render_ovl
 EXTERN _save_config_ovl
+IFDEF SPECTALK_SPECTRANEXT
+EXTERN _bookmarks_apply_ovl
+EXTERN _bookmarks_save_ovl
+ENDIF
 EXTERN _overlay_slot
 EXTERN _overlay_mode
 EXTERN _K_CHANNELS
@@ -10,9 +14,17 @@ PUBLIC _cfg_kv
 PUBLIC _cfg_put_autojoin
 PUBLIC _cfg_put_friends
 PUBLIC _cfg_put_ignores
+IFDEF SPECTALK_SPECTRANEXT
+    dw 4                      ; entry_count = 4
+    dw _status_render_ovl     ; entry 0 → status
+    dw _save_config_ovl       ; entry 1 → config save
+    dw _bookmarks_apply_ovl   ; entry 2
+    dw _bookmarks_save_ovl    ; entry 3
+ELSE
     dw 2                      ; entry_count = 2
     dw _status_render_ovl     ; entry 0 → status
     dw _save_config_ovl       ; entry 1 → config save
+ENDIF
 
 ; Local SPCTLK4 config-save helpers. They keep the former resident ABI.
 ; char *cfg_put(char *p, const char *s) __z88dk_callee

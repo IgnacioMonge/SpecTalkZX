@@ -72,6 +72,21 @@ extern void esx_fclose(void);
 #endif
 extern uint8_t esx_fseek_set(uint16_t offset) __z88dk_fastcall;
 
+#ifdef SPECTALK_NEXT
+extern void dat_open(void);
+extern void dat_fread(void);
+extern uint8_t dat_fseek_set(uint16_t offset) __z88dk_fastcall;
+#define data_open() dat_open()
+#define data_fread() dat_fread()
+#define data_fseek_set(offset) dat_fseek_set(offset)
+#define data_close() ((void)0)
+#else
+#define data_open() esx_fopen(K_DAT)
+#define data_fread() esx_fread()
+#define data_fseek_set(offset) esx_fseek_set(offset)
+#define data_close() esx_fclose()
+#endif
+
 /* ===== Resident variables ===== */
 
 /* esxDOS state */
@@ -91,6 +106,7 @@ extern uint8_t  bookmark_active_slot;
 extern uint8_t  bookmark_rows[];
 
 /* Buffers */
+extern uint8_t  ring_buffer[];    /* 2K staging/RX ring; Page B executes elsewhere */
 extern uint8_t  overlay_slot[];   /* 512B scratch buffer (aliased to rx_line) */
 extern uint16_t rx_last_len;
 
@@ -188,7 +204,7 @@ extern const char S_ANYKEY[];
 
 /* ===== Layout constants ===== */
 #define LINES_PER_PAGE  12
-#define BPE_HELP_OFFSET 15101
+#define BPE_HELP_OFFSET 14984
 #define WN_LOGO_OFFSET 14336
 #define EARTH_FRAME0_OFFSET 595
 #define EARTH_ATTR0_OFFSET 1182

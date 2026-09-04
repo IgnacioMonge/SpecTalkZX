@@ -18,15 +18,26 @@ PUBLIC _about_render_ovl
 PUBLIC _about_close_ovl
 PUBLIC _about_packet_slot
 
+IFDEF SPECTALK_NEXT
+EXTERN _dat_open
+EXTERN _dat_fread
+EXTERN _dat_fseek_set
+DEFC DATA_FREAD = _dat_fread
+DEFC DATA_FSEEK = _dat_fseek_set
+ELSE
 EXTERN _esx_fopen
 EXTERN _esx_fread
 EXTERN _esx_fclose
 EXTERN _esx_fseek_set
+DEFC DATA_FREAD = _esx_fread
+DEFC DATA_FSEEK = _esx_fseek_set
+ENDIF
 EXTERN _esx_handle
 EXTERN _reset_rx_state
 EXTERN _esx_buf
 EXTERN _esx_count
 EXTERN _esx_result
+EXTERN _ring_buffer
 EXTERN _overlay_slot
 EXTERN _ikkle_packed
 EXTERN _theme_attrs
@@ -56,6 +67,7 @@ DEFC TA_MSG_TOPIC = 13
 
 _about_close_ovl:
         di                      ; esxDOS RST 8 must stay outside timed EI windows
+IFNDEF SPECTALK_NEXT
         ld a,(_esx_handle)
         or a
         jr z,about_close_ready
@@ -63,6 +75,7 @@ _about_close_ovl:
         xor a
         ld (_esx_handle),a
 about_close_ready:
+ENDIF
         xor a
         ld (_earth_ready),a
         jp _input_cache_invalidate
@@ -397,14 +410,18 @@ _about_render_ovl:
         call _clear_zone
         call _earth_draw_separator
 
+IFDEF SPECTALK_NEXT
+        call _dat_open
+ELSE
         ld hl,_K_DAT
         call _esx_fopen
         ld a,(_esx_handle)
         or a
         jp z,about_fail
+ENDIF
 
         ld hl,EARTH_FRAME0_OFFSET
-        call _esx_fseek_set
+        call DATA_FSEEK
         ld a,l
         or a
         jp z,about_fail
@@ -427,7 +444,7 @@ _about_render_ovl:
         jr z,about_fail
 
         ld hl,EARTH_DELTA_OFFSET
-        call _esx_fseek_set
+        call DATA_FSEEK
         ld a,l
         or a
         jr z,about_fail
@@ -486,13 +503,28 @@ about_reset_rx:
         jp _reset_rx_state
 
 about_read_exact:
+IFDEF SPECTALK_SPECTRANEXT
+        push hl                         ; Page B destination
+        ld hl,_ring_buffer              ; ROM READ requires ordinary RAM
+ENDIF
         ld (_esx_buf),hl
         ld (_esx_count),de
-        call _esx_fread
+        call DATA_FREAD
         ld hl,(_esx_result)
         ld de,(_esx_count)
         or a
         sbc hl,de
+IFDEF SPECTALK_SPECTRANEXT
+        jr nz,about_read_exact_fail
+        pop de
+        ld hl,_ring_buffer
+        ld bc,(_esx_count)
+        ldir
+        xor a
+        ret
+about_read_exact_fail:
+        pop de
+ENDIF
         ret
 
 _earth_read_logo:
@@ -500,7 +532,7 @@ _earth_read_logo:
         ld (_esx_buf),hl
         ld hl,EARTH_LOGO_PRELOAD_SIZE
         ld (_esx_count),hl
-        call _esx_fread
+        call DATA_FREAD
         ld hl,(_esx_result)
         ld de,EARTH_LOGO_PRELOAD_SIZE
         or a
@@ -524,7 +556,7 @@ earth_logo_copy_row_loop:
         ld (_esx_buf),de
         ld hl,EARTH_LOGO_W_BYTES
         ld (_esx_count),hl
-        call _esx_fread
+        call DATA_FREAD
         ld hl,(_esx_result)
         ld a,h
         or a
@@ -725,7 +757,15 @@ earth_attr_base:
         jp _compute_attr_base
 
 about_s_line1:
-        db "SPECTALKZX 1.3.9: IRC CLIENT FOR ZX SPECTRUM",0
+IFDEF SPECTALK_NEXT
+        db "SPECTALKZX 1.4.0: IRC CLIENT FOR ZX SPECTRUM NEXT",0
+ELSE
+IFDEF SPECTALK_SPECTRANEXT
+        db "SPECTALKZX 1.4.0: IRC CLIENT FOR SPECTRANEXT",0
+ELSE
+        db "SPECTALKZX 1.4.0: IRC CLIENT FOR ZX SPECTRUM",0
+ENDIF
+ENDIF
 about_s_line2:
         db "GITHUB.COM/IGNACIOMONGE/SPECTALKZX GPL-2.0",0
 about_s_foot:

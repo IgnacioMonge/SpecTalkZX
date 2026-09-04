@@ -68,6 +68,8 @@ const char S_APPNAME[] = "SpecTalkZX " VERSION;
 const char S_APPSHORT[] = "SpecTalkZX";
 #ifdef SPECTALK_SPECTRANEXT
 const char S_APPDESC[] = "IRC Client for Spectranext";
+#elif defined(SPECTALK_NEXT)
+const char S_APPDESC[] = "IRC Client for ZX Spectrum Next";
 #else
 const char S_APPDESC[] = "IRC Client for ZX Spectrum";
 #endif
@@ -190,7 +192,11 @@ uint8_t show_timestamps = 2; // 0=off, 1=always, 2=on-change
 // big_status removed (big mode eliminated)
 uint8_t last_ts_hour = 0xFF;   // Last printed timestamp hour (0xFF = force print)
 uint8_t last_ts_minute = 0xFF; // Last printed timestamp minute
+#ifdef SPECTALK_NEXT
+int8_t sntp_tz = TZ_RTC;    // Native Next starts from its hardware RTC.
+#else
 int8_t sntp_tz = 1;         // SNTP timezone offset (-12..+12), or TZ_RTC
+#endif
 int8_t sntp_tz_last = 1;    // Last numeric timezone for RTC fallback
 
 // Keep-alive system: detect silent disconnections
@@ -1844,29 +1850,60 @@ static void esp_hard_cmd(const char *cmd) __z88dk_fastcall {
 
 uint8_t esp_init(void)
 {
+#ifndef SPECTALK_NEXT
     uint8_t i;
+#else
+    uint8_t reset_tries = 2;
+    uint8_t wifi_probes = 0;
+#endif
     uint16_t frames;
 
+#ifdef SPECTALK_NEXT
+next_esp_start:
+#endif
     ay_uart_init();
 
+#ifndef SPECTALK_NEXT
     // waitr a que la UART se estabilice
     for (i = 0; i < 10; i++) frame_wait();
+#endif
     flush_all_rx_buffers();
-    
+
+#ifdef SPECTALK_NEXT
+    // Fast path: reuse an ESP already in command mode at 115200 baud.
+    uart_send_line(S_AT_CMD);
+    if (!wait_for_response(NULL, 4)) {
+        if (in_inkey() == KEY_BREAK) goto esp_init_fail;
+        goto next_esp_reset;
+    }
+#else
     // 1. Intentar salir del modo transparente (+++)
     wait_drain(55);  // 1.1s silencio
     uart_send_string("+++");
     wait_drain(55);  // 1.1s silencio
     flush_all_rx_buffers();
-    
+#endif
+
     // 2. Initialization commands (sequential — mixed extern/literal array
     //    causes garbage pointers on z88dk/SDCC, see audit C01)
     esp_hard_cmd(S_AT_CIPMODE0);
     esp_hard_cmd(S_AT_CIPCLOSE);
     esp_hard_cmd("ATE0");
     esp_hard_cmd(S_AT_CIPSERVER0);
+#ifdef SPECTALK_NEXT
+    // This must succeed: an inherited mux/server session is not safe to reuse.
+    if (!esp_at_cmd(S_AT_CIPMUX0)) {
+        if (in_inkey() == KEY_BREAK) goto esp_init_fail;
+        goto next_esp_reset;
+    }
+    rx_pos = 0;
+#else
     esp_hard_cmd(S_AT_CIPMUX0);
+#endif
     
+#ifdef SPECTALK_NEXT
+next_wifi_probe:
+#endif
     // 3. Test final AT - OPT M7
     uart_send_line(S_AT_CMD);
     
@@ -1875,6 +1912,9 @@ uint8_t esp_init(void)
     // Timeout ~3 segundos
     for (frames = 0; frames < 150; frames++) {
         frame_wait_drain();
+#ifdef SPECTALK_NEXT
+        if (in_inkey() == KEY_BREAK) goto esp_init_fail;
+#endif
         
         if (try_read_line_nodrain()) {
             // FIX P0-1: Verificar longitud antes de acceder a índices
@@ -1887,6 +1927,9 @@ uint8_t esp_init(void)
                     uint8_t w;
                     for (w = 0; w < 100; w++) {
                         frame_wait_drain();
+#ifdef SPECTALK_NEXT
+                        if (in_inkey() == KEY_BREAK) goto esp_init_fail;
+#endif
                         if (try_read_line_nodrain()) {
                             // FIX P0-1: Verificar longitud
                             if (rx_last_len >= 1 && rx_line[0] == '+' && st_stristr(rx_line, "STAIP")) {
@@ -1898,6 +1941,11 @@ uint8_t esp_init(void)
                     }
                     closed_reported = 0;
                     if (has_ip) {
+#ifdef SPECTALK_NEXT
+                        /* A non-zero station IP is sufficient for this IRC
+                         * client and covers firmwares that reject CWJAP?. */
+                        connection_state = STATE_WIFI_OK;
+#else
                         // Verify actual AP association (ESP may cache stale IP)
                         uart_send_line("AT+CWJAP?");
                         rx_pos = 0;
@@ -1931,16 +1979,45 @@ uint8_t esp_init(void)
                         } else {
                             connection_state = STATE_DISCONNECTED;
                         }
+#endif
                     } else {
                         connection_state = STATE_DISCONNECTED;
                     }
                 }
+#ifdef SPECTALK_NEXT
+                if (connection_state != STATE_WIFI_OK) {
+                    if (wifi_probes) {
+                        wifi_probes--;
+                        if (wifi_probes) {
+                            wait_drain(25);
+                            flush_all_rx_buffers();
+                            goto next_wifi_probe;
+                        }
+                    }
+                    if (reset_tries) goto next_esp_reset;
+                }
+#endif
                 return 1;  // ESP init OK (WiFi status in connection_state)
             }
             rx_pos = 0;
         }
     }
-    
+
+#ifdef SPECTALK_NEXT
+next_esp_reset:
+    if (!reset_tries) goto esp_init_fail;
+    reset_tries--;
+    overlay_exec(4, 4);
+    flush_all_rx_buffers();
+    if (!wait_for_response("ready", 251)) {
+        if (in_inkey() == KEY_BREAK) goto esp_init_fail;
+        goto next_esp_reset;
+    }
+    wifi_probes = 12;
+    goto next_esp_start;
+#endif
+
+esp_init_fail:
     connection_state = STATE_DISCONNECTED;
     return 0;  // ESP not responding
 }
@@ -1949,7 +2026,7 @@ uint8_t esp_init(void)
 // OPT L2: sync_time() eliminada - inlined en call site
 
 // Force-close any active TCP connection.
-// FIX ChatGPT audit: CENTRALIZED session reset - ALL disconnection paths MUST use this
+// CENTRALIZED session reset - ALL disconnection paths MUST use this
 // to avoid forgotten flags. Do NOT reset state manually elsewhere.
 // In transparent mode, must exit with +++ first
 void force_disconnect(void)
@@ -2658,8 +2735,10 @@ void main(void)
     has_esxdos = esx_detect();
 
 #ifdef SPECTALK_SPECTRANEXT
-    // Fatal: no SpectraNext cartridge/storage
+    // Fatal: no Spectranext cartridge/storage
     if (!has_esxdos) fatal_msg("REQUIRES SPECTRANEXT!");
+#elif defined(SPECTALK_NEXT)
+    if (!has_esxdos) fatal_msg("REQUIRES NEXTZXOS!");
 #else
     // Fatal: no divMMC/esxDOS
     if (!has_esxdos) fatal_msg("REQUIRES DIVMMC!");
@@ -2667,12 +2746,20 @@ void main(void)
     // Load font + themes + BPE dict from SPECTALK.DAT
     {
         extern uint8_t font_lut[];
+#ifdef SPECTALK_NEXT
+        dat_open();
+#else
         esx_fopen(K_DAT);
         if (!esx_handle) fatal_msg("DAT NOT FOUND!");
+#endif
         esx_buf = (uint16_t)font_lut;
         esx_count = 373;
+#ifdef SPECTALK_NEXT
+        dat_fread();
+#else
         esx_fread();
         esx_fclose();
+#endif
         if (esx_result < 373) fatal_msg("DAT TRUNCATED!");
     }
 

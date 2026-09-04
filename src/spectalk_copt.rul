@@ -337,7 +337,7 @@
 	EXTERN _net_sp_colon
 %0call%1_net_sp_colon
 
-;; OPT-COPT-30N: SpectraNext net seam + common payload -> fused net helper (6->3)
+;; OPT-COPT-30N: Spectranext net seam + common payload -> fused net helper (6->3)
 %0ld%1hl,_S_SP_COLON
 %0call%1_net_send_string
 =
@@ -351,7 +351,7 @@
 	EXTERN _net_privmsg
 %0call%1_net_privmsg
 
-;; OPT-COPT-31N: SpectraNext net seam + PRIVMSG payload -> fused net helper (6->3)
+;; OPT-COPT-31N: Spectranext net seam + PRIVMSG payload -> fused net helper (6->3)
 %0ld%1hl,_S_PRIVMSG
 %0call%1_net_send_string
 =

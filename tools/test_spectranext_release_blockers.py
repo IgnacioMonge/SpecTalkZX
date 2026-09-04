@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Source contracts for the SpectraNext 1.3.9 consumer blockers."""
+"""Source contracts for the Spectranext 1.3.9 consumer blockers."""
 
 from pathlib import Path
 import re
@@ -93,7 +93,7 @@ def main() -> None:
     init_contract()
     clock_contract()
     storage_message_contract()
-    print("SpectraNext release blockers contract OK")
+    print("Spectranext release blockers contract OK")
 
 
 if __name__ == "__main__":

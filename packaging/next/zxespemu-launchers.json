@@ -1,0 +1,20 @@
+{
+  "schema": 2,
+  "owner": "spectalkzx-next-port",
+  "version": "1.4.0-dev.386+ga8a4f92",
+  "launchers": [
+    {
+      "name": "SpecTalkZX Next Dev",
+      "bundle_id": "org.spectalkzx.next",
+      "arguments": [
+        "--program", "artifact",
+        "--artifact", "../../build/test-artifacts/next/SPECTALK.NEX",
+        "--model", "next",
+        "--require-uart",
+        "--storage", "../../build/test-artifacts/next",
+        "--writable-storage"
+      ],
+      "icon": "../../release/logo.png"
+    }
+  ]
+}

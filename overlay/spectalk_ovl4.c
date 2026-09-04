@@ -1,6 +1,6 @@
 /*
  * spectalk_ovl4.c — Status + Config Save overlay for SpecTalkZX
- * Loaded into ring_buffer from SPCTLK4.OVL on demand.
+ * Loaded from SPCTLK4.OVL on demand (ring_buffer on Classic, Page B on Spectranext).
  *
  * Entry 0: status_render_ovl
  * Entry 1: save_config_ovl

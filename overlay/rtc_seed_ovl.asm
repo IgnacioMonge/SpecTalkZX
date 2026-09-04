@@ -5,6 +5,10 @@
 SECTION code_user
 
 PUBLIC _rtc_seed_ovl
+IFDEF SPECTALK_NEXT
+PUBLIC _next_esp_reset_ovl
+EXTERN _frame_wait
+ENDIF
 
 EXTERN _overlay_slot
 EXTERN _sntp_tz
@@ -15,6 +19,10 @@ EXTERN _time_second
 EXTERN _last_frames_lo
 EXTERN _tick_accum
 EXTERN _input_cache_invalidate
+IFDEF SPECTALK_NEXT
+EXTERN _next_rtc_drvapi
+EXTERN _next_rtc_getdate
+ENDIF
 
 DEFC ZXUNOADDR  = $FC3B
 DEFC M_GETDATE  = $8E
@@ -27,6 +35,10 @@ DEFC SCL0SDA1   = 1
 DEFC SCL1SDA0   = 2
 DEFC SCL1SDA1   = 3
 DEFC TZ_RTC     = 127
+IFDEF SPECTALK_NEXT
+DEFC NEXTREG_SELECT = $243B
+DEFC NEXTREG_RESET  = $02
+ENDIF
 
 IFDEF SPECTALK_SPECTRANEXT
 _rtc_seed_ovl:
@@ -42,8 +54,12 @@ rtc_try_getdate_seed:
     call rtc_try_getdate
     jr nc, rtc_seed_ok
 rtc_try_pcf_seed:
+IFDEF SPECTALK_NEXT
+    jr rtc_seed_fail
+ELSE
     call rtc_try_pcf8563
     jr c, rtc_seed_fail
+ENDIF
 
 rtc_seed_ok:
     ld a, (_sntp_tz)
@@ -84,16 +100,24 @@ rtc_try_drvapi:
     ld e, a
     ld h, a
     ld l, a
+IFDEF SPECTALK_NEXT
+    call _next_rtc_drvapi
+ELSE
     rst 8
-    defb M_DRVAPI             ; M_DRVAPI C=0/B=0: RTC query
+    defb M_DRVAPI
+ENDIF
     jr rtc_esx_epilogue
 
 rtc_try_getdate:
     push iy
     push ix
     ld iy, $5C3A
+IFDEF SPECTALK_NEXT
+    call _next_rtc_getdate
+ELSE
     rst 8
-    defb M_GETDATE            ; BC=date, DE=time in MS-DOS format
+    defb M_GETDATE
+ENDIF
 
 rtc_esx_epilogue:
     pop ix
@@ -165,6 +189,31 @@ rtc_decode_msdos:
 rtc_fail:
     scf
     ret
+
+IFDEF SPECTALK_NEXT
+; NextReg #02 bit 7 resets the shared expansion bus and internal ESP.
+; The caller owns the bounded boot/ready wait and may request a second pulse.
+_next_esp_reset_ovl:
+    ld e, $80
+    call next_esp_reset_write
+    ld b, 25                  ; hold reset for at least 0.4 s at 60 Hz
+next_esp_reset_hold:
+    call _frame_wait
+    djnz next_esp_reset_hold
+
+    ld e, 0
+    call next_esp_reset_write
+    ret
+
+next_esp_reset_write:
+    di
+    ld bc, NEXTREG_SELECT
+    ld a, NEXTREG_RESET
+    out (c), a
+    inc b
+    out (c), e
+    ret
+ENDIF
 
 ; --- DivTIESUS PCF8563 direct path ------------------------------------------
 

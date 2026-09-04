@@ -447,10 +447,15 @@ _main_hline:
 ; P11D2: P5-style inline read plus 4-poll inter-byte dwell after non-empty drains.
 ; =============================================================================
 
+IFDEF SPECTALK_NEXT
+DRAIN_UART_STATUS   EQU 0x133B
+DRAIN_UART_RX       EQU 0x143B
+ELSE
 DRAIN_ZXUNO_ADDR        EQU 0xFC3B
 DRAIN_UART_DATA_REG     EQU 0xC6
 DRAIN_UART_STAT_REG     EQU 0xC7
 DRAIN_UART_BYTE_RECIVED EQU 0x80
+ENDIF
 
 IFDEF SPECTALK_SPECTRANEXT
 EXTERN _net_pump_rx
@@ -472,23 +477,39 @@ drain_set_limit:
     exx                     ; HL'=head offset, DE'=tail offset
     ld d, a                 ; D = remaining byte budget
     ld e, 0                 ; E = 1 once this call has pushed at least one byte
+IFDEF SPECTALK_NEXT
+    ld bc, DRAIN_UART_STATUS
+ELSE
     ld bc, DRAIN_ZXUNO_ADDR
+ENDIF
 
 drain_loop_start:
+IFDEF SPECTALK_NEXT
+    in a, (c)
+    rrca
+    jr nc, drain_maybe_wait
+ELSE
     ld a, DRAIN_UART_STAT_REG
     out (c), a
     inc b
     in a, (c)
     and DRAIN_UART_BYTE_RECIVED
     jr z, drain_maybe_wait  ; no hay m?s datos -> maybe wait after a byte
+ENDIF
 
 drain_read_ready:
+IFDEF SPECTALK_NEXT
+    inc b
+    in a, (c)
+    dec b
+ELSE
     ; B is $FD after a ready status read; restore address port $FC3B.
     dec b
     ld a, DRAIN_UART_DATA_REG
     out (c), a
     inc b
     in a, (c)
+ENDIF
 
     ; Inline rb_push for the synchronous polling drain.
     ; A = byte, main BC = UART port ($FD3B), shadow HL'=head, DE'=tail.
@@ -507,7 +528,9 @@ drain_read_ready:
     ld (hl), a
     pop hl                  ; HL' = future head
     exx
+IFNDEF SPECTALK_NEXT
     dec b                   ; port back to $FC3B for the next status select
+ENDIF
     ld e, 1
     dec d
     jr nz, drain_loop_start
@@ -528,9 +551,16 @@ drain_maybe_wait:
 
     ; We already moved at least one byte. The inline path can re-poll before the
     ; next serial byte becomes visible, so wait about one 115200-baud byte time.
+IFNDEF SPECTALK_NEXT
     dec b                   ; port back to $FC3B after the failed status read
+ENDIF
     ld e, 4
 drain_wait_next:
+IFDEF SPECTALK_NEXT
+    in a, (c)
+    rrca
+    jr c, drain_read_ready
+ELSE
     ld a, DRAIN_UART_STAT_REG
     out (c), a
     inc b
@@ -538,6 +568,7 @@ drain_wait_next:
     and DRAIN_UART_BYTE_RECIVED
     jr nz, drain_read_ready
     dec b
+ENDIF
     dec e
     jr nz, drain_wait_next
     jr drain_commit_ret

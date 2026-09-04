@@ -1540,7 +1540,7 @@ static void h_pong(void)
     }
     status_bar_dirty = 1;       // Redraw indicator
     
-    // FIX ChatGPT audit: Borrar keepalive_ping_sent SOLO con PONG
+    // Borrar keepalive_ping_sent SOLO con PONG
     keepalive_ping_sent = 0;
     keepalive_timeout = 0;
 }
@@ -1803,7 +1803,7 @@ void process_irc_data(void)
         } else {
             // Reset silence counter on ANY server activity
             server_silence_frames = 0;
-            // FIX ChatGPT audit: NO borrar keepalive_ping_sent aquí
+            // NO borrar keepalive_ping_sent aquí
             // Solo debe borrarse al recibir PONG (se hace en handler de PONG)
             parse_irc_message(rx_line);
         }

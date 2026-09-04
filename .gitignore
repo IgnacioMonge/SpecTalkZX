@@ -1,16 +1,13 @@
-# Local tooling / notes
-.claude/
-.codex-safety/
-AGENTS.md
-CLAUDE.md
-Development/
-
 # Build artifacts
 build/
 SpecTalkZX
 SpecTalkZX.map
+/SpecTalkZX__.bin
+/SpecTalkZX_CODE.bin
+/overlay/*.o
+/overlay/*.lis
+/overlay/*.sym
 tools/__pycache__/
 
-# Obsolete local asset
+# Local-only files
 tools/Ikkle 4.ttf
-.aider*

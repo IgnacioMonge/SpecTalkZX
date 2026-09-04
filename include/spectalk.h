@@ -618,5 +618,10 @@ extern uint8_t  esx_handle;
 extern uint16_t esx_buf;
 extern uint16_t esx_count;
 extern uint16_t esx_result;
+#ifdef SPECTALK_NEXT
+extern void dat_open(void);
+extern void dat_fread(void);
+extern uint8_t dat_fseek_set(uint16_t offset) __z88dk_fastcall;
+#endif
 
 #endif // SPECTALK_H
