@@ -8,13 +8,13 @@
     "placement": "bottom"
   },
   "launch": {
-    "tap": "S",
+    "tap": "SPECTALK.TAP",
     "mode": "tape-compact"
   },
   "files": [
     {
       "source": "../../build/SpecTalkZX.tap",
-      "name": "S",
+      "name": "SPECTALK.TAP",
       "role": "TAPE"
     },
     {

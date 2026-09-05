@@ -34,7 +34,7 @@ Only user-visible changes and compatibility notes are listed here.
 - Spectranext: TAP **36,512 bytes**; BSS ends at **0xF420**, leaving **224
   bytes**; overlays **1705 / 1922 / 746 / 2532 / 1490 / 1937 / 1816 / 1906
   bytes**; packed `SPECTALK.OVL` **14,374 bytes**.
-- Spectranext resource: `SPCTX.INS` **3,299 bytes**, `SPCTX.PKG` **43,768
+- Spectranext resource: `SPCTX.INS` **3,296 bytes**, `SPCTX.PKG` **43,785
   bytes**, `SPCTX.SCR` **6,912 bytes**.
 
 ### Compatibility

@@ -111,10 +111,10 @@ El instalador público ofrece SpecTalkZX 1.4.0 y requiere firmware Spectranext
 2. En el menú de Spectranext, selecciona **Load Resource URL** e introduce:
    <code>https://ignaciomonge.github.io/SpecTalkZX/</code>.
 3. El instalador guiado valida el paquete, escribe
-   <code>SPECTALK.tap</code>, <code>SPECTALK.OVL</code>,
-   <code>SPECTALK.DAT</code> y <code>SPECTALK.ZX</code> en el XFS local, y
+   <code>SPECTALK.TAP</code>, <code>SPECTALK.OVL</code>,
+   <code>SPECTALK.DAT</code> y <code>SPCTX.ZX</code> en el XFS local, y
    arranca el cliente.
-4. En adelante inicia <code>SPECTALK.ZX</code> desde el XFS local. Para
+4. En adelante inicia <code>SPCTX.ZX</code> desde el XFS local. Para
    actualizar, vuelve a usar **Load Resource URL**; se conservan
    <code>/CFG/SPECTALK.CFG</code> y los cinco marcadores.
 
