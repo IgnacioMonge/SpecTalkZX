@@ -1,5 +1,5 @@
 type=file name=boot.zx size=221
-type=file name=SPCTX.INS size=3299
-type=file name=SPCTX.PKG size=43768
+type=file name=SPCTX.INS size=3296
+type=file name=SPCTX.PKG size=43785
 type=file name=SPCTX.SCR size=6912
 type=file name=package.json size=678
